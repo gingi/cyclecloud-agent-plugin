@@ -136,6 +136,7 @@ describe("Bundled stdio MCP server", () => {
     expect(JSON.parse(result.stderr.trim())).toMatchObject({
       event: "configuration_missing",
       reason: "created_example",
+      path: join(pluginData, "cyclecloud.json"),
     });
     const examplePath = join(pluginData, "cyclecloud.example.json");
     const example = await readFile(examplePath, "utf8");

@@ -34,13 +34,26 @@ const startupMessages: Readonly<Record<StartupErrorCode, string>> = {
 export class StartupError extends Error {
   readonly code: StartupErrorCode;
   readonly reason: StartupErrorReason;
+  readonly path?: string;
 
-  constructor(code: StartupErrorCode, reason: StartupErrorReason) {
+  constructor(code: StartupErrorCode, reason: StartupErrorReason, path?: string) {
     super(startupMessages[code]);
     this.name = "StartupError";
     this.code = code;
     this.reason = reason;
+    if (path !== undefined) this.path = sanitizeLocalPath(path);
   }
+}
+
+function sanitizeLocalPath(path: string): string {
+  const withoutControls = [...path]
+    .filter((character) => {
+      const codePoint = character.codePointAt(0);
+      return codePoint === undefined || (codePoint > 0x1f && (codePoint < 0x7f || codePoint > 0x9f));
+    })
+    .join("");
+  const scalars = [...withoutControls];
+  return scalars.length <= 512 ? withoutControls : `${scalars.slice(0, 511).join("")}…`;
 }
 
 export type ToolErrorCategory =

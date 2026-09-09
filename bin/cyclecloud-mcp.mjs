@@ -37607,13 +37607,23 @@ var startupMessages = {
 var StartupError = class extends Error {
   code;
   reason;
-  constructor(code, reason) {
+  path;
+  constructor(code, reason, path) {
     super(startupMessages[code]);
     this.name = "StartupError";
     this.code = code;
     this.reason = reason;
+    if (path !== void 0) this.path = sanitizeLocalPath(path);
   }
 };
+function sanitizeLocalPath(path) {
+  const withoutControls = [...path].filter((character) => {
+    const codePoint = character.codePointAt(0);
+    return codePoint === void 0 || codePoint > 31 && (codePoint < 127 || codePoint > 159);
+  }).join("");
+  const scalars = [...withoutControls];
+  return scalars.length <= 512 ? withoutControls : `${scalars.slice(0, 511).join("")}\u2026`;
+}
 var toolErrorMessages = {
   authentication_failed: "CycleCloud authentication failed. Update the configured credentials and try again.",
   permission_denied: "CycleCloud denied this operation.",
@@ -41965,7 +41975,7 @@ async function loadConfiguration(options) {
   const contents = await readCredentialFile(configPath, effectiveUserId).catch(async (error2) => {
     if (isMissingFile(error2)) {
       const reason = await createExampleFile(join(options.pluginData, exampleFileName));
-      throw new StartupError("configuration_missing", reason);
+      throw new StartupError("configuration_missing", reason, configPath);
     }
     throw error2;
   });
@@ -46720,7 +46730,12 @@ function isWithin(parent, candidate) {
 }
 function formatStartupError(error2) {
   if (error2 instanceof StartupError) {
-    return JSON.stringify({ event: error2.code, reason: error2.reason, message: error2.message });
+    return JSON.stringify({
+      event: error2.code,
+      reason: error2.reason,
+      message: error2.message,
+      ...error2.path === void 0 ? {} : { path: error2.path }
+    });
   }
   return JSON.stringify({ event: "startup_failed", message: "The CycleCloud plugin failed to start." });
 }

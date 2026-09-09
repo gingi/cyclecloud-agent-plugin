@@ -1,6 +1,7 @@
 # CycleCloud MCP POC demonstration notes
 
-**Date:** 2026-09-08
+- **Initial demonstration:** 2026-09-08
+- **GitHub source-install update:** 2026-09-09
 
 ## Environment
 
@@ -52,6 +53,20 @@ These results demonstrate that the direct HTTP adapter matches the local CycleCl
 The repository path was temporarily added to `chat.pluginLocations` with `chat.plugins.enabled: true`. The already-running VS Code Insiders agent host did not reload its plugin cache automatically, and the remote CLI cannot issue the `agent` command or reload the active window. UI discovery through **MCP: List Servers** and **Configure Tools** therefore remains unobserved and requires a manual **Developer: Reload Window** in a future interactive check.
 
 The temporary registration was removed during cleanup rather than leaving a plugin that would start without its deleted profile.
+
+## GitHub source-install follow-up
+
+The repository is now hosted privately at `https://github.com/gingi/cyclecloud-mcp`. The README documents the supported VS Code source-install path:
+
+1. open a Linux/macOS/WSL VS Code window and verify Node on the agent host;
+2. verify authenticated Git access to the private repository;
+3. enable `chat.plugins.enabled`;
+4. run **Chat: Install Plugin From Source** with the Git URL;
+5. use **MCP: List Servers → cyclecloud → Show Output** to obtain the client-selected configuration path;
+6. create a mode-`0600` profile outside the agent conversation with mutations disabled;
+7. restart the server and verify the three read tools through **Configure Tools**.
+
+The implementation now includes the bounded expected `cyclecloud.json` path in the first-start `configuration_missing` event. A subprocess regression test verifies that field while preserving the no-write plugin-root invariant. Git-source installation itself was not executed in this non-interactive follow-up; it remains the next manual VS Code UX check.
 
 ## Mutation decision
 

@@ -75,7 +75,7 @@ export async function loadConfiguration(options: LoadConfigurationOptions): Prom
   const contents = await readCredentialFile(configPath, effectiveUserId).catch(async (error: unknown) => {
     if (isMissingFile(error)) {
       const reason = await createExampleFile(join(options.pluginData, exampleFileName));
-      throw new StartupError("configuration_missing", reason);
+      throw new StartupError("configuration_missing", reason, configPath);
     }
     throw error;
   });

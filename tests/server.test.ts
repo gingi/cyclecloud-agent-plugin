@@ -115,4 +115,21 @@ describe("Command-line startup", () => {
     });
     expect(`${known}${unknown}`).not.toContain("secret exception text");
   });
+
+  test("Bound and remove controls from a missing-configuration path", () => {
+    const unsafePath = `/tmp/data${String.fromCodePoint(0x0a)}${String.fromCodePoint(0x85)}/${"x".repeat(600)}`;
+    const formatted = formatStartupError(new StartupError("configuration_missing", "created_example", unsafePath));
+    const parsed: unknown = JSON.parse(formatted);
+
+    expect(typeof parsed).toBe("object");
+    if (typeof parsed !== "object" || parsed === null || !("path" in parsed) || typeof parsed.path !== "string") return;
+    expect(
+      [...parsed.path].every((character) => {
+        const codePoint = character.codePointAt(0);
+        return codePoint === undefined || (codePoint > 0x1f && (codePoint < 0x7f || codePoint > 0x9f));
+      }),
+    ).toBe(true);
+    expect([...parsed.path]).toHaveLength(512);
+    expect(parsed.path.endsWith("…")).toBe(true);
+  });
 });

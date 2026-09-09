@@ -26,16 +26,61 @@ The server uses direct CycleCloud HTTP requests and returns bounded normalized d
 
 Native Windows is not supported by this POC because credential-file ownership and mode checks are POSIX-specific. Agent Plugins package conformance is separate from runtime compatibility.
 
-## Local installation
+## Test in VS Code from GitHub
 
-Build the dependency-complete module:
+Use a VS Code window connected to Linux, macOS, or WSL. For WSL, open the repository or another folder with **WSL: Connect to WSL** so the plugin's MCP process runs in Linux rather than native Windows.
+
+1. In the VS Code integrated terminal, confirm a supported Node version is available:
+
+   ```bash
+   node --version
+   ```
+
+2. Because the repository is private, confirm Git can authenticate without embedding a token in the URL:
+
+   ```bash
+   git ls-remote https://github.com/gingi/cyclecloud-mcp.git
+   ```
+
+   Git Credential Manager, an existing GitHub login, or an SSH URL such as `git@github.com:gingi/cyclecloud-mcp.git` can provide authentication. Do not put a personal access token in plugin settings or the source URL.
+
+3. Enable Agent Plugins in User Settings JSON:
+
+   ```json
+   {
+     "chat.plugins.enabled": true
+   }
+   ```
+
+4. Open the Command Palette and run **Chat: Install Plugin From Source**. Alternatively, open the Agent Customizations editor, select **Plugins**, and choose **Install Plugin from Source**.
+5. Enter `https://github.com/gingi/cyclecloud-mcp.git` (or the authenticated SSH URL). VS Code clones and installs the plugin; no `npm install` is needed because `bin/cyclecloud-mcp.mjs` is committed with its runtime dependencies.
+6. Confirm `cyclecloud-mcp` appears under **Agent Plugins - Installed** in the Extensions view. Installed plugin MCP servers execute local code and are implicitly trusted at startup, so review the repository before enabling it.
+7. The first MCP start intentionally fails because credentials are absent. Run **MCP: List Servers**, select `cyclecloud`, and choose **Show Output**. The `configuration_missing` JSON line includes the exact expected `cyclecloud.json` path and a secret-free `cyclecloud.example.json` is created beside it.
+8. In the integrated terminal, copy the example and edit the profile outside the agent conversation:
+
+   ```bash
+   CONFIG_PATH="paste-the-cyclecloud.json-path-from-show-output"
+   cp "${CONFIG_PATH%.json}.example.json" "$CONFIG_PATH"
+   chmod 600 "$CONFIG_PATH"
+   ${EDITOR:-vi} "$CONFIG_PATH"
+   ```
+
+9. Keep `enableMutations` set to `false`. For a local CycleCloud backend in the same WSL environment, use `http://127.0.0.1:8080`; for remote CycleCloud, prefer verified HTTPS.
+10. Run **MCP: List Servers**, select `cyclecloud`, and restart it. Then open **Configure Tools** in Chat and verify exactly `list_clusters`, `get_cluster`, and `get_cluster_status` are present; both lifecycle tools must be absent.
+11. Open Agent mode and try the read-only prompts below. Tool calls should show bounded structured results.
+
+To update a source-installed plugin after pushing changes, run **Extensions: Check for Extension Updates**. To disable or uninstall it, use the context menu under **Agent Plugins - Installed** or the Plugins section of the Agent Customizations editor.
+
+## Local checkout alternative
+
+For development against an existing checkout, build and verify it:
 
 ```bash
 npm ci --ignore-scripts
 npm run verify
 ```
 
-Register the repository as a local agent plugin in VS Code settings:
+Then register its directory instead of installing from Git:
 
 ```json
 {
@@ -46,9 +91,7 @@ Register the repository as a local agent plugin in VS Code settings:
 }
 ```
 
-The package uses root `plugin.json` and `mcp.json`; do not create a workspace `.vscode/mcp.json` or install a VSIX.
-
-On first start, VS Code supplies `PLUGIN_DATA`. The server creates a secret-free `cyclecloud.example.json` there, reports that configuration is missing on stderr, and exits. Copy or rename the example to `cyclecloud.json`, fill it in outside the agent conversation, and disable/re-enable the plugin.
+A `true` value enables the plugin; `false` keeps it registered but disabled. After changing registration, use **Developer: Reload Window** if the active agent host does not refresh its plugin cache. The package uses root `plugin.json` and `mcp.json`; do not create a workspace `.vscode/mcp.json` or install a VSIX.
 
 ## Configuration
 
@@ -144,7 +187,7 @@ npm run build
 
 ## Troubleshooting
 
-- **Configuration missing:** stderr reports the fixed missing-configuration event but intentionally omits local paths. Use VS Code's MCP server diagnostics for the active profile to locate its client-managed plugin-data directory, complete `cyclecloud.example.json`, save it as `cyclecloud.json`, set mode `0600`, then restart the plugin.
+- **Configuration missing:** run **MCP: List Servers**, select `cyclecloud`, and choose **Show Output**. Copy the `path` from the `configuration_missing` JSON event, copy the adjacent `cyclecloud.example.json` to that path, complete it outside the agent conversation, set mode `0600`, then restart the server.
 - **Credential file rejected:** check ownership, exact mode, regular-file type, and symlink status.
 - **TLS error:** check the URL hostname/SAN and use `caCertPath` for a private CA; do not disable verification for a remote host.
 - **Mutation tools missing:** this is the safe default; confirm `enableMutations` is true only for an intentional, scoped demonstration and restart the plugin.
@@ -154,7 +197,7 @@ npm run build
 ## Cleanup and uninstall
 
 1. Restore `enableMutations: false` and restart if lifecycle tools were enabled.
-2. Disable or remove the plugin location from VS Code.
+2. For a source installation, right-click `cyclecloud-mcp` under **Agent Plugins - Installed** and choose **Uninstall**. For a local checkout, disable or remove its `chat.pluginLocations` entry.
 3. Permanently delete `${PLUGIN_DATA}/cyclecloud.json`; disabling the plugin does not delete persistent data.
 4. Rotate or disable the dedicated POC credential.
 5. Confirm no credential, private key, or local configuration was committed.

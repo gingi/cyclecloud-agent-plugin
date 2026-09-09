@@ -50,7 +50,12 @@ function isWithin(parent: string, candidate: string): boolean {
 
 export function formatStartupError(error: unknown): string {
   if (error instanceof StartupError) {
-    return JSON.stringify({ event: error.code, reason: error.reason, message: error.message });
+    return JSON.stringify({
+      event: error.code,
+      reason: error.reason,
+      message: error.message,
+      ...(error.path === undefined ? {} : { path: error.path }),
+    });
   }
   return JSON.stringify({ event: "startup_failed", message: "The CycleCloud plugin failed to start." });
 }
