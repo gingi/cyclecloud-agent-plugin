@@ -1,0 +1,22 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Local configuration and credentials
+cyclecloud.json
+.env
+.env.*
+
+# Key and certificate material
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+id_rsa*
+
+# Not part of this plugin package
+.vscode/mcp.json
+*.vsix

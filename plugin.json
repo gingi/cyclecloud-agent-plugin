@@ -1,0 +1,7 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "cyclecloud-mcp",
+  "version": "0.1.0",
+  "description": "Inspect Azure CycleCloud with optional bounded lifecycle actions.",
+  "keywords": ["azure-cyclecloud", "hpc", "mcp"]
+}

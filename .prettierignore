@@ -1,0 +1,6 @@
+bin/
+coverage/
+dist/
+node_modules/
+docs/superpowers/specs/
+docs/superpowers/plans/
