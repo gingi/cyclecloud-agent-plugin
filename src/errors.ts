@@ -42,3 +42,44 @@ export class StartupError extends Error {
     this.reason = reason;
   }
 }
+
+export type ToolErrorCategory =
+  | "authentication_failed"
+  | "permission_denied"
+  | "cluster_not_found"
+  | "cyclecloud_rejected_request"
+  | "cyclecloud_unavailable"
+  | "unexpected_redirect"
+  | "tls_error"
+  | "busy"
+  | "timeout"
+  | "network_error"
+  | "cancelled"
+  | "invalid_response";
+
+export const toolErrorMessages: Readonly<Record<ToolErrorCategory, string>> = {
+  authentication_failed: "CycleCloud authentication failed. Update the configured credentials and try again.",
+  permission_denied: "CycleCloud denied this operation.",
+  cluster_not_found: "CycleCloud did not return the requested cluster.",
+  cyclecloud_rejected_request: "CycleCloud rejected the request.",
+  cyclecloud_unavailable: "CycleCloud is unavailable.",
+  unexpected_redirect: "CycleCloud returned an unexpected redirect. Check the configured URL.",
+  tls_error: "CycleCloud TLS certificate validation failed. Check the configured host and trust settings.",
+  busy: "The CycleCloud plugin is busy. Try the request again later.",
+  timeout: "The CycleCloud request timed out.",
+  network_error: "The CycleCloud request failed because of a network error.",
+  cancelled: "The CycleCloud request was cancelled.",
+  invalid_response: "CycleCloud returned a response the plugin could not safely use.",
+};
+
+export class CycleCloudRequestError extends Error {
+  readonly category: ToolErrorCategory;
+  readonly retryable: boolean;
+
+  constructor(category: ToolErrorCategory, retryable: boolean) {
+    super(toolErrorMessages[category]);
+    this.name = "CycleCloudRequestError";
+    this.category = category;
+    this.retryable = retryable;
+  }
+}
