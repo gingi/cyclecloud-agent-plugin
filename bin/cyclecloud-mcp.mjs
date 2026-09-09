@@ -37679,13 +37679,22 @@ var HttpCycleCloudClient = class {
     this.#authorization = `Basic ${Buffer.from(`${value.username}:${value.password}`, "ascii").toString("base64")}`;
   }
   async listClusters(options = {}) {
-    return this.#read("/cloud/api/clusters?summary=true&cloud_instances=true", options);
+    return this.#read(
+      "/cloud/api/clusters?summary=true&cloud_instances=true",
+      options
+    );
   }
   async getCluster(clusterName, options = {}) {
-    return this.#read(`/cloud/api/clusters/${encodeURIComponent(clusterName)}?summary=true&cloud_instances=true`, options);
+    return this.#read(
+      `/cloud/api/clusters/${encodeURIComponent(clusterName)}?summary=true&cloud_instances=true`,
+      options
+    );
   }
   async getClusterStatus(clusterName, options = {}) {
-    return this.#read(`/clusters/${encodeURIComponent(clusterName)}/status?nodes=false`, options);
+    return this.#read(
+      `/clusters/${encodeURIComponent(clusterName)}/status?nodes=false`,
+      options
+    );
   }
   async startCluster(clusterName, recursive, options = {}) {
     return this.#action(
@@ -37703,13 +37712,19 @@ var HttpCycleCloudClient = class {
     await this.#dispatcher.close();
   }
   async #read(path, options) {
-    return this.#execute(path, "GET", this.#settings.requestTimeoutMs, options.signal, async (response) => {
-      if (response.status < 200 || response.status >= 300) {
-        await discardBody(response);
-        throw readStatusError(response.status);
+    return this.#execute(
+      path,
+      "GET",
+      this.#settings.requestTimeoutMs,
+      options.signal,
+      async (response) => {
+        if (response.status < 200 || response.status >= 300) {
+          await discardBody(response);
+          throw readStatusError(response.status);
+        }
+        return readBoundedJson(response);
       }
-      return readBoundedJson(response);
-    });
+    );
   }
   async #action(path, options) {
     return this.#execute(
@@ -37719,17 +37734,31 @@ var HttpCycleCloudClient = class {
       options.signal,
       async (response) => {
         await discardBody(response);
-        if (response.status >= 200 && response.status < 300) return { outcome: "accepted" };
-        if (response.status === 401) throw new CycleCloudRequestError("authentication_failed", false);
-        if (response.status === 403) throw new CycleCloudRequestError("permission_denied", false);
-        if (response.status === 404) throw new CycleCloudRequestError("cluster_not_found", false);
+        if (response.status >= 200 && response.status < 300)
+          return { outcome: "accepted" };
+        if (response.status === 401)
+          throw new CycleCloudRequestError(
+            "authentication_failed",
+            false
+          );
+        if (response.status === 403)
+          throw new CycleCloudRequestError(
+            "permission_denied",
+            false
+          );
+        if (response.status === 404)
+          throw new CycleCloudRequestError(
+            "cluster_not_found",
+            false
+          );
         return { outcome: "unknown" };
       },
       () => ({ outcome: "unknown" })
     );
   }
   async #execute(path, method, timeoutMs, callerSignal, consume, uncertainResult) {
-    if (isAborted(callerSignal)) throw new CycleCloudRequestError("cancelled", false);
+    if (isAborted(callerSignal))
+      throw new CycleCloudRequestError("cancelled", false);
     const controller = new AbortController();
     let timedOut = false;
     const onCallerAbort = () => controller.abort();
@@ -37740,23 +37769,27 @@ var HttpCycleCloudClient = class {
     }, timeoutMs);
     timer.unref();
     try {
-      const response = await (0, import_undici.fetch)(new URL(path, `${this.#settings.url}/`), {
-        method,
-        dispatcher: this.#dispatcher,
-        redirect: "manual",
-        signal: controller.signal,
-        headers: {
-          accept: "application/json",
-          authorization: this.#authorization
+      const response = await (0, import_undici.fetch)(
+        new URL(path, `${this.#settings.url}/`),
+        {
+          method,
+          dispatcher: this.#dispatcher,
+          redirect: "manual",
+          signal: controller.signal,
+          headers: {
+            accept: "application/json",
+            authorization: this.#authorization
+          }
         }
-      });
+      );
       return await consume(response);
     } catch (error2) {
       if (error2 instanceof CycleCloudRequestError) throw error2;
       const causeCategory = classifyCause(error2);
       if (causeCategory !== void 0) throw causeCategory;
       if (uncertainResult !== void 0) return uncertainResult();
-      if (isAborted(callerSignal)) throw new CycleCloudRequestError("cancelled", false);
+      if (isAborted(callerSignal))
+        throw new CycleCloudRequestError("cancelled", false);
       if (timedOut) throw new CycleCloudRequestError("timeout", true);
       throw new CycleCloudRequestError("network_error", true);
     } finally {
@@ -37796,7 +37829,10 @@ async function loadCustomCa(path) {
       try {
         await handle.close();
       } catch {
-        throw new StartupError("configuration_invalid", "invalid_ca_path");
+        throw new StartupError(
+          "configuration_invalid",
+          "invalid_ca_path"
+        );
       }
     }
   }
@@ -37815,13 +37851,15 @@ function validatePem(pem) {
     throw new StartupError("configuration_invalid", "invalid_ca_path");
   }
   try {
-    for (const certificate of certificates) new X509Certificate(certificate);
+    for (const certificate of certificates)
+      new X509Certificate(certificate);
   } catch {
     throw new StartupError("configuration_invalid", "invalid_ca_path");
   }
 }
 async function readBoundedJson(response) {
-  if (response.body === null) throw new CycleCloudRequestError("invalid_response", false);
+  if (response.body === null)
+    throw new CycleCloudRequestError("invalid_response", false);
   const reader = response.body.getReader();
   const chunks = [];
   let bytes = 0;
@@ -37830,7 +37868,8 @@ async function readBoundedJson(response) {
       const next = await reader.read();
       if (next.done) break;
       const value = next.value;
-      if (!(value instanceof Uint8Array)) throw new CycleCloudRequestError("invalid_response", false);
+      if (!(value instanceof Uint8Array))
+        throw new CycleCloudRequestError("invalid_response", false);
       bytes += value.byteLength;
       if (bytes > maximumResponseBytes) {
         await reader.cancel();
@@ -37858,14 +37897,19 @@ function isAborted(signal) {
   return signal?.aborted ?? false;
 }
 function readStatusError(status) {
-  if (status >= 300 && status < 400) return new CycleCloudRequestError("unexpected_redirect", false);
-  if (status === 401) return new CycleCloudRequestError("authentication_failed", false);
-  if (status === 403) return new CycleCloudRequestError("permission_denied", false);
-  if (status === 404) return new CycleCloudRequestError("cluster_not_found", false);
+  if (status >= 300 && status < 400)
+    return new CycleCloudRequestError("unexpected_redirect", false);
+  if (status === 401)
+    return new CycleCloudRequestError("authentication_failed", false);
+  if (status === 403)
+    return new CycleCloudRequestError("permission_denied", false);
+  if (status === 404)
+    return new CycleCloudRequestError("cluster_not_found", false);
   if (status === 408 || status === 425 || status === 429) {
     return new CycleCloudRequestError("cyclecloud_rejected_request", true);
   }
-  if (status >= 400 && status < 500) return new CycleCloudRequestError("cyclecloud_rejected_request", false);
+  if (status >= 400 && status < 500)
+    return new CycleCloudRequestError("cyclecloud_rejected_request", false);
   return new CycleCloudRequestError("cyclecloud_unavailable", true);
 }
 function classifyCause(error2) {
@@ -37874,9 +37918,12 @@ function classifyCause(error2) {
   for (let depth = 0; depth < 4 && typeof current === "object" && current !== null && !seen.has(current); depth += 1) {
     seen.add(current);
     if ("code" in current && typeof current.code === "string") {
-      if (tlsErrorCodes.has(current.code)) return new CycleCloudRequestError("tls_error", false);
-      if (networkErrorCodes.has(current.code)) return new CycleCloudRequestError("network_error", true);
-      if (current.code === "UND_ERR_CONNECT_TIMEOUT") return new CycleCloudRequestError("timeout", true);
+      if (tlsErrorCodes.has(current.code))
+        return new CycleCloudRequestError("tls_error", false);
+      if (networkErrorCodes.has(current.code))
+        return new CycleCloudRequestError("network_error", true);
+      if (current.code === "UND_ERR_CONNECT_TIMEOUT")
+        return new CycleCloudRequestError("timeout", true);
     }
     current = "cause" in current ? current.cause : void 0;
   }
@@ -41968,13 +42015,21 @@ var exampleDocument = {
 };
 async function loadConfiguration(options) {
   if (!isAbsolute(options.pluginData)) {
-    throw new StartupError("plugin_environment_invalid", "invalid_plugin_data");
+    throw new StartupError(
+      "plugin_environment_invalid",
+      "invalid_plugin_data"
+    );
   }
   const effectiveUserId = options.effectiveUserId ?? getEffectiveUserId();
   const configPath = join(options.pluginData, configFileName);
-  const contents = await readCredentialFile(configPath, effectiveUserId).catch(async (error2) => {
+  const contents = await readCredentialFile(
+    configPath,
+    effectiveUserId
+  ).catch(async (error2) => {
     if (isMissingFile(error2)) {
-      const reason = await createExampleFile(join(options.pluginData, exampleFileName));
+      const reason = await createExampleFile(
+        join(options.pluginData, exampleFileName)
+      );
       throw new StartupError("configuration_missing", reason, configPath);
     }
     throw error2;
@@ -41993,12 +42048,18 @@ async function loadConfiguration(options) {
   const settings = document.caCertPath === void 0 ? commonSettings : { ...commonSettings, caCertPath: document.caCertPath };
   return {
     settings,
-    credentials: createFileCredentialProvider({ username: document.username, password: document.password })
+    credentials: createFileCredentialProvider({
+      username: document.username,
+      password: document.password
+    })
   };
 }
 function getEffectiveUserId() {
   if (typeof process.geteuid !== "function") {
-    throw new StartupError("plugin_environment_invalid", "invalid_plugin_data");
+    throw new StartupError(
+      "plugin_environment_invalid",
+      "invalid_plugin_data"
+    );
   }
   return process.geteuid();
 }
@@ -42040,19 +42101,29 @@ function validateCredentialStats(stats, effectiveUserId) {
     throw new StartupError("credential_file_insecure", "wrong_owner");
   }
   if (!acceptedCredentialModes.has(stats.mode & 4095)) {
-    throw new StartupError("credential_file_insecure", "unsafe_permissions");
+    throw new StartupError(
+      "credential_file_insecure",
+      "unsafe_permissions"
+    );
   }
 }
 async function createExampleFile(path) {
   let handle;
   try {
-    handle = await open2(path, constants2.O_WRONLY | constants2.O_CREAT | constants2.O_EXCL, 384);
+    handle = await open2(
+      path,
+      constants2.O_WRONLY | constants2.O_CREAT | constants2.O_EXCL,
+      384
+    );
   } catch (error2) {
     return isNodeErrorWithCode(error2, "EEXIST") ? "example_exists" : "example_creation_failed";
   }
   try {
-    await handle.writeFile(`${JSON.stringify(exampleDocument, null, 2)}
-`, { encoding: "utf8" });
+    await handle.writeFile(
+      `${JSON.stringify(exampleDocument, null, 2)}
+`,
+      { encoding: "utf8" }
+    );
     await handle.chmod(384);
     return "created_example";
   } catch {
@@ -42070,7 +42141,10 @@ function parseDocument(contents) {
   }
   const result = configurationSchema.safeParse(parsed);
   if (!result.success) {
-    throw new StartupError("configuration_invalid", classifySchemaFailure(result.error));
+    throw new StartupError(
+      "configuration_invalid",
+      classifySchemaFailure(result.error)
+    );
   }
   if (result.data.caCertPath !== void 0 && !isAbsolute(result.data.caCertPath)) {
     throw new StartupError("configuration_invalid", "invalid_ca_path");
@@ -42087,7 +42161,8 @@ function classifySchemaFailure(error2) {
     if (field === "password") return "invalid_password";
     if (field === "url") return "invalid_url";
     if (field === "caCertPath") return "invalid_ca_path";
-    if (field === "requestTimeoutMs" || field === "actionTimeoutMs") return "invalid_timeout";
+    if (field === "requestTimeoutMs" || field === "actionTimeoutMs")
+      return "invalid_timeout";
     if (field === "verifyTls" || field === "allowInsecureHttp" || field === "enableMutations" || field === "debug") {
       return "invalid_boolean";
     }
@@ -42116,7 +42191,9 @@ function validateUrlAndTransport(document) {
 function isLoopbackAddress(hostname2) {
   if (hostname2 === "[::1]" || hostname2 === "::1") return true;
   const octets = hostname2.split(".").map(Number);
-  return octets.length === 4 && octets[0] === 127 && octets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255);
+  return octets.length === 4 && octets[0] === 127 && octets.every(
+    (octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255
+  );
 }
 function isMissingFile(error2) {
   return isNodeErrorWithCode(error2, "ENOENT");
@@ -46199,16 +46276,25 @@ function normalizeCluster(raw, requestedName, fixedNodeLimit, nodeArrayLimit) {
   validateLimit(fixedNodeLimit, 0, 200);
   validateLimit(nodeArrayLimit, 0, 100);
   if (!Array.isArray(raw)) invalidResponse();
-  if (raw.length === 0) throw new CycleCloudRequestError("cluster_not_found", false);
+  if (raw.length === 0)
+    throw new CycleCloudRequestError("cluster_not_found", false);
   if (raw.length !== 1) invalidResponse();
-  const fields = consumedFields(raw[0], ["clustername", "state", "targetstate", "nodes", "nodearrays"]);
+  const fields = consumedFields(raw[0], [
+    "clustername",
+    "state",
+    "targetstate",
+    "nodes",
+    "nodearrays"
+  ]);
   const name = requiredString(fields, "clustername", 256);
   if (name !== requestedName) invalidResponse();
   const state = optionalString(fields, "state", 128);
   const targetState = optionalString(fields, "targetstate", 128);
   const fixedNodes = optionalArray(fields, "nodes").map(normalizeFixedNode).sort((left, right) => compareNames(left.name, right.name));
   const nodeArrays = optionalArray(fields, "nodearrays").map(normalizeNodeArray).sort((left, right) => compareNames(left.template, right.template));
-  const arrayNodeCount = checkedSum(nodeArrays.map((nodeArray) => nodeArray.count));
+  const arrayNodeCount = checkedSum(
+    nodeArrays.map((nodeArray) => nodeArray.count)
+  );
   const configuredNodeCount = checkedAdd(fixedNodes.length, arrayNodeCount);
   const returnedFixedNodes = fixedNodes.slice(0, fixedNodeLimit);
   const returnedNodeArrays = nodeArrays.slice(0, nodeArrayLimit);
@@ -46240,24 +46326,34 @@ function normalizeClusterStatus(raw, clusterName, nodeArrayLimit, bucketLimit) {
   const maxCoreCount = requiredNonNegativeInteger(record2.maxCoreCount);
   if (!Array.isArray(record2.nodearrays)) invalidResponse();
   const nodeArrays = record2.nodearrays.map(normalizeNodeArrayStatus).sort((left, right) => compareNames(left.name, right.name));
-  const bucketTotal = checkedSum(nodeArrays.map((nodeArray) => nodeArray.buckets.length));
+  const bucketTotal = checkedSum(
+    nodeArrays.map((nodeArray) => nodeArray.buckets.length)
+  );
   const selectedNodeArrays = nodeArrays.slice(0, nodeArrayLimit);
   let remainingBucketBudget = 500;
-  const returnedNodeArrays = selectedNodeArrays.map((nodeArray) => {
-    const count = Math.min(nodeArray.buckets.length, bucketLimit, remainingBucketBudget);
-    const buckets = nodeArray.buckets.slice(0, count);
-    remainingBucketBudget -= buckets.length;
-    return {
-      name: nodeArray.name,
-      maxCount: nodeArray.maxCount,
-      maxCoreCount: nodeArray.maxCoreCount,
-      buckets,
-      bucketTotal: nodeArray.buckets.length,
-      bucketReturned: buckets.length,
-      bucketsTruncated: buckets.length < nodeArray.buckets.length
-    };
-  });
-  const bucketReturned = checkedSum(returnedNodeArrays.map((nodeArray) => nodeArray.bucketReturned));
+  const returnedNodeArrays = selectedNodeArrays.map(
+    (nodeArray) => {
+      const count = Math.min(
+        nodeArray.buckets.length,
+        bucketLimit,
+        remainingBucketBudget
+      );
+      const buckets = nodeArray.buckets.slice(0, count);
+      remainingBucketBudget -= buckets.length;
+      return {
+        name: nodeArray.name,
+        maxCount: nodeArray.maxCount,
+        maxCoreCount: nodeArray.maxCoreCount,
+        buckets,
+        bucketTotal: nodeArray.buckets.length,
+        bucketReturned: buckets.length,
+        bucketsTruncated: buckets.length < nodeArray.buckets.length
+      };
+    }
+  );
+  const bucketReturned = checkedSum(
+    returnedNodeArrays.map((nodeArray) => nodeArray.bucketReturned)
+  );
   return {
     status: {
       clusterName,
@@ -46276,14 +46372,24 @@ function normalizeClusterStatus(raw, clusterName, nodeArrayLimit, bucketLimit) {
   };
 }
 function normalizeClusterSummary(value) {
-  const fields = consumedFields(value, ["clustername", "state", "targetstate", "nodes", "nodearrays"]);
+  const fields = consumedFields(value, [
+    "clustername",
+    "state",
+    "targetstate",
+    "nodes",
+    "nodearrays"
+  ]);
   const name = requiredString(fields, "clustername", 256);
   const state = optionalString(fields, "state", 128);
   const targetState = optionalString(fields, "targetstate", 128);
   const fixedNodes = optionalArray(fields, "nodes");
   const nodeArrays = optionalArray(fields, "nodearrays");
   const arrayNodeCount = checkedSum(
-    nodeArrays.map((nodeArray) => requiredNonNegativeInteger(requiredField(consumedFields(nodeArray, ["count"]), "count")))
+    nodeArrays.map(
+      (nodeArray) => requiredNonNegativeInteger(
+        requiredField(consumedFields(nodeArray, ["count"]), "count")
+      )
+    )
   );
   return {
     name,
@@ -46296,7 +46402,13 @@ function normalizeClusterSummary(value) {
   };
 }
 function normalizeFixedNode(value) {
-  const fields = consumedFields(value, ["nodeid", "name", "template", "state", "targetstate"]);
+  const fields = consumedFields(value, [
+    "nodeid",
+    "name",
+    "template",
+    "state",
+    "targetstate"
+  ]);
   const id = optionalString(fields, "nodeid", 256);
   const name = requiredString(fields, "name", 256);
   const template = optionalString(fields, "template", 256);
@@ -46311,7 +46423,13 @@ function normalizeFixedNode(value) {
   };
 }
 function normalizeNodeArray(value) {
-  const fields = consumedFields(value, ["template", "state", "targetstate", "count", "corecount"]);
+  const fields = consumedFields(value, [
+    "template",
+    "state",
+    "targetstate",
+    "count",
+    "corecount"
+  ]);
   const template = requiredString(fields, "template", 256);
   const state = optionalString(fields, "state", 128);
   const targetState = optionalString(fields, "targetstate", 128);
@@ -46341,8 +46459,13 @@ function normalizeBucketStatus(value) {
   const definition = record2.definition === void 0 ? void 0 : requiredRecord(record2.definition);
   const machineType = definition === void 0 ? void 0 : optionalWireString(definition.machineType, 256);
   const invalidReason = optionalWireString(record2.invalidReason, 256);
-  const lastCapacityFailure = optionalFiniteNumber(record2.lastCapacityFailure);
-  const spotPlacementScore = optionalWireString(record2.spotPlacementScore, 256);
+  const lastCapacityFailure = optionalFiniteNumber(
+    record2.lastCapacityFailure
+  );
+  const spotPlacementScore = optionalWireString(
+    record2.spotPlacementScore,
+    256
+  );
   if (typeof record2.valid !== "boolean") invalidResponse();
   return {
     bucketId: requiredWireString(record2.bucketId, 256),
@@ -46357,7 +46480,9 @@ function normalizeBucketStatus(value) {
     activeCount: requiredNonNegativeInteger(record2.activeCount),
     activeCoreCount: requiredNonNegativeInteger(record2.activeCoreCount),
     availableCount: requiredNonNegativeInteger(record2.availableCount),
-    availableCoreCount: requiredNonNegativeInteger(record2.availableCoreCount),
+    availableCoreCount: requiredNonNegativeInteger(
+      record2.availableCoreCount
+    ),
     ...optionalProperty("lastCapacityFailure", lastCapacityFailure),
     ...optionalProperty("spotPlacementScore", spotPlacementScore)
   };
@@ -46411,7 +46536,8 @@ function optionalWireString(value, maximumScalars) {
   return value;
 }
 function requiredNonNegativeInteger(value) {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) invalidResponse();
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)
+    invalidResponse();
   return value;
 }
 function optionalFiniteNumber(value) {
@@ -46428,7 +46554,8 @@ function checkedAdd(left, right) {
   return result;
 }
 function validateLimit(value, minimum, maximum) {
-  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) invalidResponse();
+  if (!Number.isSafeInteger(value) || value < minimum || value > maximum)
+    invalidResponse();
 }
 function compareNames(left, right) {
   const foldedLeft = asciiLowercase(left);
@@ -46440,7 +46567,10 @@ function compareNames(left, right) {
   return 0;
 }
 function asciiLowercase(value) {
-  return value.replace(/[A-Z]/g, (character) => String.fromCharCode(character.charCodeAt(0) + 32));
+  return value.replace(
+    /[A-Z]/g,
+    (character) => String.fromCharCode(character.charCodeAt(0) + 32)
+  );
 }
 function isWellFormed(value) {
   for (let index = 0; index < value.length; index += 1) {
@@ -46472,7 +46602,10 @@ var CycleCloudTools = class {
     this.#client = client;
   }
   async listClusters(input, signal) {
-    return normalizeClusterList(await this.#client.listClusters({ signal }), input.limit);
+    return normalizeClusterList(
+      await this.#client.listClusters({ signal }),
+      input.limit
+    );
   }
   async getCluster(input, signal) {
     return normalizeCluster(
@@ -46497,17 +46630,32 @@ var CycleCloudTools = class {
     return this.#mutate("terminate", input, signal);
   }
   async #mutate(action, input, signal) {
-    if (signal.aborted) throw new CycleCloudRequestError("cancelled", false);
-    if (this.#mutationInProgress) throw new CycleCloudRequestError("busy", true);
+    if (signal.aborted)
+      throw new CycleCloudRequestError("cancelled", false);
+    if (this.#mutationInProgress)
+      throw new CycleCloudRequestError("busy", true);
     this.#mutationInProgress = true;
     try {
       const dispatch = await this.#dispatch(action, input, signal);
       if (dispatch.outcome === "unknown") {
-        return { action, ...input, outcome: "unknown", warning: unknownOutcomeWarning };
+        return {
+          action,
+          ...input,
+          outcome: "unknown",
+          warning: unknownOutcomeWarning
+        };
       }
       try {
-        const rawStatus = await this.#client.getClusterStatus(input.clusterName, { signal });
-        const status = normalizeClusterStatus(rawStatus, input.clusterName, 0, 0).status;
+        const rawStatus = await this.#client.getClusterStatus(
+          input.clusterName,
+          { signal }
+        );
+        const status = normalizeClusterStatus(
+          rawStatus,
+          input.clusterName,
+          0,
+          0
+        ).status;
         const hasObservedStatus = status.state !== void 0 || status.targetState !== void 0;
         return {
           action,
@@ -46521,14 +46669,25 @@ var CycleCloudTools = class {
           } : {}
         };
       } catch {
-        return { action, ...input, outcome: "accepted", warning: followUpWarning };
+        return {
+          action,
+          ...input,
+          outcome: "accepted",
+          warning: followUpWarning
+        };
       }
     } finally {
       this.#mutationInProgress = false;
     }
   }
   async #dispatch(action, input, signal) {
-    return action === "start" ? this.#client.startCluster(input.clusterName, input.recursive, { signal }) : this.#client.terminateCluster(input.clusterName, input.recursive, { signal });
+    return action === "start" ? this.#client.startCluster(input.clusterName, input.recursive, {
+      signal
+    }) : this.#client.terminateCluster(
+      input.clusterName,
+      input.recursive,
+      { signal }
+    );
   }
 };
 
@@ -46546,7 +46705,16 @@ var mutationAnnotations = {
   openWorldHint: true
 };
 var structuredOutputSchema = external_exports.object({}).passthrough();
-var clusterNameSchema = external_exports.string().transform((value) => value.trim()).refine((value) => value.length > 0 && [...value].length <= 256, "Cluster name must contain 1 through 256 characters.").refine(isWellFormed2, "Cluster name must be well-formed Unicode.").refine((value) => !containsControlCharacter(value), "Cluster name must not contain control characters.").refine((value) => value !== "." && value !== "..", "Cluster name must not be a dot segment.");
+var clusterNameSchema = external_exports.string().transform((value) => value.trim()).refine(
+  (value) => value.length > 0 && [...value].length <= 256,
+  "Cluster name must contain 1 through 256 characters."
+).refine(isWellFormed2, "Cluster name must be well-formed Unicode.").refine(
+  (value) => !containsControlCharacter(value),
+  "Cluster name must not contain control characters."
+).refine(
+  (value) => value !== "." && value !== "..",
+  "Cluster name must not be a dot segment."
+);
 var listInputSchema = external_exports.object({ limit: external_exports.number().int().min(1).max(200).default(50) }).strict();
 var getClusterInputSchema = external_exports.object({
   clusterName: clusterNameSchema,
@@ -46575,8 +46743,14 @@ function createCycleCloudMcpServer(options) {
     },
     async ({ limit }, extra) => {
       try {
-        const result = await tools.listClusters({ limit }, extra.signal);
-        return successResult(result, `Returned ${result.returned} of ${result.total} CycleCloud clusters.`);
+        const result = await tools.listClusters(
+          { limit },
+          extra.signal
+        );
+        return successResult(
+          result,
+          `Returned ${result.returned} of ${result.total} CycleCloud clusters.`
+        );
       } catch (error2) {
         return errorResult(error2);
       }
@@ -46592,8 +46766,14 @@ function createCycleCloudMcpServer(options) {
     },
     async ({ clusterName, fixedNodeLimit, nodeArrayLimit }, extra) => {
       try {
-        const result = await tools.getCluster({ clusterName, fixedNodeLimit, nodeArrayLimit }, extra.signal);
-        return successResult(result, "Returned bounded CycleCloud cluster details.");
+        const result = await tools.getCluster(
+          { clusterName, fixedNodeLimit, nodeArrayLimit },
+          extra.signal
+        );
+        return successResult(
+          result,
+          "Returned bounded CycleCloud cluster details."
+        );
       } catch (error2) {
         return errorResult(error2);
       }
@@ -46609,8 +46789,14 @@ function createCycleCloudMcpServer(options) {
     },
     async ({ clusterName, nodeArrayLimit, bucketLimit }, extra) => {
       try {
-        const result = await tools.getClusterStatus({ clusterName, nodeArrayLimit, bucketLimit }, extra.signal);
-        return successResult(result, "Returned bounded CycleCloud cluster status.");
+        const result = await tools.getClusterStatus(
+          { clusterName, nodeArrayLimit, bucketLimit },
+          extra.signal
+        );
+        return successResult(
+          result,
+          "Returned bounded CycleCloud cluster status."
+        );
       } catch (error2) {
         return errorResult(error2);
       }
@@ -46628,8 +46814,14 @@ function createCycleCloudMcpServer(options) {
       },
       async (input, extra) => {
         try {
-          const result = await tools.startCluster(input, extra.signal);
-          return successResult(result, mutationSummary("start", result.outcome));
+          const result = await tools.startCluster(
+            input,
+            extra.signal
+          );
+          return successResult(
+            result,
+            mutationSummary("start", result.outcome)
+          );
         } catch (error2) {
           return errorResult(error2);
         }
@@ -46645,8 +46837,14 @@ function createCycleCloudMcpServer(options) {
       },
       async (input, extra) => {
         try {
-          const result = await tools.terminateCluster(input, extra.signal);
-          return successResult(result, mutationSummary("terminate", result.outcome));
+          const result = await tools.terminateCluster(
+            input,
+            extra.signal
+          );
+          return successResult(
+            result,
+            mutationSummary("terminate", result.outcome)
+          );
         } catch (error2) {
           return errorResult(error2);
         }
@@ -46678,13 +46876,15 @@ function errorResult(error2) {
   };
 }
 function mutationSummary(action, outcome) {
-  if (outcome === "unknown") return "The CycleCloud action outcome is unknown. Inspect cluster status before retrying.";
+  if (outcome === "unknown")
+    return "The CycleCloud action outcome is unknown. Inspect cluster status before retrying.";
   return action === "start" ? "CycleCloud accepted the start request." : "CycleCloud accepted the terminate request.";
 }
 function containsControlCharacter(value) {
   for (const character of value) {
     const codePoint = character.codePointAt(0);
-    if (codePoint !== void 0 && (codePoint <= 31 || codePoint >= 127 && codePoint <= 159)) return true;
+    if (codePoint !== void 0 && (codePoint <= 31 || codePoint >= 127 && codePoint <= 159))
+      return true;
   }
   return false;
 }
@@ -46707,18 +46907,33 @@ async function requirePluginEnvironment(environment) {
   const configuredPluginRoot = environment.PLUGIN_ROOT;
   const configuredPluginData = environment.PLUGIN_DATA;
   if (configuredPluginRoot === void 0 || configuredPluginRoot.length === 0 || !isAbsolute2(configuredPluginRoot) || configuredPluginData === void 0 || configuredPluginData.length === 0 || !isAbsolute2(configuredPluginData)) {
-    throw new StartupError("plugin_environment_invalid", "invalid_plugin_data");
+    throw new StartupError(
+      "plugin_environment_invalid",
+      "invalid_plugin_data"
+    );
   }
   try {
-    const [pluginRoot, pluginData] = await Promise.all([realpath(configuredPluginRoot), realpath(configuredPluginData)]);
-    const [pluginRootStats, pluginDataStats] = await Promise.all([stat(pluginRoot), stat(pluginData)]);
+    const [pluginRoot, pluginData] = await Promise.all([
+      realpath(configuredPluginRoot),
+      realpath(configuredPluginData)
+    ]);
+    const [pluginRootStats, pluginDataStats] = await Promise.all([
+      stat(pluginRoot),
+      stat(pluginData)
+    ]);
     if (!pluginRootStats.isDirectory() || !pluginDataStats.isDirectory() || pathsOverlap(pluginRoot, pluginData)) {
-      throw new StartupError("plugin_environment_invalid", "invalid_plugin_data");
+      throw new StartupError(
+        "plugin_environment_invalid",
+        "invalid_plugin_data"
+      );
     }
     return { pluginRoot, pluginData };
   } catch (error2) {
     if (error2 instanceof StartupError) throw error2;
-    throw new StartupError("plugin_environment_invalid", "invalid_plugin_data");
+    throw new StartupError(
+      "plugin_environment_invalid",
+      "invalid_plugin_data"
+    );
   }
 }
 function pathsOverlap(left, right) {
@@ -46737,14 +46952,22 @@ function formatStartupError(error2) {
       ...error2.path === void 0 ? {} : { path: error2.path }
     });
   }
-  return JSON.stringify({ event: "startup_failed", message: "The CycleCloud plugin failed to start." });
+  return JSON.stringify({
+    event: "startup_failed",
+    message: "The CycleCloud plugin failed to start."
+  });
 }
 async function startFromCommandLine(environment = process.env) {
   let client;
   try {
     const pluginEnvironment = await requirePluginEnvironment(environment);
-    const configuration = await loadConfiguration({ pluginData: pluginEnvironment.pluginData });
-    client = await createCycleCloudClient(configuration.settings, configuration.credentials);
+    const configuration = await loadConfiguration({
+      pluginData: pluginEnvironment.pluginData
+    });
+    client = await createCycleCloudClient(
+      configuration.settings,
+      configuration.credentials
+    );
     const server = createCycleCloudMcpServer({
       client,
       enableMutations: configuration.settings.enableMutations,

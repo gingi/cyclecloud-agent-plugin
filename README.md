@@ -32,25 +32,25 @@ Use a VS Code window connected to Linux, macOS, or WSL. For WSL, open the reposi
 
 1. In the VS Code integrated terminal, confirm a supported Node version is available:
 
-   ```bash
-   node --version
-   ```
+    ```bash
+    node --version
+    ```
 
 2. Because the repository is private, confirm Git can authenticate without embedding a token in the URL:
 
-   ```bash
-   git ls-remote https://github.com/gingi/cyclecloud-mcp.git
-   ```
+    ```bash
+    git ls-remote https://github.com/gingi/cyclecloud-mcp.git
+    ```
 
-   Git Credential Manager, an existing GitHub login, or an SSH URL such as `git@github.com:gingi/cyclecloud-mcp.git` can provide authentication. Do not put a personal access token in plugin settings or the source URL.
+    Git Credential Manager, an existing GitHub login, or an SSH URL such as `git@github.com:gingi/cyclecloud-mcp.git` can provide authentication. Do not put a personal access token in plugin settings or the source URL.
 
 3. Enable Agent Plugins in User Settings JSON:
 
-   ```json
-   {
-     "chat.plugins.enabled": true
-   }
-   ```
+    ```json
+    {
+        "chat.plugins.enabled": true
+    }
+    ```
 
 4. Open the Command Palette and run **Chat: Install Plugin From Source**. Alternatively, open the Agent Customizations editor, select **Plugins**, and choose **Install Plugin from Source**.
 5. Enter `https://github.com/gingi/cyclecloud-mcp.git` (or the authenticated SSH URL). VS Code clones and installs the plugin; no `npm install` is needed because `bin/cyclecloud-mcp.mjs` is committed with its runtime dependencies.
@@ -58,12 +58,12 @@ Use a VS Code window connected to Linux, macOS, or WSL. For WSL, open the reposi
 7. The first MCP start intentionally fails because credentials are absent. Run **MCP: List Servers**, select `cyclecloud`, and choose **Show Output**. The `configuration_missing` JSON line includes the exact expected `cyclecloud.json` path and a secret-free `cyclecloud.example.json` is created beside it.
 8. In the integrated terminal, copy the example and edit the profile outside the agent conversation:
 
-   ```bash
-   CONFIG_PATH="paste-the-cyclecloud.json-path-from-show-output"
-   cp "${CONFIG_PATH%.json}.example.json" "$CONFIG_PATH"
-   chmod 600 "$CONFIG_PATH"
-   ${EDITOR:-vi} "$CONFIG_PATH"
-   ```
+    ```bash
+    CONFIG_PATH="paste-the-cyclecloud.json-path-from-show-output"
+    cp "${CONFIG_PATH%.json}.example.json" "$CONFIG_PATH"
+    chmod 600 "$CONFIG_PATH"
+    ${EDITOR:-vi} "$CONFIG_PATH"
+    ```
 
 9. Keep `enableMutations` set to `false`. For a local CycleCloud backend in the same WSL environment, use `http://127.0.0.1:8080`; for remote CycleCloud, prefer verified HTTPS.
 10. Run **MCP: List Servers**, select `cyclecloud`, and restart it. Then open **Configure Tools** in Chat and verify exactly `list_clusters`, `get_cluster`, and `get_cluster_status` are present; both lifecycle tools must be absent.
@@ -84,10 +84,10 @@ Then register its directory instead of installing from Git:
 
 ```json
 {
-  "chat.plugins.enabled": true,
-  "chat.pluginLocations": {
-    "/home/you/src/cyclecloud-mcp": true
-  }
+    "chat.plugins.enabled": true,
+    "chat.pluginLocations": {
+        "/home/you/src/cyclecloud-mcp": true
+    }
 }
 ```
 
@@ -99,15 +99,15 @@ A `true` value enables the plugin; `false` keeps it registered but disabled. Aft
 
 ```json
 {
-  "url": "https://cyclecloud.example.com",
-  "username": "cyclecloud-poc",
-  "password": "replace-outside-the-agent-conversation",
-  "verifyTls": true,
-  "allowInsecureHttp": false,
-  "enableMutations": false,
-  "requestTimeoutMs": 30000,
-  "actionTimeoutMs": 60000,
-  "debug": false
+    "url": "https://cyclecloud.example.com",
+    "username": "cyclecloud-poc",
+    "password": "replace-outside-the-agent-conversation",
+    "verifyTls": true,
+    "allowInsecureHttp": false,
+    "enableMutations": false,
+    "requestTimeoutMs": 30000,
+    "actionTimeoutMs": 60000,
+    "debug": false
 }
 ```
 

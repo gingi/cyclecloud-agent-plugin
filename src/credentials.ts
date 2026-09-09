@@ -1,17 +1,19 @@
 export interface BasicCredentials {
-  readonly username: string;
-  readonly password: string;
+    readonly username: string;
+    readonly password: string;
 }
 
 export interface CredentialProvider {
-  getCredentials(): BasicCredentials;
+    getCredentials(): BasicCredentials;
 }
 
-export function createFileCredentialProvider(credentials: BasicCredentials): CredentialProvider {
-  const username = credentials.username;
-  const password = credentials.password;
+export function createFileCredentialProvider(
+    credentials: BasicCredentials,
+): CredentialProvider {
+    const username = credentials.username;
+    const password = credentials.password;
 
-  return {
-    getCredentials: () => ({ username, password }),
-  };
+    return {
+        getCredentials: () => ({ username, password }),
+    };
 }
