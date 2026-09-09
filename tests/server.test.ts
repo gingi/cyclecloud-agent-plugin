@@ -1,7 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
+import { formatStartupError, requirePluginEnvironment } from "../src/index.js";
+import { StartupError } from "../src/errors.js";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -63,5 +67,52 @@ describe("Agent plugin manifests", () => {
 
     expect(packageLock).toContain("registry.npmjs.org");
     expect(packageLock).not.toContain("msazure.pkgs.visualstudio.com");
+  });
+});
+
+describe("Command-line startup", () => {
+  test("Require separate existing injected plugin roots", async () => {
+    const base = await mkdtemp(join(tmpdir(), "cyclecloud-mcp-roots-"));
+    const pluginRoot = join(base, "plugin");
+    const pluginData = join(base, "data");
+    const nestedData = join(pluginRoot, "data");
+    const nestedPlugin = join(pluginData, "plugin");
+    await mkdir(pluginRoot);
+    await mkdir(pluginData);
+    await mkdir(nestedData);
+    await mkdir(nestedPlugin);
+    try {
+      await expect(requirePluginEnvironment({})).rejects.toMatchObject({
+        code: "plugin_environment_invalid",
+        reason: "invalid_plugin_data",
+      });
+      await expect(requirePluginEnvironment({ PLUGIN_ROOT: "relative", PLUGIN_DATA: pluginData })).rejects.toThrow();
+      await expect(requirePluginEnvironment({ PLUGIN_ROOT: pluginRoot, PLUGIN_DATA: pluginRoot })).rejects.toThrow();
+      await expect(requirePluginEnvironment({ PLUGIN_ROOT: pluginRoot, PLUGIN_DATA: nestedData })).rejects.toThrow();
+      await expect(requirePluginEnvironment({ PLUGIN_ROOT: nestedPlugin, PLUGIN_DATA: pluginData })).rejects.toThrow();
+      await expect(requirePluginEnvironment({ PLUGIN_ROOT: join(base, "missing"), PLUGIN_DATA: pluginData })).rejects.toThrow();
+      await expect(requirePluginEnvironment({ PLUGIN_ROOT: pluginRoot, PLUGIN_DATA: pluginData })).resolves.toEqual({
+        pluginRoot,
+        pluginData,
+      });
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("Serialize fixed startup errors without caught text", () => {
+    const known = formatStartupError(new StartupError("configuration_invalid", "invalid_json"));
+    const unknown = formatStartupError(new Error("secret exception text"));
+
+    expect(JSON.parse(known)).toEqual({
+      event: "configuration_invalid",
+      reason: "invalid_json",
+      message: "CycleCloud configuration is invalid.",
+    });
+    expect(JSON.parse(unknown)).toEqual({
+      event: "startup_failed",
+      message: "The CycleCloud plugin failed to start.",
+    });
+    expect(`${known}${unknown}`).not.toContain("secret exception text");
   });
 });
