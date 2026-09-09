@@ -26,25 +26,11 @@ The server uses direct CycleCloud HTTP requests and returns bounded normalized d
 
 Native Windows is not supported by this POC because credential-file ownership and mode checks are POSIX-specific. Agent Plugins package conformance is separate from runtime compatibility.
 
-## Test in VS Code from GitHub
+## Install from VS Code
 
-Use a VS Code window connected to Linux, macOS, or WSL. For WSL, open the repository or another folder with **WSL: Connect to WSL** so the plugin's MCP process runs in Linux rather than native Windows.
+Use a VS Code window connected to Linux, macOS, or WSL. For WSL, first run **WSL: Connect to WSL** so the MCP process runs in Linux rather than native Windows. A supported Node version must already be available to that VS Code environment.
 
-1. In the VS Code integrated terminal, confirm a supported Node version is available:
-
-    ```bash
-    node --version
-    ```
-
-2. Because the repository is private, confirm Git can authenticate without embedding a token in the URL:
-
-    ```bash
-    git ls-remote https://github.com/gingi/cyclecloud-mcp.git
-    ```
-
-    Git Credential Manager, an existing GitHub login, or an SSH URL such as `git@github.com:gingi/cyclecloud-mcp.git` can provide authentication. Do not put a personal access token in plugin settings or the source URL.
-
-3. Enable Agent Plugins in User Settings JSON:
+1. Open Settings, search for `chat.plugins.enabled`, and enable **Chat: Plugins Enabled**. You can also set it in User Settings JSON:
 
     ```json
     {
@@ -52,24 +38,31 @@ Use a VS Code window connected to Linux, macOS, or WSL. For WSL, open the reposi
     }
     ```
 
-4. Open the Command Palette and run **Chat: Install Plugin From Source**. Alternatively, open the Agent Customizations editor, select **Plugins**, and choose **Install Plugin from Source**.
-5. Enter `https://github.com/gingi/cyclecloud-mcp.git` (or the authenticated SSH URL). VS Code clones and installs the plugin; no `npm install` is needed because `bin/cyclecloud-mcp.mjs` is committed with its runtime dependencies.
-6. Confirm `cyclecloud-mcp` appears under **Agent Plugins - Installed** in the Extensions view. Installed plugin MCP servers execute local code and are implicitly trusted at startup, so review the repository before enabling it.
-7. The first MCP start intentionally fails because credentials are absent. Run **MCP: List Servers**, select `cyclecloud`, and choose **Show Output**. The `configuration_missing` JSON line includes the exact expected `cyclecloud.json` path and a secret-free `cyclecloud.example.json` is created beside it.
-8. In the integrated terminal, copy the example and edit the profile outside the agent conversation:
-
-    ```bash
-    CONFIG_PATH="paste-the-cyclecloud.json-path-from-show-output"
-    cp "${CONFIG_PATH%.json}.example.json" "$CONFIG_PATH"
-    chmod 600 "$CONFIG_PATH"
-    ${EDITOR:-vi} "$CONFIG_PATH"
-    ```
-
-9. Keep `enableMutations` set to `false`. For a local CycleCloud backend in the same WSL environment, use `http://127.0.0.1:8080`; for remote CycleCloud, prefer verified HTTPS.
-10. Run **MCP: List Servers**, select `cyclecloud`, and restart it. Then open **Configure Tools** in Chat and verify exactly `list_clusters`, `get_cluster`, and `get_cluster_status` are present; both lifecycle tools must be absent.
-11. Open Agent mode and try the read-only prompts below. Tool calls should show bounded structured results.
+2. Open the Command Palette and run **Chat: Install Plugin From Source**. Alternatively, open the Agent Customizations editor, select **Plugins**, and choose **Install Plugin from Source**.
+3. Enter `https://github.com/gingi/cyclecloud-mcp.git`.
+4. If prompted, sign in to GitHub through VS Code. The repository is private, so the active VS Code/Git environment must have access. An authenticated SSH URL, `git@github.com:gingi/cyclecloud-mcp.git`, is an alternative. Do not put a personal access token in the URL or settings.
+5. Confirm `cyclecloud-mcp` appears under **Agent Plugins - Installed** in the Extensions view. Installed plugin MCP servers execute local code and are implicitly trusted at startup, so review the repository before enabling it.
+6. The first MCP start intentionally fails because credentials are absent. Run **MCP: List Servers**, select `cyclecloud`, and choose **Show Output**. The `configuration_missing` JSON line includes the exact expected `cyclecloud.json` path. A secret-free `cyclecloud.example.json` is created beside it with mode `0600`.
+7. Configure the plugin without a terminal:
+    - Copy the parent directory from the reported path.
+    - Use **File: Open Folder...** in a new VS Code window to open that directory.
+    - In Explorer, rename `cyclecloud.example.json` to `cyclecloud.json`. Renaming preserves the owner-only file mode.
+    - Edit `cyclecloud.json` in VS Code and save it. Supply the credential directly in the file, not in Chat.
+    - Keep `enableMutations` set to `false`. For a local CycleCloud backend in the same WSL environment, use `http://127.0.0.1:8080`; for remote CycleCloud, prefer verified HTTPS.
+8. Return to the original VS Code window. Run **MCP: List Servers**, select `cyclecloud`, and restart it.
+9. Open **Configure Tools** in Chat and verify exactly `list_clusters`, `get_cluster`, and `get_cluster_status` are present. Both lifecycle tools must be absent.
+10. Open Agent mode and try the read-only prompts below. Tool calls should show bounded structured results.
 
 To update a source-installed plugin after pushing changes, run **Extensions: Check for Extension Updates**. To disable or uninstall it, use the context menu under **Agent Plugins - Installed** or the Plugins section of the Agent Customizations editor.
+
+### Optional shell preflight
+
+A terminal is useful only for diagnosing prerequisites; it is not part of the normal installation. These commands confirm that the VS Code environment can find Node and authenticate to the private repository:
+
+```bash
+node --version
+git ls-remote https://github.com/gingi/cyclecloud-mcp.git
+```
 
 ## Local checkout alternative
 
