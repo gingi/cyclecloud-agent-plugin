@@ -21,60 +21,39 @@ The server uses direct CycleCloud HTTP requests and returns bounded normalized d
 
 - Linux, macOS, or WSL using its Linux filesystem.
 - Node.js `^20.19.0`, `^22.12.0`, or `>=24.0.0` available on VS Code's executable search path.
+- [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli/get-started) with `plugin marketplace` support in the environment that will run the MCP process.
 - A reachable CycleCloud installation.
 - A dedicated CycleCloud POC account with the smallest role and group scope needed for the demonstration.
 
 Native Windows is not supported by this POC because credential-file ownership and mode checks are POSIX-specific. Agent Plugins package conformance is separate from runtime compatibility.
 
-## Install from VS Code
+## Install with GitHub Copilot CLI
 
-Use the installation path for the environment that will run the MCP process. A supported Node version must be available on that environment's executable search path. Installed plugin MCP servers execute local code and are implicitly trusted at startup, so review the repository before enabling it.
+VS Code must run in the target Linux or macOS environment (for WSL, use a VS Code window connected to WSL). Installed plugins execute local code and are implicitly trusted at startup, so review this repository before enabling it.
 
-### Linux and macOS
+1. In VS Code, select **Terminal > New Terminal**.
+2. In VS Code Settings, search for `chat.plugins.enabled` and enable **Chat: Plugins Enabled**.
+3. In the terminal, add this repository's marketplace and install the plugin:
 
-1. Open Settings, search for `chat.plugins.enabled`, and enable **Chat: Plugins Enabled**. You can also set it in User Settings JSON:
-
-    ```json
-    {
-        "chat.plugins.enabled": true
-    }
+    ```bash
+    copilot plugin marketplace add gingi/cyclecloud-mcp
+    copilot plugin install cyclecloud-mcp@cyclecloud-mcp
     ```
 
-2. Open the Command Palette and run **Chat: Install Plugin From Source**. Alternatively, open the Agent Customizations editor, select **Plugins**, and choose **Install Plugin from Source**.
-3. Enter `https://github.com/gingi/cyclecloud-mcp.git`.
-4. If prompted, sign in to GitHub through VS Code. The repository is private, so the active VS Code/Git environment must have access. An authenticated SSH URL, `git@github.com:gingi/cyclecloud-mcp.git`, is an alternative. Do not put a personal access token in the URL or settings.
-5. Confirm `cyclecloud-mcp` appears under **Agent Plugins - Installed** in the Extensions view.
+4. Confirm the plugin is enabled:
 
-To update a plugin installed from its Git URL, run **Extensions: Check for Extension Updates**. To disable or uninstall it, use the context menu under **Agent Plugins - Installed** or the Plugins section of the Agent Customizations editor.
-
-### WSL
-
-**Chat: Install Plugin From Source** does not currently offer an **Install in WSL** target. Invoking it from a WSL-connected window can still install and launch the plugin on native Windows. This POC does not support that configuration.
-
-Instead, register a checkout stored on the WSL Linux filesystem:
-
-1. Run **WSL: Connect to WSL** and confirm the lower-left remote indicator identifies the intended distribution.
-2. Obtain the repository inside WSL. From the WSL-connected window, use **Git: Clone** and enter `https://github.com/gingi/cyclecloud-mcp.git`, or clone it from a WSL terminal. Open the cloned directory in the WSL-connected window.
-3. Run **Preferences: Open Remote Settings (JSON)**. Confirm the editor is for the WSL remote rather than Windows User settings, then add the checkout's absolute Linux path:
-
-    ```json
-    {
-        "chat.plugins.enabled": true,
-        "chat.pluginLocations": {
-            "/home/you/src/cyclecloud-mcp": true
-        }
-    }
+    ```bash
+    copilot plugin list
     ```
 
-    Merge these properties into the existing settings object. A `true` value enables the plugin; `false` keeps it registered but disabled.
+    The output must list `cyclecloud-mcp` as enabled.
 
-4. Run **Developer: Reload Window** and confirm `cyclecloud-mcp` appears under **Agent Plugins - Installed**.
-
-Pull changes in the WSL checkout and run **Developer: Reload Window** to update this registration. The package uses root `plugin.json` and `mcp.json`; do not create a workspace `.vscode/mcp.json` or install a VSIX.
+5. In the same VS Code window, open the Command Palette and run **Developer: Reload Window**.
+6. Open the Extensions view and confirm `cyclecloud-mcp` appears under **Agent Plugins - Installed**.
 
 ### First start and configuration
 
-Installing or registering the plugin makes the MCP server available to VS Code; it does not guarantee that the server has already started. VS Code may start it during tool discovery. Use this explicit sequence so its state and configuration path are visible:
+Installing the plugin makes the MCP server available to VS Code; it does not guarantee that the server has already started. VS Code may start it during tool discovery. Use this explicit sequence so its state and configuration path are visible:
 
 1. Run **MCP: List Servers** and select `cyclecloud`.
 2. Choose **Start**. If its state is already **Error**, VS Code already attempted the first start.
@@ -90,23 +69,16 @@ Installing or registering the plugin makes the MCP server available to VS Code; 
 7. Open **Configure Tools** in Chat and verify exactly `list_clusters`, `get_cluster`, and `get_cluster_status` are present. Both lifecycle tools must be absent.
 8. Open Agent mode and try the read-only prompts below. Tool calls should show bounded structured results.
 
-### Optional shell preflight
+### Update
 
-These commands confirm that the environment that will run the MCP server can find Node and authenticate to the private repository:
-
-```bash
-node --version
-git ls-remote https://github.com/gingi/cyclecloud-mcp.git
-```
-
-## Local checkout registration
-
-The WSL procedure above can also be used on Linux or macOS for development against an existing checkout. Before registering it, build and verify it:
+Refresh the marketplace catalog, update the installed plugin, and reload VS Code:
 
 ```bash
-npm ci --ignore-scripts
-npm run verify
+copilot plugin marketplace update cyclecloud-mcp
+copilot plugin update cyclecloud-mcp@cyclecloud-mcp
 ```
+
+Then run **Developer: Reload Window**.
 
 ## Configuration
 
@@ -202,8 +174,11 @@ npm run build
 
 ## Troubleshooting
 
+- **Plugin does not appear in VS Code:** run `copilot plugin list` in the same environment that should run the MCP process. Confirm `cyclecloud-mcp` is enabled, then run **Developer: Reload Window** and verify **Chat: Plugins Enabled** is on. For WSL, both the install command and VS Code window must use the same distribution.
+- **Marketplace file not found:** the repository revision fetched by Copilot CLI does not contain `.github/plugin/marketplace.json`, so installation cannot continue. Use a published revision that includes the marketplace catalog or contact the repository maintainer.
+- **An older installation already exists:** uninstall it under **Agent Plugins - Installed**, remove any `chat.pluginLocations` entry that points to a CycleCloud MCP checkout, and run **Developer: Reload Window** before following the current installation steps.
+- **WSL server launches on Windows:** an error containing `LocalProcess` or a Windows path with literal `${PLUGIN_ROOT}` indicates an older VS Code source installation. Remove it as described above, install through Copilot CLI inside WSL, and reload the WSL window.
 - **Configuration missing:** run **MCP: List Servers**, select `cyclecloud`, and choose **Show Output**. Copy the `path` from the `configuration_missing` JSON event, copy the adjacent `cyclecloud.example.json` to that path, complete it outside the agent conversation, set mode `0600`, then restart the server.
-- **WSL server launches on Windows:** an error containing `LocalProcess` or a Windows path with literal `${PLUGIN_ROOT}` means the Git URL installer registered the plugin on the Windows host. Uninstall that copy and follow the WSL checkout-registration procedure above.
 - **Output is blank after an error:** run **Developer: Open Logs Folder** and inspect the current window's `mcpServer` log whose name ends in `cyclecloud.log`. A launch failure can occur before this plugin writes its structured startup event.
 - **Credential file rejected:** check ownership, exact mode, regular-file type, and symlink status.
 - **TLS error:** check the URL hostname/SAN and use `caCertPath` for a private CA; do not disable verification for a remote host.
@@ -214,10 +189,16 @@ npm run build
 ## Cleanup and uninstall
 
 1. Restore `enableMutations: false` and restart if lifecycle tools were enabled.
-2. For a Git URL installation, right-click `cyclecloud-mcp` under **Agent Plugins - Installed** and choose **Uninstall**. For a WSL or other local-checkout registration, disable or remove its `chat.pluginLocations` entry from the settings scope where it was registered, then run **Developer: Reload Window**.
-3. Permanently delete `${PLUGIN_DATA}/cyclecloud.json`; disabling or unregistering the plugin does not delete persistent data.
-4. Optionally delete the registered checkout after preserving any intended source changes.
+2. Uninstall the plugin and remove its marketplace registration:
+
+    ```bash
+    copilot plugin uninstall cyclecloud-mcp@cyclecloud-mcp
+    copilot plugin marketplace remove cyclecloud-mcp
+    ```
+
+3. Run **Developer: Reload Window** and confirm `cyclecloud-mcp` is absent under **Agent Plugins - Installed**.
+4. Permanently delete `${PLUGIN_DATA}/cyclecloud.json`; uninstalling the plugin does not delete persistent data.
 5. Rotate or disable the dedicated POC credential.
 6. Confirm no credential, private key, or local configuration was committed.
 
-This POC is intended to demonstrate and assess the MCP experience. OS-backed credentials, token authentication, exhaustive filesystem hardening, durable auditing, broad compatibility CI, and marketplace publication are follow-up work if the experiment warrants production investment.
+This POC is intended to demonstrate and assess the MCP experience, including marketplace-based distribution. OS-backed credentials, token authentication, exhaustive filesystem hardening, durable auditing, broad compatibility CI, and public marketplace publication are follow-up work if the experiment warrants production investment.
