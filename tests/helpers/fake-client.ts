@@ -22,6 +22,7 @@ export class FakeCycleCloudClient implements CycleCloudClient {
         list: 0,
         cluster: 0,
         status: 0,
+        issues: 0,
         start: 0,
         terminate: 0,
         close: 0,
@@ -40,6 +41,16 @@ export class FakeCycleCloudClient implements CycleCloudClient {
     getClusterStatus(): Promise<unknown> {
         this.calls.status += 1;
         return Promise.resolve(this.statusResult);
+    }
+
+    getClusterIssues(
+        _clusterName: string,
+        _options?: CycleCloudRequestOptions,
+    ): Promise<unknown> {
+        void _clusterName;
+        void _options;
+        this.calls.issues += 1;
+        return Promise.resolve([]);
     }
 
     startCluster(

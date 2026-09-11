@@ -205,6 +205,64 @@ describe("CycleCloud MCP calls", () => {
         });
     });
 
+    test("Exposes issue limits and summaries through MCP", async () => {
+        const cycleCloud = new FakeCycleCloudClient();
+        cycleCloud.getClusterIssues = () =>
+            Promise.resolve([
+                {
+                    Name: "Boot",
+                    Status: "Error",
+                    Message: "Boot failed",
+                    NodeCount: 2,
+                },
+            ]);
+        const { client } = await connectServer({ cycleCloud });
+        const result = await client.callTool({
+            name: "get_cluster_status",
+            arguments: { clusterName: "cluster-1", issueLimit: 0 },
+        });
+        expect(result.isError).toBe(false);
+        expect(result.structuredContent).toMatchObject({
+            status: {
+                issues: {
+                    available: true,
+                    total: 1,
+                    returned: 0,
+                    truncated: true,
+                },
+            },
+        });
+        expect(result.content).toEqual([
+            {
+                type: "text",
+                text: "Returned CycleCloud cluster status with 0 of 1 node issue groups.",
+            },
+        ]);
+        const invalid = await client.callTool({
+            name: "get_cluster_status",
+            arguments: { clusterName: "cluster-1", issueLimit: 101 },
+        });
+        expect(invalid.isError).toBe(true);
+        expect(cycleCloud.calls.status).toBe(1);
+    });
+
+    test("Warns in MCP text when node issues are unavailable", async () => {
+        const cycleCloud = new FakeCycleCloudClient();
+        cycleCloud.getClusterIssues = () => Promise.resolve(null);
+        const { client } = await connectServer({ cycleCloud });
+        const result = await client.callTool({
+            name: "get_cluster_status",
+            arguments: { clusterName: "cluster-1" },
+        });
+        expect(result.isError).toBe(false);
+        expect(result.content).toEqual([
+            {
+                type: "text",
+                text: "Cluster status is available, but node issues could not be retrieved.",
+            },
+        ]);
+    });
+
     test("Returns exact fixed structured errors without server text", async () => {
         const cycleCloud = new FakeCycleCloudClient();
         cycleCloud.listResult = null;

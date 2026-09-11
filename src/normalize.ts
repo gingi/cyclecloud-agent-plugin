@@ -96,7 +96,97 @@ export interface ClusterStatusResult {
     };
 }
 
+export interface ClusterIssue {
+    readonly name: string;
+    readonly severity: "Error" | "Warning";
+    readonly nodeCount: number;
+    readonly message?: string;
+    readonly detail?: string;
+    readonly recommendation?: string;
+    readonly textTruncated: boolean;
+}
+
+export interface ClusterIssues {
+    readonly available: true;
+    readonly items: readonly ClusterIssue[];
+    readonly total: number;
+    readonly returned: number;
+    readonly truncated: boolean;
+}
+
+export type ClusterStatusWithIssues = {
+    readonly status: ClusterStatusResult["status"] & {
+        readonly issues:
+            | ClusterIssues
+            | {
+                  readonly available: false;
+                  readonly warning: string;
+              };
+    };
+};
+
 type ConsumedFields = ReadonlyMap<string, unknown>;
+
+export function normalizeClusterIssues(
+    raw: unknown,
+    limit: number,
+): ClusterIssues {
+    validateLimit(limit, 0, 100);
+    if (!Array.isArray(raw)) invalidResponse();
+    const issues: ClusterIssue[] = [];
+    for (const value of raw) {
+        const fields = consumedFields(value, [
+            "name",
+            "status",
+            "nodecount",
+            "message",
+            "detail",
+            "recommendation",
+        ]);
+        const severity = requiredString(fields, "status", 128);
+        if (severity === "OK" || severity === "Pending") continue;
+        if (severity !== "Error" && severity !== "Warning") invalidResponse();
+        let textTruncated = false;
+        const text: Record<string, string> = {};
+        for (const key of ["message", "detail", "recommendation"]) {
+            const value = fields.get(key);
+            if (value === undefined || value === null) continue;
+            if (typeof value !== "string" || !isWellFormed(value))
+                invalidResponse();
+            const characters = [
+                ...value.replace(/[\u0000-\u001f\u007f-\u009f]/gu, " "),
+            ];
+            textTruncated ||= characters.length > 2048;
+            text[key] =
+                characters.length > 2048
+                    ? characters.slice(0, 2047).join("") + "…"
+                    : characters.join("");
+        }
+        issues.push({
+            name: requiredString(fields, "name", 256),
+            severity,
+            nodeCount: requiredNonNegativeInteger(
+                requiredField(fields, "nodecount"),
+            ),
+            ...text,
+            textTruncated,
+        });
+    }
+    issues.sort(
+        (left, right) =>
+            compareNames(left.severity, right.severity) ||
+            compareNames(left.name, right.name) ||
+            compareNames(left.message ?? "", right.message ?? ""),
+    );
+    const items = issues.slice(0, limit);
+    return {
+        available: true,
+        items,
+        total: issues.length,
+        returned: items.length,
+        truncated: items.length < issues.length,
+    };
+}
 
 export function normalizeClusterList(
     raw: unknown,
@@ -503,7 +593,7 @@ function isWellFormed(value: string): boolean {
         const code = value.charCodeAt(index);
         if (code >= 0xd800 && code <= 0xdbff) {
             const next = value.charCodeAt(index + 1);
-            if (next < 0xdc00 || next > 0xdfff) return false;
+            if (!(next >= 0xdc00 && next <= 0xdfff)) return false;
             index += 1;
         } else if (code >= 0xdc00 && code <= 0xdfff) {
             return false;

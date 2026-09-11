@@ -22,6 +22,7 @@ export interface RecordedRequest {
     readonly method: string;
     readonly url: string;
     readonly authorization?: string;
+    readonly accept?: string;
 }
 
 export interface FakeCycleCloudServer {
@@ -59,6 +60,9 @@ export async function startFakeCycleCloudServer(
             ...(request.headers.authorization === undefined
                 ? {}
                 : { authorization: request.headers.authorization }),
+            ...(request.headers.accept === undefined
+                ? {}
+                : { accept: request.headers.accept }),
         });
         const queued = responses.shift() ?? {
             status: 500,

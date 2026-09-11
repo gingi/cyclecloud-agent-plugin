@@ -106,12 +106,42 @@ describe("CycleCloud HTTP request shape", () => {
             "POST /cloud/actions/startcluster/cluster%20%2F%20one?wait_time=30&recursive=true&test_mode=false",
             "POST /cloud/actions/terminatecluster/cluster%20%2F%20one?wait_time=30&recursive=false",
         ]);
+        expect(
+            server.requests.every(
+                (request) => request.accept === "application/json",
+            ),
+        ).toBe(true);
         const expectedAuthorization = `Basic ${Buffer.from(`${username}:${password}`, "ascii").toString("base64")}`;
         expect(
             server.requests.every(
                 (request) => request.authorization === expectedAuthorization,
             ),
         ).toBe(true);
+    });
+
+    test("Queries node issues with an escaped exact cluster name", async () => {
+        const server = await createServer();
+        server.enqueue({ status: 200, body: "[]" });
+        const client = await createClient(settings(server.origin));
+        const name = 'cluster "quoted" \\ name & 雪';
+
+        await expect(client.getClusterIssues(name)).resolves.toEqual([]);
+
+        const request = server.requests[0];
+        if (request === undefined) throw new Error("Expected an issue query");
+        const url = new URL(request.url, server.origin);
+        expect(request.method).toBe("GET");
+        // The legacy query endpoint returns 406 for application/json, even
+        // with format=json. Match the CLI's wildcard Accept header.
+        expect(request.accept).toBe("*/*");
+        expect(url.pathname).toBe("/exec/query/");
+        expect(url.searchParams.get("format")).toBe("json");
+        expect(url.searchParams.get("q")).toBe(
+            "select Name, Status, Message, NodeCount, Detail, Recommendation " +
+                "using cloud.node.node_status where ClusterName == " +
+                JSON.stringify(name),
+        );
+        expect([...url.searchParams.keys()]).toEqual(["q", "format"]);
     });
 
     test("Does not follow redirects or forward credentials", async () => {

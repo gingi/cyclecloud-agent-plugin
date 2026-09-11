@@ -7,9 +7,10 @@ import {
     normalizeCluster,
     normalizeClusterList,
     normalizeClusterStatus,
+    normalizeClusterIssues,
     type ClusterDetailResult,
     type ClusterListResult,
-    type ClusterStatusResult,
+    type ClusterStatusWithIssues,
 } from "./normalize.js";
 
 export const unknownOutcomeWarning =
@@ -31,6 +32,7 @@ export interface GetClusterStatusInput {
     readonly clusterName: string;
     readonly nodeArrayLimit: number;
     readonly bucketLimit: number;
+    readonly issueLimit?: number;
 }
 
 export interface MutationInput {
@@ -83,13 +85,36 @@ export class CycleCloudTools {
     async getClusterStatus(
         input: GetClusterStatusInput,
         signal: AbortSignal,
-    ): Promise<ClusterStatusResult> {
-        return normalizeClusterStatus(
+    ): Promise<ClusterStatusWithIssues> {
+        const result = normalizeClusterStatus(
             await this.#client.getClusterStatus(input.clusterName, { signal }),
             input.clusterName,
             input.nodeArrayLimit,
             input.bucketLimit,
         );
+        let issues: ClusterStatusWithIssues["status"]["issues"];
+        try {
+            issues = normalizeClusterIssues(
+                await this.#client.getClusterIssues(input.clusterName, {
+                    signal,
+                }),
+                input.issueLimit ?? 20,
+            );
+        } catch (error: unknown) {
+            if (
+                signal.aborted ||
+                (error instanceof CycleCloudRequestError &&
+                    error.category === "cancelled")
+            ) {
+                throw new CycleCloudRequestError("cancelled", false);
+            }
+            issues = {
+                available: false,
+                warning:
+                    "Cluster status is available, but node issues could not be retrieved.",
+            };
+        }
+        return { status: { ...result.status, issues } };
     }
 
     async startCluster(

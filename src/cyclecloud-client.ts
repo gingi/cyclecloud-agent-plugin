@@ -41,6 +41,10 @@ export interface CycleCloudClient {
         clusterName: string,
         options?: CycleCloudRequestOptions,
     ): Promise<unknown>;
+    getClusterIssues(
+        clusterName: string,
+        options?: CycleCloudRequestOptions,
+    ): Promise<unknown>;
     startCluster(
         clusterName: string,
         recursive: boolean,
@@ -107,6 +111,23 @@ class HttpCycleCloudClient implements CycleCloudClient {
         );
     }
 
+    async getClusterIssues(
+        clusterName: string,
+        options: CycleCloudRequestOptions = {},
+    ): Promise<unknown> {
+        const query =
+            "select Name, Status, Message, NodeCount, Detail, Recommendation " +
+            "using cloud.node.node_status where ClusterName == " +
+            JSON.stringify(clusterName);
+        return this.#read(
+            `/exec/query/?q=${encodeURIComponent(query)}&format=json`,
+            options,
+            // This legacy endpoint rejects Accept: application/json (406).
+            // format=json still selects JSON, as in the CycleCloud CLI.
+            "*/*",
+        );
+    }
+
     async startCluster(
         clusterName: string,
         recursive: boolean,
@@ -136,6 +157,7 @@ class HttpCycleCloudClient implements CycleCloudClient {
     async #read(
         path: string,
         options: CycleCloudRequestOptions,
+        accept = "application/json",
     ): Promise<unknown> {
         return this.#execute(
             path,
@@ -149,6 +171,8 @@ class HttpCycleCloudClient implements CycleCloudClient {
                 }
                 return readBoundedJson(response);
             },
+            undefined,
+            accept,
         );
     }
 
@@ -193,6 +217,7 @@ class HttpCycleCloudClient implements CycleCloudClient {
         callerSignal: AbortSignal | undefined,
         consume: (response: Response) => Promise<Result>,
         uncertainResult?: () => Result,
+        accept = "application/json",
     ): Promise<Result> {
         if (isAborted(callerSignal))
             throw new CycleCloudRequestError("cancelled", false);
@@ -216,7 +241,7 @@ class HttpCycleCloudClient implements CycleCloudClient {
                     redirect: "manual",
                     signal: controller.signal,
                     headers: {
-                        accept: "application/json",
+                        accept,
                         authorization: this.#authorization,
                     },
                 },
