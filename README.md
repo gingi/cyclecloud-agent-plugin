@@ -104,6 +104,7 @@ Restore replaces the installed bundle with the original and removes the used bac
 
 ## More information
 
+- [Design and architecture](docs/cyclecloud-mcp-design.md)
 - [Configuration and security](docs/configuration.md)
 - [Troubleshooting and the optional Local workaround](docs/troubleshooting.md)
 - Development: `npm ci --ignore-scripts`, then `npm run verify` (tests, typecheck, lint, formatting, audit, and bundle checks). The dependency-complete `bin/cyclecloud-mcp.mjs` is committed; users do not need to build it.

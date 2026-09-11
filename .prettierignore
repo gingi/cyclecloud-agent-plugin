@@ -3,5 +3,3 @@ coverage/
 dist/
 node_modules/
 package-lock.json
-docs/superpowers/specs/
-docs/superpowers/plans/
