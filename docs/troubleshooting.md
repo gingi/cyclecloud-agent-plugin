@@ -15,7 +15,7 @@ If the repository is private, raw `curl` access may fail even when Copilot or Gi
 ## Installer failures and reruns
 
 - **Missing dependencies or unsupported OS:** install a supported Node version and Copilot CLI yourself. Use a Linux/macOS executable in WSL, not `node.exe`. The installer does not install dependencies or use sudo.
-- **CLI JSON commands fail:** use a CLI supporting `copilot plugin list --json` and `copilot plugin marketplace list --json`. Authenticate separately and verify repository access, then rerun. The installer does not prompt for login or passwords.
+- **CLI plugin commands fail:** use GitHub Copilot CLI 1.0.81 or later. Authenticate separately and verify repository access, then rerun. The installer does not prompt for login or passwords.
 - **A marketplace or plugin has a conflicting source:** inspect `copilot plugin marketplace list` and `copilot plugin list`. Resolve the conflict explicitly; the installer will not replace an unrelated registration.
 - **Existing configuration is insecure or symlinked:** inspect its ownership, file type, and mode outside Chat. The installer refuses it rather than modifying credentials automatically.
 - **Partial installation:** a successfully added marketplace or installed plugin is kept if a later step fails. Resolve the error and rerun; existing versions, configuration contents, and enablement choices are preserved.

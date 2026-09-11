@@ -19,11 +19,29 @@ if (command === state.failCommand) {
 }
 
 switch (command) {
-    case "plugin list --json":
-        process.stdout.write(JSON.stringify(state.plugins));
+    case "plugins list --json":
+        process.stdout.write(
+            JSON.stringify(
+                state.pluginListOutput ??
+                    (state.flatPluginJson
+                        ? state.plugins
+                        : { plugins: state.plugins, errors: [] }),
+            ),
+        );
         break;
-    case "plugin marketplace list --json":
-        process.stdout.write(JSON.stringify(state.marketplaces));
+    case "plugin marketplace list":
+        process.stdout.write(
+            [
+                "Included with GitHub Copilot:",
+                "  ◆ copilot-plugins (GitHub: github/copilot-plugins)",
+                "",
+                "Registered marketplaces:",
+                ...state.marketplaces.map(
+                    ({ name, source }) => `  • ${name} (${source})`,
+                ),
+                "",
+            ].join("\n"),
+        );
         break;
     case "plugin marketplace add gingi/cyclecloud-mcp":
         state.marketplaces.push({
@@ -51,10 +69,15 @@ switch (command) {
         }
         state.plugins.push({
             name: "cyclecloud-mcp",
-            marketplace: "cyclecloud-mcp",
             version: "0.1.0",
             enabled: true,
-            source: "installed",
+            ...(state.flatPluginJson
+                ? { marketplace: "cyclecloud-mcp", source: "installed" }
+                : {
+                      kind: "plugin",
+                      scope: "user",
+                      source: "marketplace:cyclecloud-mcp",
+                  }),
         });
         writeFileSync(statePath, JSON.stringify(state));
         break;

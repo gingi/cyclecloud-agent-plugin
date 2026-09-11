@@ -8,7 +8,7 @@ You need:
 
 - A Linux-based environment: Linux, macOS, or WSL
 - Node.js `^20.19.0`, `^22.12.0`, or `>=24.0.0` on the executable search path.
-- [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli/get-started) with plugin marketplace support.
+- [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli/get-started) 1.0.81 or later.
 - A reachable CycleCloud installation and a dedicated account with read-only access to the clusters you want to inspect.
 
 Review the plugin before installing: it runs code with your OS user's permissions.

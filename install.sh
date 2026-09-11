@@ -7,7 +7,7 @@ main() {
         if [ "$#" -eq 1 ] && { [ "$1" = "--help" ] || [ "$1" = "-h" ]; }; then
             printf '%s\n' 'Usage: sh install.sh' \
                 'Installs the Copilot plugin and prepares private configuration.' \
-                'Requires Node and authenticated Copilot CLI; never upgrades or overwrites credentials.'
+                'Requires Node and authenticated Copilot CLI 1.0.81 or later; never upgrades or overwrites credentials.'
             return
         fi
         printf '%s\n' 'Usage: sh install.sh (no installation options)' >&2
@@ -56,22 +56,53 @@ function fail(message) {
     throw new Error(message);
 }
 
-function copilot(args, json = false) {
+function copilot(args, capture = false) {
     const result = spawnSync('copilot', args, {
         // Never let a subprocess consume a piped installer or prompt for credentials.
-        stdio: ['ignore', json ? 'pipe' : 'inherit', 'inherit'],
+        stdio: ['ignore', capture ? 'pipe' : 'inherit', 'inherit'],
         encoding: 'utf8',
         maxBuffer: 4 * 1024 * 1024,
     });
     if (result.error || result.status !== 0) {
         fail(`copilot ${args.join(' ')} failed. Check CLI plugin support, authentication, and repository access, then rerun. No automatic rollback or update was attempted.`);
     }
-    if (!json) return;
+    return capture ? result.stdout : undefined;
+}
+
+function installedPlugins() {
+    const output = copilot(['plugins', 'list', '--json'], true);
+    let data;
     try {
-        const data = JSON.parse(result.stdout);
-        if (Array.isArray(data) && data.every(item => item && typeof item.name === 'string')) return data;
-    } catch {}
-    fail('Unexpected Copilot JSON output. Use a CLI supporting plugin list --json and plugin marketplace list --json.');
+        data = JSON.parse(output);
+    } catch {
+        fail('Invalid Copilot JSON output. GitHub Copilot CLI 1.0.81 or later is required.');
+    }
+    if (Array.isArray(data) && data.every(item => item && typeof item.name === 'string')) return data;
+    if (!data || !Array.isArray(data.plugins) ||
+        !data.plugins.every(item => item && typeof item.name === 'string' && typeof item.kind === 'string') ||
+        !Array.isArray(data.errors)) {
+        fail('Unexpected Copilot JSON output. GitHub Copilot CLI 1.0.81 or later is required.');
+    }
+    if (data.errors.length) {
+        fail('Copilot reported plugin inventory errors. Inspect copilot plugins list --json and resolve them before rerunning; no automatic rollback or update was attempted.');
+    }
+    // Older CLIs mix plugins, MCP servers, and skills in a single inventory.
+    return data.plugins.filter(item => item.kind === 'plugin').map(item => ({
+        name: item.name,
+        marketplace: typeof item.source === 'string' && item.source.startsWith('marketplace:')
+            ? item.source.slice('marketplace:'.length) : undefined,
+        source: item.scope === 'user' ? 'installed' : undefined,
+        enabled: item.enabled,
+    }));
+}
+
+function marketplaces() {
+    const output = copilot(['plugin', 'marketplace', 'list'], true)
+        .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
+    return output.split(/\r?\n/).flatMap(line => {
+        const match = /^\s*(?:\S+\s+)?([A-Za-z0-9][A-Za-z0-9._-]*)\s+\(([^)]+)\)\s*$/.exec(line);
+        return match ? [{ name: match[1], source: match[2] }] : [];
+    });
 }
 
 function installedPlugin(plugins) {
@@ -132,17 +163,17 @@ try {
     for (const directory of dataDirectories) checkDirectory(directory, false);
     hasConfiguration(config);
 
-    let installed = installedPlugin(copilot(['plugin', 'list', '--json'], true));
-    const registered = hasMarketplace(copilot(['plugin', 'marketplace', 'list', '--json'], true));
+    let installed = installedPlugin(installedPlugins());
+    const registered = hasMarketplace(marketplaces());
     if (!registered) {
         copilot(['plugin', 'marketplace', 'add', source]);
-        if (!hasMarketplace(copilot(['plugin', 'marketplace', 'list', '--json'], true))) {
+        if (!hasMarketplace(marketplaces())) {
             fail('Copilot did not register the expected marketplace. Inspect its output before retrying.');
         }
     }
     if (!installed) {
         copilot(['plugin', 'install', id]);
-        installed = installedPlugin(copilot(['plugin', 'list', '--json'], true));
+        installed = installedPlugin(installedPlugins());
         if (!installed) fail('Copilot did not report the plugin as installed.');
     } else {
         console.log('Keeping the existing plugin installation; no update or enablement change.');

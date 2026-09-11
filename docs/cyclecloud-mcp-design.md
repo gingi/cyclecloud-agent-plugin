@@ -405,7 +405,7 @@ A diagnostic path has C0/C1 controls removed and is limited to 512 code points. 
 
 ### Installer
 
-`install.sh` is self-contained POSIX shell with embedded Node for JSON handling and exclusive file creation. It can run from a checkout, a downloaded file, or stdin. It requires a supported OS/Node runtime and an already installed and authenticated Copilot CLI; it does not install prerequisites, use sudo, prompt for credentials, or verify CycleCloud connectivity.
+`install.sh` is self-contained POSIX shell with embedded Node for JSON handling and exclusive file creation. It can run from a checkout, a downloaded file, or stdin. It requires a supported OS/Node runtime and an already installed and authenticated GitHub Copilot CLI 1.0.81 or later; it does not install prerequisites, use sudo, prompt for credentials, or verify CycleCloud connectivity.
 
 The installer:
 
