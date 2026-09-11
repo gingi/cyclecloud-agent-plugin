@@ -82,6 +82,26 @@ copilot plugin marketplace remove cyclecloud-mcp
 
 Delete the credential file from the Copilot data directory and revoke the dedicated account's credential. If you used the older Local workaround, also clean up its copy in `~/.local/share/cyclecloud-mcp/`. Uninstalling does not delete credentials. Reload VS Code afterward.
 
+## Developer workflow
+
+To test uncommitted changes through your existing installed plugin, run from this checkout:
+
+```bash
+npm run deploy
+```
+
+This rebuilds the bundle and replaces `~/.copilot/installed-plugins/cyclecloud-mcp/cyclecloud-mcp/bin/cyclecloud-mcp.mjs`. The plugin must already be installed at that default path. Its original bundle is saved alongside it as `cyclecloud-mcp.mjs.before-local-test`; repeated deploys preserve that original backup. Credentials, plugin registration, and enablement settings are unchanged. Nothing is committed, pushed, or published.
+
+Reload VS Code and start a fresh Copilot session after each deploy. If you use the optional Local registration, restart its MCP server instead. Then ask the tool to exercise your change.
+
+To undo the deployment:
+
+```bash
+npm run restore
+```
+
+Restore replaces the installed bundle with the original and removes the used backup; it does not require a local build. Restart the session/server again afterward. Restore before running a marketplace update so a later restore cannot roll that update back. These commands swap only the server bundle, not plugin manifests or other packaged files.
+
 ## More information
 
 - [Configuration and security](docs/configuration.md)

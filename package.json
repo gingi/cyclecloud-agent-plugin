@@ -8,6 +8,8 @@
     },
     "scripts": {
         "build": "node scripts/build.mjs",
+        "deploy": "npm run build && node scripts/deploy.mjs deploy",
+        "restore": "node scripts/deploy.mjs restore",
         "typecheck": "tsc --noEmit",
         "lint": "eslint .",
         "format:check": "prettier --check .",
