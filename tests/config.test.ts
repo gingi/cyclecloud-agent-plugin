@@ -297,6 +297,11 @@ describe("CycleCloud configuration", () => {
         const contents = await readFile(examplePath, "utf8");
         const stats = await lstat(examplePath);
         expect(stats.mode & 0o777).toBe(0o600);
+        const packagedExample = await readFile(
+            new URL("../cyclecloud.example.json", import.meta.url),
+            "utf8",
+        );
+        expect(JSON.parse(packagedExample)).toEqual(JSON.parse(contents));
         expect(JSON.parse(contents)).toEqual({
             url: "https://cyclecloud.example.com",
             username: "cyclecloud-poc",
