@@ -4,7 +4,7 @@ For normal installation and usage, see the [README](../README.md). This guide co
 
 ## Setup and verification
 
-Use the [runtime prerequisites](../README.md#quick-start-copilot-in-vs-code), plus **Python 3.9+** for the developer reset utility and the reset/installer terminal tests.
+Use the [runtime prerequisites](../README.md#quick-start-copilot-cli-and-copilot-in-vs-code), plus **Python 3.9+** for the developer reset utility and the reset/installer terminal tests.
 
 Install development dependencies and run verification:
 
@@ -41,27 +41,75 @@ Alternatively, pass the package directory explicitly: `sh /path/to/install.sh --
 
 `--local` explicitly switches this plugin's known GitHub marketplace registration to the local copy, without creating a second plugin or credential file. It refuses unrelated same-name sources. Complete the [credential setup](../README.md#1-install-and-configure) and [verification](../README.md#2-verify-the-setup) steps, then use the native `cyclecloud` tools. See [local installation and recovery](troubleshooting.md#local-installation-without-a-checkout-dependency) for details.
 
-## Reset installation state (development only)
+## Reset installation state
 
-To preview a fresh-install reset:
+Reset the installation when you need to test installation and credential setup from scratch, verify cleanup and reinstallation behavior, or rule out stale installed files, plugin registrations, or filesystem caches while debugging. For routine code changes, rerun `npm run install:local` instead of resetting.
 
-```bash
-npm run reset:dev
-```
+### Choose your test environment
 
-To perform it, fully quit VS Code (including Insiders), stop agent sessions using this plugin, and run from a standalone terminal:
+- **Normal development or debugging:** use your regular VS Code profile. You do not need a disposable profile to reset and reinstall the plugin.
+- **First-install testing:** use an empty disposable profile to test discovery, enablement, and access choices without your regular profile's saved settings. Resetting the installed plugin alone does not clear all of VS Code's remembered state. Do not create or open the disposable profile until after applying the reset, or the profile can discover the existing shared plugin before it is removed.
 
-```bash
-npm run reset:dev -- --apply
-```
+Profiles isolate VS Code settings and private plugin state, **not the installed plugin or its processes**. They share the same home directory and `~/.copilot` installation and credentials, so resetting from a test profile also affects the installation used by your regular profile. Switching profiles is not a workaround for a running-process reset refusal; follow the shutdown steps below regardless of which profile you choose.
 
-**This deletes credentials.** It unregisters this plugin and marketplace, deletes the Copilot plugin data directory, installed and managed packages, `~/.local/share/cyclecloud-mcp/`, and known plugin caches, removes matching user-level MCP entries, and clears this plugin's CLI disablement and VS Code enablement/tool-cache/trust entries. Review the preview's paths before applying. Rerunning is safe when the installation is already absent.
+### Reset and reinstall
 
-The utility requires **Python 3.9+** and Copilot CLI on Linux, macOS, or WSL; do not use sudo. It discovers standard stable/Insiders profiles, including the Windows desktop profile from WSL. For a custom VS Code user-data directory, append `--vscode-data-dir /path/to/user-data` (repeatable). It refuses to apply while an editor or an installed CycleCloud MCP process is running; it never kills processes.
+The utility requires **Python 3.9+** and Copilot CLI on Linux, macOS, or WSL; do not use sudo. **Applying the reset deletes the plugin's stored credentials**, so be ready to configure them again during installation.
 
-The checkout, build artifacts, unrelated plugins/settings, and shared logs/session history are preserved. Custom Copilot homes, unrecognized installations, and targeted JSONC configuration require manual cleanup; the script stops rather than rewriting comments or guessing. Workspace-specific registrations outside the standard user configuration files are not removed. This is an installation reset, not secure erasure or revocation of the CycleCloud account's password.
+1. Stop standalone Copilot CLI sessions using this plugin and **fully quit VS Code and VS Code Insiders**, including the disposable-profile window if you created one.
+2. Open a **standalone terminal** (a standalone WSL terminal for a WSL checkout, not VS Code's integrated terminal) and change to this checkout.
+3. Preview the reset and review the listed paths:
 
-The developer utility is excluded from the `package:local` artifact and is never invoked by the normal installer. Its isolated filesystem/SQLite tests run with `npm run test:reset` and as part of `npm run verify`.
+    ```bash
+    npm run reset:dev
+    ```
+
+4. Apply the reset **before reopening VS Code**:
+
+    ```bash
+    npm run reset:dev:apply
+    ```
+
+    This is shorthand for `npm run reset:dev -- --apply`. Avoid editing the affected configuration files during reset. Rerunning is safe when the installation is already absent.
+
+The utility discovers standard stable/Insiders profiles, including the Windows desktop profile from WSL. For a custom VS Code user-data directory, append `-- --vscode-data-dir /path/to/user-data` to **both** npm commands above; repeat the flag for additional directories.
+
+If the reset reports `Stop the installed CycleCloud MCP process before --apply`, ensure the owning agent/editor has exited. VS Code's MCP picker can show `cyclecloud` as **Stopped** while a Copilot headless agent still owns a running MCP subprocess. The guard checks for installed or cached MCP processes, not whether VS Code is open, but fully quitting the editor is the reliable way to stop editor-owned instances. The reset never kills processes itself.
+
+For first-install testing, prepare the disposable profile now, while the shared plugin installation is absent:
+
+1. Open VS Code and choose **File → New Window with Profile → New Profile…**.
+2. Create an empty profile named `CycleCloud MCP Test`, without copying settings or extensions from an existing profile, and open a window with it.
+3. Install or enable GitHub Copilot in that profile if needed, then open this repository in the same Linux, macOS, or WSL environment.
+4. Fully quit VS Code and VS Code Insiders again before reinstalling.
+
+Keep VS Code closed while reinstalling so an agent cannot launch the server before installation is complete. Choose one reinstall path:
+
+- Current local checkout:
+
+    ```bash
+    npm run install:local
+    ```
+
+- Published GitHub marketplace version:
+
+    ```bash
+    (set -o pipefail; curl -fsSL https://raw.githubusercontent.com/gingi/cyclecloud-mcp/main/install.sh | sh)
+    ```
+
+Then reopen VS Code with your chosen profile and this repository. Verify that `cyclecloud-mcp` is enabled in **Agent Plugins: Installed**, start a new agent session, and follow the [quick-start verification steps](../README.md#2-verify-the-setup).
+
+When first-install testing is complete, switch back to your normal profile and remove `CycleCloud MCP Test` using VS Code's profile management UI. Removing the profile does not undo changes to the shared plugin installation.
+
+### Scope and limitations
+
+The reset unregisters this plugin and marketplace, deletes the Copilot plugin data directory (including credentials), installed and managed packages, `~/.local/share/cyclecloud-mcp/`, and known filesystem plugin caches. It also removes matching user-level MCP/plugin registrations and clears this plugin's explicit enablement flags in JSON settings.
+
+The checkout, build artifacts, unrelated plugins/settings, and shared logs/session history are preserved. The reset does not open or modify VS Code's `state.vscdb`: remembered plugin enablement, marketplace trust, and tool metadata in that database remain, so reinstalling in an existing profile may retain previous choices. This is why first-install testing uses a disposable profile in addition to the installation reset.
+
+Custom Copilot homes, unrecognized installations, and targeted JSONC configuration require manual cleanup; the script stops rather than rewriting comments or guessing. Workspace-specific registrations outside the standard user configuration files are not removed. This is an installation reset, not secure erasure or revocation of the CycleCloud account's password.
+
+The developer utility is excluded from the `package:local` artifact and is never invoked by the normal installer. Its isolated cleanup and database-preservation tests run with `npm run test:reset` and as part of `npm run verify`.
 
 ## Bundle-only deployment
 

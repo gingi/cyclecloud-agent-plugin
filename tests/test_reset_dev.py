@@ -32,6 +32,7 @@ class ResetTest(unittest.TestCase):
         self.managed = self.home / ".local/share/cyclecloud-mcp/marketplace"
         self.data = self.home / ".copilot/plugin-data/cyclecloud-mcp/cyclecloud-mcp"
         self.settings = self.home / ".copilot/settings.json"
+        self.cli_config = self.home / ".copilot/config.json"
         self.mcp = self.profile / "User/mcp.json"
         self.db = self.profile / "User/globalStorage/state.vscdb"
         self.plugin = True
@@ -126,13 +127,33 @@ class ResetTest(unittest.TestCase):
         self.assertEqual(before, self.snapshot())
         self.assertTrue(self.plugin)
         self.assertTrue(self.marketplace)
-        self.assertIn("--apply", text)
+        self.assertIn("reset:dev:apply", text)
+        self.assertIn("VS Code can remain open", text)
+        self.assertNotIn("Fully quit", text)
         self.assertIn(str(self.data.parent), text)
         self.assertTrue(all("list" in call for call in self.calls))
 
-    def test_apply_removes_all_known_state_preserving_unrelated_data(self):
+    def test_preview_ignores_copilot_cli_owned_jsonc_config(self):
         self.seed()
-        self.execute(apply=True)
+        contents = """{
+  // Copilot CLI owns and updates this inventory.
+  "installed_plugins": [
+    { "name": "cyclecloud-mcp", "enabled": true }
+  ]
+}
+"""
+        self.cli_config.write_text(contents)
+        self.cli_config.chmod(0o600)
+        self.execute()
+        self.assertEqual(self.cli_config.read_text(), contents)
+
+    def test_apply_removes_artifacts_preserving_editor_state_and_unrelated_data(self):
+        self.seed()
+        database_before = self.db.read_bytes()
+        output = self.execute(apply=True)
+        self.assertIn("state database was left untouched", output)
+        self.assertIn("disposable VS Code profile", output)
+        self.assertIn('enable cyclecloud-mcp in "Agent Plugins: Installed"', output)
         for path in [self.installed.parent, self.managed.parent, self.data.parent, self.cache]:
             self.assertFalse(path.exists(), path)
         settings = json.loads(self.settings.read_text())
@@ -143,13 +164,7 @@ class ResetTest(unittest.TestCase):
         self.assertEqual(list(mcp["servers"]), ["other"])
         self.assertEqual(mcp["inputs"], [{"id": "keep"}])
         self.assertTrue(self.other_file.exists())
-        with sqlite3.connect(self.db) as con:
-            rows = {key: json.loads(value) for key, value in con.execute("select key,value from ItemTable")}
-            self.assertEqual(con.execute("pragma quick_check").fetchone()[0], "ok")
-        self.assertEqual(rows["unrelated"], self.rows["unrelated"])
-        self.assertEqual(rows["agentPlugins.enablement"], [["file:///other/plugin", False]])
-        self.assertEqual(rows["mcpToolCache"], {"extensionServers": ["preserve"], "serverTools": [["mcp.config.user.other", {"tools": ["keep"]}]]})
-        self.assertEqual(rows["chat.plugins.trustedMarketplaces.v1"], ["github:other/repo"])
+        self.assertEqual(self.db.read_bytes(), database_before)
         before = self.snapshot()
         self.execute(apply=True)
         self.assertEqual(before, self.snapshot())
@@ -171,9 +186,9 @@ class ResetTest(unittest.TestCase):
         self.assertEqual(before, self.snapshot())
         self.assertTrue(self.plugin)
 
-    def test_refuses_active_editor_before_mutation(self):
+    def test_refuses_active_mcp_before_mutation(self):
         self.seed()
-        self.reset.ensure_stopped.side_effect = reset_dev.ResetError("Close VS Code first")
+        self.reset.ensure_stopped.side_effect = reset_dev.ResetError("Stop the installed CycleCloud MCP process")
         before = self.snapshot()
         with self.assertRaises(reset_dev.ResetError):
             self.execute(apply=True)
@@ -199,13 +214,42 @@ class ResetTest(unittest.TestCase):
         self.assertTrue(self.plugin)
         self.assertEqual(self.mcp.read_text(), "// retain user comments\n" + original)
 
-    def test_refuses_unexpected_database_schema_before_mutation(self):
+    def test_never_opens_editor_databases_in_preview_or_apply(self):
         self.seed()
-        with sqlite3.connect(self.db) as con:
-            con.execute("update ItemTable set value=? where key=?", (json.dumps({"cyclecloud-mcp": False}), "agentPlugins.enablement"))
-        with self.assertRaises(reset_dev.ResetError):
+        named_profile = self.profile / "User/profiles/named"
+        named_db = named_profile / "globalStorage/state.vscdb"
+        named_db.parent.mkdir(parents=True)
+        named_db.write_bytes(b"opaque editor state: cyclecloud-mcp")
+        write_json(named_profile / "mcp.json", {"servers": {
+            "cyclecloud": {"command": "node", "args": [str(self.installed / "bin/cyclecloud-mcp.mjs")]},
+        }})
+        before = {path: path.read_bytes() for path in (self.db, named_db)}
+        with patch("sqlite3.connect", side_effect=AssertionError("Reset must not open editor databases")):
+            preview = self.execute()
+            self.assertNotIn("state.vscdb", preview)
             self.execute(apply=True)
-        self.assertTrue(self.plugin)
+        for path, contents in before.items():
+            self.assertEqual(path.read_bytes(), contents)
+        self.assertEqual(json.loads((named_profile / "mcp.json").read_text()), {"servers": {}})
+
+    def test_ignores_unreadable_or_non_sqlite_editor_state(self):
+        self.seed()
+        self.db.write_bytes(b"not a SQLite database: cyclecloud-mcp")
+        self.db.chmod(0o000)
+        try:
+            self.execute(apply=True)
+            self.assertEqual(self.db.stat().st_mode & 0o777, 0o000)
+        finally:
+            self.db.chmod(0o600)
+        self.assertEqual(self.db.read_bytes(), b"not a SQLite database: cyclecloud-mcp")
+
+    def test_rechecks_active_mcp_after_cli_operations(self):
+        self.seed()
+        self.reset.ensure_stopped.side_effect = [None, reset_dev.ResetError("Stop the installed CycleCloud MCP process")]
+        with self.assertRaisesRegex(reset_dev.ResetError, "Stop the installed"):
+            self.execute(apply=True)
+        self.assertTrue(self.installed.exists())
+        self.assertTrue(self.data.exists())
 
     def test_cli_failure_keeps_files_and_allows_retry(self):
         self.seed()
@@ -225,12 +269,12 @@ class ResetTest(unittest.TestCase):
             self.execute(apply=True)
         self.assertTrue(self.plugin)
 
-    def test_windows_editor_detection_allows_only_known_helpers(self):
-        self.assertFalse(reset_dev.is_windows_editor('"Code - Insiders.exe" --type=crashpad-handler'))
-        self.assertFalse(reset_dev.is_windows_editor('"Code - Insiders.exe" c:\\extensions\\ms-vscode-remote.remote-wsl-0.1\\dist\\node\\wslDaemon.js'))
-        self.assertTrue(reset_dev.is_windows_editor('"Code - Insiders.exe" --type=utility'))
-        self.assertTrue(reset_dev.is_windows_editor('"Code.exe"'))
-        self.assertTrue(reset_dev.is_windows_editor(None))
+    def test_wsl_guard_does_not_query_windows_editors(self):
+        self.guard.stop()
+        with patch.dict(os.environ, {"WSL_DISTRO_NAME": "Test-Distro"}):
+            with patch.object(self.reset, "run", return_value="code /usr/bin/code\n") as run:
+                self.reset.ensure_stopped()
+            run.assert_called_once_with(["ps", "-u", str(os.getuid()), "-o", "comm=,args="])
 
     def test_already_absent_install_is_safe(self):
         self.plugin = False
@@ -250,15 +294,16 @@ class ResetTest(unittest.TestCase):
         self.assertFalse(self.installed.exists())
         self.assertFalse(self.data.exists())
 
-    def test_removes_an_old_workspace_only_tool_cache(self):
-        self.seed()
-        with sqlite3.connect(self.db) as con:
-            con.execute("update ItemTable set value=? where key=?", (
-                json.dumps({"serverTools": [["workspace-dot-mcp.0.cyclecloud", {"tools": []}]]}), "mcpToolCache"))
-        self.execute(apply=True)
-        with sqlite3.connect(self.db) as con:
-            value = json.loads(con.execute("select value from ItemTable where key='mcpToolCache'").fetchone()[0])
-        self.assertEqual(value["serverTools"], [])
+    def test_editor_database_alone_does_not_require_reset(self):
+        self.plugin = False
+        self.marketplace = False
+        self.db.parent.mkdir(parents=True)
+        self.db.write_bytes(b"remembered cyclecloud-mcp trust and enablement")
+        before = self.snapshot()
+        text = self.execute(apply=True)
+        self.assertIn("No CycleCloud installation state remains", text)
+        self.assertEqual(before, self.snapshot())
+        self.reset.ensure_stopped.assert_not_called()
 
     def test_rejects_other_registered_plugins_in_the_same_marketplace(self):
         self.seed()
@@ -300,7 +345,7 @@ if "list" not in args: state.write_text(json.dumps(value))
 ''')
         cli.chmod(0o700)
         ps = commands / "ps"
-        ps.write_text(f"#!{sys.executable}\n")
+        ps.write_text(f"#!{sys.executable}\nprint('code /usr/bin/code')\n")
         ps.chmod(0o700)
         write_json(self.home / "cli.json", {"plugin": True, "marketplace": True})
         env = {"HOME": str(self.home), "PATH": str(commands)}
@@ -317,16 +362,30 @@ if "list" not in args: state.write_text(json.dumps(value))
         result = subprocess.run([*command, "--apply"], env=env, capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_native_editor_and_cached_mcp_process_detection(self):
+    def test_allows_native_editors_and_unrelated_mcp_processes(self):
         self.guard.stop()
         with patch.dict(os.environ, {}, clear=True):
-            self.reset.run = lambda args: "Electron /Applications/Visual Studio Code.app/Contents/MacOS/Electron\n"
-            with self.assertRaises(reset_dev.ResetError):
-                self.reset.ensure_stopped()
-            cache = self.profile / "agentPlugins" / reset_dev.cache_name(self.installed)
-            self.reset.run = lambda args: "node " + str(cache / "version/bin/cyclecloud-mcp.mjs")
-            with self.assertRaises(reset_dev.ResetError):
-                self.reset.ensure_stopped()
+            for line in ["code /usr/bin/code", "code-insiders /usr/bin/code-insiders",
+                         "Electron /Applications/Visual Studio Code.app/Contents/MacOS/Electron",
+                         "node /other/project/bin/cyclecloud-mcp.mjs"]:
+                with self.subTest(process=line):
+                    self.reset.run = lambda args: line
+                    self.reset.ensure_stopped()
+
+    def test_refuses_installed_managed_and_cached_mcp_processes(self):
+        self.guard.stop()
+        with patch.dict(os.environ, {}, clear=True):
+            for root in [self.installed, self.managed, *(
+                    self.profile / "agentPlugins" / reset_dev.cache_name(root) / "version"
+                    for root in (self.installed, self.managed))]:
+                with self.subTest(root=root):
+                    self.reset.run = lambda args: "node " + str(root / "bin/cyclecloud-mcp.mjs")
+                    with self.assertRaisesRegex(reset_dev.ResetError, "Stop the installed"):
+                        self.reset.ensure_stopped()
+
+    def test_npm_apply_task_adds_the_apply_flag(self):
+        scripts = json.loads((ROOT / "package.json").read_text())["scripts"]
+        self.assertEqual(scripts["reset:dev:apply"], scripts["reset:dev"] + " --apply")
 
     def test_remote_enablement_is_scoped_to_the_current_wsl_distribution(self):
         self.reset.wsl_distribution = "Test-Distro"

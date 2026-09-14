@@ -29,12 +29,31 @@ These commands install the revision from the GitHub marketplace, not uncommitted
 
 - Run `copilot plugin list` in the environment where the agent runs. The plugin must be present and enabled. A local install may say **live** rather than **installed**. CLI inventory alone does not prove VS Code discovery: confirm the installed copy exists under `~/.copilot/installed-plugins/cyclecloud-mcp/cyclecloud-mcp/`. Rerun the current local installer to create or repair it.
 - After installation or a configuration change, start a new agent session in VS Code or Copilot CLI. In VS Code, run **Developer: Reload Window** before checking **Agent Plugins - Installed**. Plugin discovery and configuration loading are not guaranteed to update an existing session.
-- In VS Code, ensure **Chat: Plugins Enabled** is on and `cyclecloud-mcp` is enabled in **Agent Plugins - Installed**, then start a new agent session. The global setting enables the feature, not every individual plugin. VS Code remembers per-plugin disabled state independently of Copilot CLI; the installer does not change VS Code's private enablement database.
+- In VS Code, ensure **Chat: Plugins Enabled** is on and `cyclecloud-mcp` is enabled in **Agent Plugins: Installed**, then approve any access prompt and start a new agent session. The global setting enables the feature, not every individual plugin. VS Code remembers per-plugin enablement and access state independently of Copilot CLI; the installer cannot safely change VS Code's private state database.
+- If `agenthost.log` says `Failed to sync plugin ... Access ... is not granted`, VS Code discovered the installation but could not read it through the agent-host file-access service. This can happen even when the plugin is enabled and no approval prompt appears; see [WSL/remote Agent Host plugin-sync failures](#wslremote-agent-host-plugin-sync-failures).
 - In WSL, install and run the agent in the same distribution. Native Windows is not supported.
 - Send a real chat message before diagnosing an idle server: some agent hosts defer runtime startup until the first message.
 - Open **MCP: List Servers → cyclecloud → Show Output** for the active session. A model saying a tool is unavailable is not itself a launch diagnostic.
 - If output is blank, use **Developer: Open Logs Folder**. Agent-host launches report MCP inventory/errors in `agenthost.log`; native launches use the window's `mcpServer` log.
 - A cloud-hosted agent does not automatically have files or credentials installed on your workstation. Install in the environment running the agent; cloud execution has not been verified for this POC.
+
+### WSL/remote Agent Host plugin-sync failures
+
+An enabled plugin can still fail to load into a VS Code agent session. In VS Code Insiders `1.138.0-insider` on WSL, the following error was observed before the installed MCP server started:
+
+```text
+[AgentPluginManager] Failed to sync plugin
+file:///home/<user>/.copilot/installed-plugins/cyclecloud-mcp/cyclecloud-mcp:
+Access ... is not granted.
+```
+
+Plugin enablement and the agent host's file-access grants are separate. This error path rejects the read without opening an approval prompt; it does not necessarily mean the user missed a trust dialog. Reinstalling, toggling enablement, or changing filesystem permissions does not address a URI-translation defect.
+
+Inspection of that build identified a suspected WSL URI mismatch: the client grants access to a `vscode-remote://…` plugin URI, the transport sends it to the host as `file:///home/…`, and the reverse file request is not translated back to the granted URI. This was established by code inspection, not an end-to-end reproduction of the proposed cause.
+
+**Workaround to try:** run `copilot` directly in a WSL terminal in the distribution where the plugin is installed, then ask it to use the registered `list_clusters` tool. This avoids VS Code's plugin-sync transport. A terminal command that constructs an MCP client and launches the development checkout is not verification of the installed plugin, even if it returns clusters.
+
+If reporting the issue upstream, include the VS Code version and commit, WSL distribution, enabled-plugin state, and redacted `agenthost.log` sync error. Describe the URI mismatch as a suspected cause. Do not include the credential file.
 
 ## Installer download options
 

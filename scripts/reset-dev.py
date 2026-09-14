@@ -8,7 +8,6 @@ import os
 from pathlib import Path, PureWindowsPath
 import re
 import shutil
-import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -17,7 +16,6 @@ from urllib.parse import unquote, urlsplit
 NAME = "cyclecloud-mcp"
 PLUGIN_ID = NAME + "@" + NAME
 SERVER_NAMES = {"cyclecloud", "cyclecloud-local"}
-STATE_KEYS = ("agentPlugins.enablement", "mcpToolCache", "chat.plugins.trustedMarketplaces.v1")
 POWERSHELL = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
 
 
@@ -73,26 +71,6 @@ def safe_path(path, kind=None):
 
 def cache_name(root):
     return re.sub(r"[^a-zA-Z0-9]+", "-", "file://" + str(root)).strip("-")
-
-
-def is_windows_editor(command):
-    if not command:
-        return True
-    return not ("--type=crashpad-handler" in command or
-                ("ms-vscode-remote.remote-wsl-" in command and "wslDaemon.js" in command))
-
-
-def windows_processes(run):
-    output = run([POWERSHELL, "-NoProfile", "-NonInteractive", "-Command",
-                  "@(Get-CimInstance Win32_Process | Where-Object { $_.Name -in "
-                  "@('Code.exe','Code - Insiders.exe') } | Select-Object ProcessId,CommandLine) "
-                  "| ConvertTo-Json -Compress"])
-    rows = strict_json(output, "Windows process list") if output.strip() else []
-    if isinstance(rows, dict):
-        rows = [rows]
-    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
-        raise ResetError("Unexpected Windows process list; cannot verify that editors are closed")
-    return rows
 
 
 def discover_profiles(home, extra, run=run_command):
@@ -232,73 +210,12 @@ class Reset:
         updated, changes = self.clean_config(strict_json(text, str(path)))
         return (updated, changes) if changes else None
 
-    def clean_state(self, key, value):
-        if key == "agentPlugins.enablement":
-            if not isinstance(value, list) or any(not isinstance(p, list) or len(p) != 2 for p in value):
-                raise ResetError("Unexpected plugin enablement state shape")
-            return [pair for pair in value if not self.plugin_reference(pair[0])]
-        if key == "chat.plugins.trustedMarketplaces.v1":
-            if not isinstance(value, list):
-                raise ResetError("Unexpected marketplace trust state shape")
-            return [item for item in value if item != "github:gingi/cyclecloud-mcp" and not self.plugin_reference(item)]
-        if not isinstance(value, dict) or not isinstance(value.get("serverTools"), list):
-            raise ResetError("Unexpected MCP tool cache state shape")
-        retained = []
-        for pair in value["serverTools"]:
-            if not isinstance(pair, list) or len(pair) != 2 or not isinstance(pair[0], str):
-                raise ResetError("Unexpected MCP tool cache entry")
-            if pair[0].endswith((".cyclecloud", ".cyclecloud-local")):
-                continue
-            retained.append(pair)
-        return {**value, "serverTools": retained}
-
-    def database_changes(self, path, apply=False):
-        if not safe_path(path, "file"):
-            return []
-        connection = sqlite3.connect(path.as_uri() + ("?mode=rw" if apply else "?mode=ro"), uri=True, timeout=5)
-        changes = []
-        try:
-            if connection.execute("pragma quick_check").fetchone()[0] != "ok":
-                raise ResetError(f"Database integrity check failed: {path}")
-            if apply:
-                connection.execute("begin immediate")
-            for key in STATE_KEYS:
-                row = connection.execute("select value from ItemTable where key=?", (key,)).fetchone()
-                if row is None:
-                    continue
-                text = row[0].decode() if isinstance(row[0], bytes) else row[0]
-                if not isinstance(text, str):
-                    raise ResetError(f"Unexpected saved state type: {key}")
-                if not marked(text):
-                    continue
-                value = strict_json(text, key)
-                updated = self.clean_state(key, value)
-                if updated == value:
-                    continue
-                changes.append(key)
-                if apply:
-                    encoded = json.dumps(updated, separators=(",", ":"), ensure_ascii=False)
-                    if isinstance(row[0], bytes):
-                        encoded = encoded.encode()
-                    connection.execute("update ItemTable set value=? where key=?", (encoded, key))
-            if apply:
-                connection.commit()
-                if connection.execute("pragma quick_check").fetchone()[0] != "ok":
-                    raise ResetError(f"Database integrity check failed: {path}")
-            return changes
-        except sqlite3.Error as error:
-            raise ResetError(f"Cannot safely access VS Code state: {path}") from error
-        finally:
-            connection.close()
-
     def prepare(self):
         plugin, marketplace = self.inventory()
         paths = [self.installed, self.managed.parent, self.data,
                  self.home / ".copilot/marketplace-cache/gingi-cyclecloud-mcp",
                  self.home / ".copilot/.cache/copilot/marketplaces/gingi-cyclecloud-mcp.lock"]
-        configs = [self.home / ".copilot/settings.json", self.home / ".copilot/config.json",
-                   self.home / ".copilot/mcp-config.json"]
-        databases = []
+        configs = [self.home / ".copilot/settings.json", self.home / ".copilot/mcp-config.json"]
         for profile in self.profiles:
             for root in (self.installed, self.managed):
                 paths.append(profile / "agentPlugins" / cache_name(root))
@@ -313,8 +230,6 @@ class Reset:
                         continue
                     safe_path(child, "dir")
                     configs.extend([child / "mcp.json", child / "settings.json"])
-                    databases.append(child / "globalStorage/state.vscdb")
-            databases.append(profile / "User/globalStorage/state.vscdb")
         existing = []
         for path in dict.fromkeys(paths):
             if safe_path(path, "file" if path.suffix == ".lock" else "dir"):
@@ -324,14 +239,10 @@ class Reset:
             if safe_path(leaf.parent, "dir") and (leaf.exists() or not any(leaf.parent.iterdir())):
                 prune.append(leaf.parent)
         config_changes = {p: change[1] for p in dict.fromkeys(configs) if (change := self.config_change(p))}
-        db_changes = {p: change for p in dict.fromkeys(databases) if (change := self.database_changes(p))}
         return {"plugin": plugin, "marketplace": marketplace, "paths": existing, "prune": prune,
-                "configs": config_changes, "databases": db_changes}
+                "configs": config_changes}
 
     def ensure_stopped(self):
-        if os.environ.get("WSL_INTEROP") or os.environ.get("WSL_DISTRO_NAME"):
-            if any(is_windows_editor(row.get("CommandLine")) for row in windows_processes(self.run)):
-                raise ResetError("Fully quit VS Code and VS Code Insiders before --apply; no processes were killed")
         output = self.run(["ps", "-u", str(os.getuid()), "-o", "comm=,args="])
         process_roots = [*self.roots, *(str(profile / "agentPlugins" / cache_name(root))
                          for profile in self.profiles for root in (self.installed, self.managed))]
@@ -339,9 +250,7 @@ class Reset:
             parts = line.strip().split(None, 1)
             if len(parts) < 2:
                 continue
-            name, args = parts
-            if name.lower() in {"code", "code-insiders", "code - insiders"} or "Visual Studio Code.app/Contents/MacOS/Electron" in line or "Visual Studio Code - Insiders.app/Contents/MacOS/Electron" in line:
-                raise ResetError("Fully quit VS Code before --apply; no processes were killed")
+            _, args = parts
             if "cyclecloud-mcp.mjs" in args and any(root in args for root in process_roots):
                 raise ResetError("Stop the installed CycleCloud MCP process before --apply; no processes were killed")
 
@@ -374,11 +283,10 @@ class Reset:
             print("DELETE " + str(path))
         for path in plan["prune"]:
             print("PRUNE IF EMPTY " + str(path))
-        for kind in ("configs", "databases"):
-            for path, entries in plan[kind].items():
-                print("EDIT " + str(path) + ": " + ", ".join(entries))
+        for path, entries in plan["configs"].items():
+            print("EDIT " + str(path) + ": " + ", ".join(entries))
         if not apply:
-            print("Preview only. Fully quit VS Code and stop agent sessions, then rerun with --apply.")
+            print("Preview only. Stop agent sessions using this plugin, then run npm run reset:dev:apply (or rerun with --apply). VS Code can remain open.")
             return
         if not any(plan.values()):
             print("No CycleCloud installation state remains.")
@@ -388,14 +296,11 @@ class Reset:
             self.run(["copilot", "plugin", "uninstall", PLUGIN_ID])
         if plan["marketplace"]:
             self.run(["copilot", "plugin", "marketplace", "remove", NAME])
+        self.ensure_stopped()  # The CLI operations may have taken time.
         # Uninstall can create a stale disabled flag even when none existed before.
-        configs = dict.fromkeys([*plan["configs"], self.home / ".copilot/settings.json", self.home / ".copilot/config.json"])
+        configs = dict.fromkeys([*plan["configs"], self.home / ".copilot/settings.json"])
         for path in configs:
             self.write_config(path)
-        if plan["databases"]:
-            self.ensure_stopped()  # The CLI operations may have taken time.
-        for path in plan["databases"]:
-            self.database_changes(path, apply=True)
         for path in plan["paths"]:
             if safe_path(path):
                 if path.is_dir():
@@ -408,6 +313,8 @@ class Reset:
         if any(self.prepare().values()):
             raise ResetError("Some CycleCloud installation state remains; rerun the preview before retrying")
         print("Reset verified. Checkout, unrelated plugins/settings, and shared logs/history were preserved.")
+        print("VS Code's state database was left untouched, so a reinstall can retain prior plugin enablement and access choices.")
+        print('Use a disposable VS Code profile to test a true first install; otherwise reload VS Code and enable cyclecloud-mcp in "Agent Plugins: Installed".')
 
 
 def main():
