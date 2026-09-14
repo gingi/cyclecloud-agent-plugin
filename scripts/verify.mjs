@@ -4,7 +4,15 @@ const npmCli = process.env.npm_execpath;
 if (npmCli === undefined)
     throw new Error("npm_execpath is required to run verification");
 
-const steps = ["format:check", "lint", "typecheck", "build", "test", "audit"];
+const steps = [
+    "format:check",
+    "lint",
+    "typecheck",
+    "build",
+    "test",
+    "test:reset",
+    "audit",
+];
 for (const step of steps) {
     const code = await new Promise((resolve, reject) => {
         const child = spawn(process.execPath, [npmCli, "run", step], {

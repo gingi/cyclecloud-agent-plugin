@@ -12,6 +12,8 @@
         "install:local": "npm run package:local && sh dist/cyclecloud-mcp/install.sh --local",
         "deploy": "npm run build && node scripts/deploy.mjs deploy",
         "restore": "node scripts/deploy.mjs restore",
+        "reset:dev": "python3 -B scripts/reset-dev.py",
+        "test:reset": "python3 -B -m unittest discover -s tests -p test_reset_dev.py",
         "typecheck": "tsc --noEmit",
         "lint": "eslint .",
         "format:check": "prettier --check .",
