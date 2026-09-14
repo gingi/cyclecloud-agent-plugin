@@ -13,6 +13,7 @@
         "deploy": "npm run build && node scripts/deploy.mjs deploy",
         "restore": "node scripts/deploy.mjs restore",
         "reset:dev": "python3 -B scripts/reset-dev.py",
+        "reset:dev:apply": "python3 -B scripts/reset-dev.py --apply",
         "test:reset": "python3 -B -m unittest discover -s tests -p test_reset_dev.py",
         "typecheck": "tsc --noEmit",
         "lint": "eslint .",
