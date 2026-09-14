@@ -73,6 +73,7 @@ export type ToolErrorCategory =
     | "cluster_not_found"
     | "cyclecloud_rejected_request"
     | "cyclecloud_unavailable"
+    | "cyclecloud_unreachable"
     | "unexpected_redirect"
     | "tls_error"
     | "busy"
@@ -88,6 +89,8 @@ export const toolErrorMessages: Readonly<Record<ToolErrorCategory, string>> = {
     cluster_not_found: "CycleCloud did not return the requested cluster.",
     cyclecloud_rejected_request: "CycleCloud rejected the request.",
     cyclecloud_unavailable: "CycleCloud is unavailable.",
+    cyclecloud_unreachable:
+        "The CycleCloud instance is unreachable. Check that CycleCloud is running, the configured URL is correct, and network/VPN access is available before retrying.",
     unexpected_redirect:
         "CycleCloud returned an unexpected redirect. Check the configured URL.",
     tls_error:

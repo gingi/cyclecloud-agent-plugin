@@ -37631,6 +37631,7 @@ var toolErrorMessages = {
   cluster_not_found: "CycleCloud did not return the requested cluster.",
   cyclecloud_rejected_request: "CycleCloud rejected the request.",
   cyclecloud_unavailable: "CycleCloud is unavailable.",
+  cyclecloud_unreachable: "The CycleCloud instance is unreachable. Check that CycleCloud is running, the configured URL is correct, and network/VPN access is available before retrying.",
   unexpected_redirect: "CycleCloud returned an unexpected redirect. Check the configured URL.",
   tls_error: "CycleCloud TLS certificate validation failed. Check the configured host and trust settings.",
   busy: "The CycleCloud plugin is busy. Try the request again later.",
@@ -37664,7 +37665,14 @@ var tlsErrorCodes = /* @__PURE__ */ new Set([
   "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
   "ERR_TLS_CERT_ALTNAME_INVALID"
 ]);
-var networkErrorCodes = /* @__PURE__ */ new Set(["ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED"]);
+var unreachableErrorCodes = /* @__PURE__ */ new Set([
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ECONNREFUSED",
+  "ENETUNREACH",
+  "EHOSTUNREACH",
+  "UND_ERR_CONNECT_TIMEOUT"
+]);
 async function createCycleCloudClient(settings, credentials) {
   const dispatcher = await createDispatcher(settings);
   return new HttpCycleCloudClient(settings, credentials, dispatcher);
@@ -37925,22 +37933,24 @@ function readStatusError(status) {
     return new CycleCloudRequestError("cyclecloud_rejected_request", false);
   return new CycleCloudRequestError("cyclecloud_unavailable", true);
 }
-function classifyCause(error2) {
-  const seen = /* @__PURE__ */ new Set();
-  let current = error2;
-  for (let depth = 0; depth < 4 && typeof current === "object" && current !== null && !seen.has(current); depth += 1) {
-    seen.add(current);
-    if ("code" in current && typeof current.code === "string") {
-      if (tlsErrorCodes.has(current.code))
-        return new CycleCloudRequestError("tls_error", false);
-      if (networkErrorCodes.has(current.code))
-        return new CycleCloudRequestError("network_error", true);
-      if (current.code === "UND_ERR_CONNECT_TIMEOUT")
-        return new CycleCloudRequestError("timeout", true);
+function classifyCause(error2, depth = 0) {
+  if (depth >= 4 || typeof error2 !== "object" || error2 === null)
+    return void 0;
+  if (error2 instanceof AggregateError) {
+    if (error2.errors.length > 0 && error2.errors.every(
+      (cause) => classifyCause(cause, depth + 1)?.category === "cyclecloud_unreachable"
+    )) {
+      return new CycleCloudRequestError("cyclecloud_unreachable", true);
     }
-    current = "cause" in current ? current.cause : void 0;
+    return void 0;
   }
-  return void 0;
+  if ("code" in error2 && typeof error2.code === "string") {
+    if (tlsErrorCodes.has(error2.code))
+      return new CycleCloudRequestError("tls_error", false);
+    if (unreachableErrorCodes.has(error2.code))
+      return new CycleCloudRequestError("cyclecloud_unreachable", true);
+  }
+  return "cause" in error2 ? classifyCause(error2.cause, depth + 1) : void 0;
 }
 
 // src/config.ts

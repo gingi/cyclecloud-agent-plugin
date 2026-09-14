@@ -21,7 +21,14 @@ const tlsErrorCodes = new Set([
     "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
     "ERR_TLS_CERT_ALTNAME_INVALID",
 ]);
-const networkErrorCodes = new Set(["ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED"]);
+const unreachableErrorCodes = new Set([
+    "ENOTFOUND",
+    "EAI_AGAIN",
+    "ECONNREFUSED",
+    "ENETUNREACH",
+    "EHOSTUNREACH",
+    "UND_ERR_CONNECT_TIMEOUT",
+]);
 
 export interface CycleCloudRequestOptions {
     readonly signal?: AbortSignal;
@@ -400,27 +407,33 @@ function readStatusError(status: number): CycleCloudRequestError {
     return new CycleCloudRequestError("cyclecloud_unavailable", true);
 }
 
-function classifyCause(error: unknown): CycleCloudRequestError | undefined {
-    const seen = new Set<object>();
-    let current: unknown = error;
-    for (
-        let depth = 0;
-        depth < 4 &&
-        typeof current === "object" &&
-        current !== null &&
-        !seen.has(current);
-        depth += 1
-    ) {
-        seen.add(current);
-        if ("code" in current && typeof current.code === "string") {
-            if (tlsErrorCodes.has(current.code))
-                return new CycleCloudRequestError("tls_error", false);
-            if (networkErrorCodes.has(current.code))
-                return new CycleCloudRequestError("network_error", true);
-            if (current.code === "UND_ERR_CONNECT_TIMEOUT")
-                return new CycleCloudRequestError("timeout", true);
+function classifyCause(
+    error: unknown,
+    depth = 0,
+): CycleCloudRequestError | undefined {
+    if (depth >= 4 || typeof error !== "object" || error === null)
+        return undefined;
+
+    // Node can aggregate failed IPv4/IPv6 connection attempts. Only declare
+    // the instance unreachable if every attempt failed before dispatch.
+    if (error instanceof AggregateError) {
+        if (
+            error.errors.length > 0 &&
+            error.errors.every(
+                (cause: unknown) =>
+                    classifyCause(cause, depth + 1)?.category ===
+                    "cyclecloud_unreachable",
+            )
+        ) {
+            return new CycleCloudRequestError("cyclecloud_unreachable", true);
         }
-        current = "cause" in current ? current.cause : undefined;
+        return undefined;
     }
-    return undefined;
+    if ("code" in error && typeof error.code === "string") {
+        if (tlsErrorCodes.has(error.code))
+            return new CycleCloudRequestError("tls_error", false);
+        if (unreachableErrorCodes.has(error.code))
+            return new CycleCloudRequestError("cyclecloud_unreachable", true);
+    }
+    return "cause" in error ? classifyCause(error.cause, depth + 1) : undefined;
 }

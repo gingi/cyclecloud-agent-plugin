@@ -3,6 +3,12 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { afterEach, describe, expect, test } from "vitest";
 import { createCycleCloudMcpServer } from "../src/server.js";
+import {
+    createCycleCloudClient,
+    type CycleCloudClient,
+} from "../src/cyclecloud-client.js";
+import { createFileCredentialProvider } from "../src/credentials.js";
+import { startFakeCycleCloudServer } from "./helpers/fake-cyclecloud.js";
 import { FakeCycleCloudClient } from "./helpers/fake-client.js";
 
 interface ConnectedServer {
@@ -21,7 +27,7 @@ afterEach(async () => {
 });
 
 async function connectServer(options: {
-    readonly cycleCloud: FakeCycleCloudClient;
+    readonly cycleCloud: CycleCloudClient;
     readonly enableMutations?: boolean;
     readonly onWarning?: (warning: string) => void;
 }): Promise<ConnectedServer> {
@@ -125,6 +131,58 @@ describe("CycleCloud MCP discovery", () => {
 });
 
 describe("CycleCloud MCP calls", () => {
+    test.each([
+        "list_clusters",
+        "get_cluster",
+        "get_cluster_status",
+        "start_cluster",
+        "terminate_cluster",
+    ])("Reports an unreachable instance through %s", async (name) => {
+        const backend = await startFakeCycleCloudServer();
+        await backend.close();
+        const cycleCloud = await createCycleCloudClient(
+            {
+                url: backend.origin,
+                verifyTls: true,
+                allowInsecureHttp: true,
+                enableMutations: true,
+                requestTimeoutMs: 1_000,
+                actionTimeoutMs: 1_000,
+                debug: false,
+            },
+            createFileCredentialProvider({
+                username: "test-user",
+                password: "test-password",
+            }),
+        );
+        try {
+            const { client } = await connectServer({
+                cycleCloud,
+                enableMutations: true,
+            });
+            const result = await client.callTool({
+                name,
+                arguments:
+                    name === "list_clusters"
+                        ? {}
+                        : { clusterName: "cluster-1" },
+            });
+            const message =
+                "The CycleCloud instance is unreachable. Check that CycleCloud is running, the configured URL is correct, and network/VPN access is available before retrying.";
+            expect(result.isError).toBe(true);
+            expect(result.structuredContent).toEqual({
+                error: {
+                    category: "cyclecloud_unreachable",
+                    message,
+                    retryable: true,
+                },
+            });
+            expect(result.content).toEqual([{ type: "text", text: message }]);
+        } finally {
+            await cycleCloud.close();
+        }
+    });
+
     test("Returns structured bounded read content and applies input defaults", async () => {
         const cycleCloud = new FakeCycleCloudClient();
         cycleCloud.listResult = [{ ClusterName: "cluster-1" }];
