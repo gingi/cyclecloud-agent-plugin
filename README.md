@@ -29,19 +29,19 @@ Review the plugin before installing: it runs code with your OS user's permission
 
     Never paste the password into Chat or commit this file. Use verified HTTPS for remote CycleCloud. For a backend in the same environment, `http://127.0.0.1:8080` is allowed for this POC. See [configuration and security](docs/configuration.md) for private CAs and all other options.
 
-4. Enable **Chat: Plugins Enabled** in VS Code if needed.
+4. Run **Developer: Reload Window** from the VS Code Command Palette. A plugin installed by the script may not appear in **Agent Plugins - Installed** until the window reloads.
 
-5. Disable `cyclecloud-mcp` in VS Code's **Agent Plugins - Installed** view while the [VS Code plugin-launcher issue](https://github.com/microsoft/vscode/issues/335006) remains. Keep the plugin installed.
+5. After reloading, enable **Chat: Plugins Enabled** if needed.
 
-6. Run **Developer: Reload Window**.
+6. Open **Agent Plugins - Installed** and confirm that `cyclecloud-mcp` appears and is enabled. The global setting enables the plugin feature, not each individual plugin; the installer does not change your enablement settings.
 
 ### 2. Verify the setup
 
-1. Start a new Copilot session. Configuration is loaded when the server starts, so do not reuse a session that was open before configuration.
+1. Start a fresh connected agent session in the environment where you installed the plugin. Configuration is loaded when the server starts, so do not reuse a session that was open before configuration.
 
 2. Send:
 
-    > Use the cyclecloud MCP server's list_clusters tool to list my clusters. Do not use terminal commands or direct HTTP requests.
+    > Use the cyclecloud MCP to list my clusters
 
 3. Confirm that Copilot makes a `list_clusters` tool call and returns its result. No manual server start is needed.
 
@@ -64,47 +64,31 @@ The optional `issueLimit` defaults to 20 (range 0–100). Errors precede warning
 
 If the internal query is unavailable, denied, malformed, or exceeds the response-size limit, lifecycle/capacity status still returns with `issues.available: false` and a warning. This is **not** a claim that the cluster has no errors. A successful empty query instead returns `available: true`, `total: 0`. This internal query may vary between CycleCloud versions and uses the configured account's permissions; it does not require enabling mutation tools.
 
+## Install a local or unpublished build
+
+See the [development guide](docs/development.md#install-a-local-or-unpublished-build) to build and install from a checkout or distribute a self-contained local package. Local installations use the same private configuration file as remote installations.
+
 ## Update or remove
 
-To update, run these commands, reload VS Code, and start a fresh Copilot session:
+For a **local installation**, rerun `sh install.sh --local` from a new package, or follow the [local-build workflow](docs/development.md#install-a-local-or-unpublished-build). For a **remote GitHub installation**, run these commands, reload VS Code, and start a fresh connected agent session:
 
 ```bash
 copilot plugin marketplace update cyclecloud-mcp
 copilot plugin update cyclecloud-mcp@cyclecloud-mcp
 ```
 
-To remove, end sessions using the plugin, remove any optional `cyclecloud-local` registration, then run:
+To remove, end sessions using the plugin, then run:
 
 ```bash
 copilot plugin uninstall cyclecloud-mcp@cyclecloud-mcp
 copilot plugin marketplace remove cyclecloud-mcp
 ```
 
-Delete the credential file from the Copilot data directory and revoke the dedicated account's credential. If you used the older Local workaround, also clean up its copy in `~/.local/share/cyclecloud-mcp/`. Uninstalling does not delete credentials. Reload VS Code afterward.
-
-## Developer workflow
-
-To test uncommitted changes through your existing installed plugin, run from this checkout:
-
-```bash
-npm run deploy
-```
-
-This rebuilds the bundle and replaces `~/.copilot/installed-plugins/cyclecloud-mcp/cyclecloud-mcp/bin/cyclecloud-mcp.mjs`. The plugin must already be installed at that default path. Its original bundle is saved alongside it as `cyclecloud-mcp.mjs.before-local-test`; repeated deploys preserve that original backup. Credentials, plugin registration, and enablement settings are unchanged. Nothing is committed, pushed, or published.
-
-Reload VS Code and start a fresh Copilot session after each deploy. If you use the optional Local registration, restart its MCP server instead. Then ask the tool to exercise your change.
-
-To undo the deployment:
-
-```bash
-npm run restore
-```
-
-Restore replaces the installed bundle with the original and removes the used backup; it does not require a local build. Restart the session/server again afterward. Restore before running a marketplace update so a later restore cannot roll that update back. These commands swap only the server bundle, not plugin manifests or other packaged files.
+Delete the credential file from the Copilot data directory and revoke the dedicated account's credential. For local-package installations, also remove the VS Code copy at `~/.copilot/installed-plugins/cyclecloud-mcp/cyclecloud-mcp/` if it remains: current CLI versions only disable live plugins on uninstall and do not delete their files. The managed `~/.local/share/cyclecloud-mcp/marketplace/` directory and `installation.json` receipt can then be removed. Uninstalling does not delete credentials. Reload VS Code afterward.
 
 ## More information
 
 - [Design and architecture](docs/cyclecloud-mcp-design.md)
 - [Configuration and security](docs/configuration.md)
-- [Troubleshooting and the optional Local workaround](docs/troubleshooting.md)
-- Development: `npm ci --ignore-scripts`, then `npm run verify` (tests, typecheck, lint, formatting, audit, and bundle checks). The dependency-complete `bin/cyclecloud-mcp.mjs` is committed; users do not need to build it.
+- [Troubleshooting and local installation](docs/troubleshooting.md)
+- [Development guide: setup, verification, local builds, reset, and deployment](docs/development.md)

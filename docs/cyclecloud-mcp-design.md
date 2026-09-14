@@ -2,7 +2,7 @@
 
 ## Purpose and scope
 
-CycleCloud MCP is a proof-of-concept Agent Plugins 1.0 package for inspecting Azure CycleCloud from GitHub Copilot. It contains a dependency-bundled, local stdio Model Context Protocol (MCP) server. Three read tools expose cluster inventory, configuration, lifecycle/capacity status, and node issues. Two optional tools start and terminate clusters; they are absent unless explicitly enabled at startup.
+CycleCloud MCP is a proof-of-concept Copilot agent plugin for inspecting Azure CycleCloud from GitHub Copilot. It contains a dependency-bundled, local stdio Model Context Protocol (MCP) server. Three read tools expose cluster inventory, configuration, lifecycle/capacity status, and node issues. Two optional tools start and terminate clusters; they are absent unless explicitly enabled at startup.
 
 The package is independent of VS Code APIs. It is an agent plugin, not a VS Code extension, and includes no skills, custom agents, slash commands, or hooks. The repository includes a Copilot marketplace catalog and an installer. The [README](../README.md) provides setup and usage instructions; [configuration](configuration.md) and [troubleshooting](troubleshooting.md) cover operator procedures.
 
@@ -22,7 +22,7 @@ The POC does not provide cluster creation, node-array scaling, individual node a
 Copilot plugin runtime / explicitly configured MCP host
     |
     | node <plugin-root>/bin/cyclecloud-mcp.mjs
-    | PLUGIN_ROOT and PLUGIN_DATA
+    | host resolves the executable path; server locates private configuration
     v
 index.ts: environment, configuration, client, stdio startup
     |
@@ -67,8 +67,8 @@ TypeScript uses strict checking and ECMAScript modules. Runtime dependencies are
 
 The repository root is the plugin root:
 
-- `plugin.json` declares the Agent Plugins 1.0 schema, name `cyclecloud-mcp`, version, description, and keywords.
-- `mcp.json` declares one server, `cyclecloud`, with `type: "stdio"`, `command: "node"`, and `args: ["${PLUGIN_ROOT}/bin/cyclecloud-mcp.mjs"]`.
+- `plugin.json` declares the name `cyclecloud-mcp`, version, description, and keywords using the Copilot plugin format supported by both hosts.
+- `plugin.json` includes an inline `mcpServers` declaration for `cyclecloud`, with `type: "stdio"`, `command: "node"`, and `args: ["${PLUGIN_ROOT}/bin/cyclecloud-mcp.mjs"]`. No root `.mcp.json` is shipped, preventing the checkout from also becoming an unintended workspace MCP registration.
 - The MCP declaration contains no `env`, `cwd`, shell command string, or credentials.
 - `.github/plugin/marketplace.json` publishes the root package (`source: "./"`) in the `cyclecloud-mcp` catalog, with repository `https://github.com/gingi/cyclecloud-mcp` and matching plugin metadata.
 - `cyclecloud.example.json` is a packaged, secret-free configuration template. Its empty password is deliberately invalid for live use.
@@ -83,8 +83,8 @@ Stdout belongs exclusively to the MCP protocol. Startup diagnostics and the muta
 
 ### Startup sequence
 
-1. Require absolute `PLUGIN_ROOT` and `PLUGIN_DATA` environment variables. Resolve both with `realpath`, verify that they are existing directories, and reject equal paths or containment in either direction.
-2. Read exactly `${PLUGIN_DATA}/cyclecloud.json`. The server does not read CycleCloud CLI configuration, workspace settings, or ambient `CYCLECLOUD_*` variables.
+1. Derive the plugin root from the module location. Resolve the credential directory from an explicit `PLUGIN_DATA` override or default to `~/.copilot/plugin-data/cyclecloud-mcp/cyclecloud-mcp`. Resolve both with `realpath`, require existing directories, and reject equality or containment in either direction. Injected `PLUGIN_ROOT` is not used by the server.
+2. Read exactly `cyclecloud.json` in that credential directory. The server does not read CycleCloud CLI configuration, workspace settings, or ambient `CYCLECLOUD_*` variables.
 3. Check the credential file with `lstat`, open it with `O_NOFOLLOW`, and check the open descriptor. It must be a regular file owned by the effective OS user with mode exactly `0600` or `0400`, including rejection of special permission bits.
 4. Parse a strict JSON object, validate settings and transport combinations, and separate nonsecret settings from the credential provider.
 5. Create the HTTP client and its TLS dispatcher, register tools according to `enableMutations`, and connect the stdio transport.
@@ -425,25 +425,29 @@ The default paths are:
 
 Installer directory checks require its selected data-path components to be user-owned, non-symlink directories without group/world write access. New directories use mode `0700`, and new configuration uses `0600`. These installer checks are distinct from runtime checks and are not full ancestor-chain validation.
 
-Rerunning preserves plugin versions, enablement choices, and existing credentials. Partial successful registration/installation is not rolled back. Updates and repairs are explicit operator actions. Pinning an installer download does not pin the plugin revision selected by the registered marketplace.
+Remote reruns preserve plugin versions, enablement choices, and credentials. Pinning an installer download does not pin the plugin revision selected by the registered marketplace.
+
+`--local [package-directory]` instead validates and copies a minimal complete package into `~/.local/share/cyclecloud-mcp/marketplace`, then registers that persistent local marketplace. Depending on the CLI version, the package is loaded live from that directory or copied to the installed-plugin directory. VS Code scans only the installed-plugin directory, not the CLI's live marketplace registration, so the installer also synchronizes the full package to the default installed-plugin path for live registrations. This does not create a second CLI registration. Both runtime copies share the credential directory, and local reruns repair both. The input checkout/package is not needed afterward. Local reruns update changed files and repair missing ones while preserving credentials and enablement. The managed `installation.json` receipt retains a disabled choice across partial source-switch failures. Only this project's known GitHub source can be switched automatically by explicit `--local`; unrelated sources are refused. Partial CLI operations are kept and can be retried.
+
+`npm run package:local` builds a self-contained directory under `dist/cyclecloud-mcp`; `npm run install:local` also installs it. The artifact contains only manifests, bundled server, template, license, installer, and marketplace metadata.
 
 ### Host behavior
 
 Copilot's native plugin runtime supplies plugin paths and launches `cyclecloud` for its sessions. The portable package does not depend on a separately configured VS Code workspace MCP server.
 
-[VS Code issue #335006](https://github.com/microsoft/vscode/issues/335006) affects canonical plugin placeholder expansion in the VS Code plugin launcher. For affected hosts, the supported setup keeps the plugin installed and enabled in Copilot CLI but disabled in VS Code's Agent Plugins view. A VS Code **Local** session can use the optional `cyclecloud-local` registration with explicit absolute module, `PLUGIN_ROOT`, and `PLUGIN_DATA` paths. That registration reuses the same installed bundle and credential directory; it is host configuration, not a change to the portable manifests.
+After installation, reload VS Code before checking **Agent Plugins - Installed**. Enable **Chat: Plugins Enabled** and the individual `cyclecloud-mcp` plugin, then start a fresh connected agent session. No separate workspace/user MCP registration is needed.
 
 Configuration and tool availability are process-scoped. Restart the relevant MCP server or create a fresh Copilot session after configuration, update, or deployment. Actual tool calls, not merely an inventory entry or model response, verify that the chosen client launch path works. Cloud sessions and native Windows are not validated targets. Detailed client procedures belong in [troubleshooting](troubleshooting.md).
 
 ### Updates and removal
 
-Marketplace and plugin updates are explicit Copilot CLI commands. Removing the plugin or a local MCP registration does not delete its credentials. Operators must remove unused credential files and revoke or rotate the dedicated credential separately. A Local registration must be removed if its installed bundle is uninstalled.
+Remote updates use explicit Copilot CLI commands; local updates rerun the local installer with the new package. Removing the plugin does not delete its credentials. Operators must remove the credential file and revoke or rotate the dedicated credential separately. After local uninstallation, the installed copy, managed marketplace, and receipt may be removed.
 
 ## Development and verification
 
 Development uses `npm ci --ignore-scripts` and the committed lockfile. `npm run build` bundles `src/index.ts` with runtime dependencies into `bin/cyclecloud-mcp.mjs`, targeting Node 20.19, without a source map or minification, and applies mode `0644`.
 
-`npm run verify` runs, in order, formatting checks, ESLint, TypeScript checking, bundle generation, the Vitest suite, and `npm audit --audit-level=high`, stopping on failure. `npm run test:coverage` is a separate optional command. Verification builds the bundle but does not compare it byte-for-byte against Git; it has no dedicated full-history secret scanner, vendored canonical-schema validation suite, or CI workflow. Manifest tests assert the package's specific expected declarations.
+`npm run verify` runs, in order, formatting checks, ESLint, TypeScript checking, bundle generation, the Vitest suite, Python developer-reset tests, and `npm audit --audit-level=high`, stopping on failure. Python 3.9+ is required for the developer reset utility and its tests, not for normal plugin installation or runtime. `npm run test:coverage` is a separate optional command. Verification builds the bundle but does not compare it byte-for-byte against Git; it has no dedicated full-history secret scanner, vendored canonical-schema validation suite, or CI workflow. Manifest tests assert the package's specific expected declarations.
 
 The test suite covers:
 

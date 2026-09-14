@@ -4,7 +4,7 @@ Start with the [Copilot quick start](../README.md#quick-start-copilot-in-vs-code
 
 ## Configuration file
 
-The server reads `${PLUGIN_DATA}/cyclecloud.json`. Copilot supplies `PLUGIN_DATA`; for the marketplace installation in the quick start, it defaults to `~/.copilot/plugin-data/cyclecloud-mcp/cyclecloud-mcp/`. The path in a `configuration_missing` event is authoritative.
+The server defaults to `~/.copilot/plugin-data/cyclecloud-mcp/cyclecloud-mcp/cyclecloud.json` for both remote-marketplace and local-package installations. It does not require host-injected plugin variables. An explicit `PLUGIN_DATA` environment variable overrides the directory for custom launches; an invalid explicit value fails rather than falling back. The path in a `configuration_missing` event is authoritative.
 
 The file is a closed JSON object:
 
@@ -36,9 +36,9 @@ Optional `caCertPath` is an absolute path to additional PEM CA certificates. The
 
 Use a dedicated CycleCloud POC account, not an administrator account or the account reused by your CycleCloud CLI. Grant only the role and group scope needed for the demonstration; begin with read-only access. Separate accounts per operator preserve attribution and independent revocation.
 
-Place `PLUGIN_DATA` on a local filesystem outside the plugin root and outside backup, synchronization, profile-export, or shared-mount scopes. Keep the directory private, for example with mode `0700`. When using [both supported session paths](troubleshooting.md#optional-vs-code-local-workaround), point them at the same data directory rather than creating a second credential file.
+Place the credential directory on a local filesystem outside the plugin root and outside backup, synchronization, profile-export, or shared-mount scopes. Keep it private, for example with mode `0700`. Reuse the same configuration across hosts rather than creating a second credential file.
 
-The runtime requires absolute, existing `PLUGIN_ROOT` and `PLUGIN_DATA` directories. After resolving real paths, they must be distinct and neither may contain the other. The server does not intentionally write beneath the plugin root.
+The runtime derives its plugin root from its own module location, ignoring any injected `PLUGIN_ROOT`. The resolved root and credential directory must exist, be distinct, and neither may contain the other. The server does not intentionally write beneath the plugin root.
 
 These checks do not protect against another process, extension, terminal tool, or agent running as the same OS user. The password and Basic authorization value also exist in Node memory while the server runs. CycleCloud authentication, RBAC, and group scope are the actual authorization boundary.
 
@@ -73,7 +73,7 @@ Tool descriptions and MCP hints are advisory. Use lifecycle tools only if the ch
 
 For an intentionally enabled demonstration, a suitable prompt is: “Check `demo` and then ask me before starting it non-recursively.”
 
-For missing configuration, startup errors, and client-specific workarounds, see [troubleshooting](troubleshooting.md).
+For missing configuration, startup errors, and client setup, see [troubleshooting](troubleshooting.md).
 
 ## Endpoint stability and POC limits
 
