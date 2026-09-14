@@ -12,7 +12,9 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { stripVTControlCharacters } from "node:util";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { loadConfiguration } from "../src/config.js";
 
 const installer = fileURLToPath(new URL("../install.sh", import.meta.url));
 const template = fileURLToPath(
@@ -100,21 +102,434 @@ async function calls(): Promise<string[]> {
 }
 
 function run(extraEnv: Record<string, string> = {}, input?: string) {
-    return spawnSync("/bin/sh", input === undefined ? [installer] : ["-s"], {
-        cwd: home,
-        env: {
-            HOME: home,
-            PATH: bin,
-            FAKE_COPILOT_STATE: statePath,
-            FAKE_COPILOT_CALLS: callsPath,
-            FAKE_COPILOT_TEMPLATE: template,
-            ...extraEnv,
+    return spawnSync(
+        "/bin/sh",
+        input === undefined
+            ? [installer, "--skip-config"]
+            : ["-s", "--", "--skip-config"],
+        {
+            cwd: home,
+            env: {
+                HOME: home,
+                PATH: bin,
+                FAKE_COPILOT_STATE: statePath,
+                FAKE_COPILOT_CALLS: callsPath,
+                FAKE_COPILOT_TEMPLATE: template,
+                ...extraEnv,
+            },
+            input,
+            encoding: "utf8",
+            timeout: 10_000,
         },
-        input,
-        encoding: "utf8",
-        timeout: 10_000,
-    });
+    );
 }
+
+function runTerminal(
+    steps: string[][] = [],
+    args: string[] = [],
+    piped = false,
+    detached = false,
+): { status: number; output: string } {
+    const result = spawnSync(
+        "python3",
+        [fileURLToPath(new URL("./helpers/installer-pty.py", import.meta.url))],
+        {
+            input: JSON.stringify({
+                installer,
+                args,
+                steps,
+                piped,
+                detached,
+                env: {
+                    HOME: home,
+                    PATH: bin,
+                    FAKE_COPILOT_STATE: statePath,
+                    FAKE_COPILOT_CALLS: callsPath,
+                    FAKE_COPILOT_TEMPLATE: template,
+                },
+            }),
+            encoding: "utf8",
+            timeout: 10_000,
+        },
+    );
+    expect(result.status, result.stderr).toBe(0);
+    return JSON.parse(result.stdout) as { status: number; output: string };
+}
+
+// Readline redraws with column-one + erase-to-end-of-screen. Discard erased
+// text before stripping ANSI codes; raw output can contain invisible prompts.
+function readlineTranscript(output: string): string {
+    return output
+        .split("\n")
+        .map((line) =>
+            stripVTControlCharacters(line.split("\x1b[1G\x1b[0J").at(-1) ?? ""),
+        )
+        .join("\n");
+}
+
+const answers = [
+    ["CycleCloud URL", "https://cluster.example.com\n"],
+    ["Username", "reader\n"],
+    ["Password", 'private-"password\\value\n'],
+];
+
+describe("Interactive configuration", () => {
+    test("Without a controlling terminal, creates a template and preserves it on rerun", async () => {
+        const result = runTerminal([], [], false, true);
+        expect(result.status, result.output).toBe(0);
+        expect(result.output).toContain("No interactive terminal");
+        expect(await readFile(config, "utf8")).toBe(
+            await readFile(template, "utf8"),
+        );
+        await writeFile(config, "unread secret sentinel");
+        const rerun = runTerminal([], [], false, true);
+        expect(rerun.status, rerun.output).toBe(0);
+        expect(rerun.output).not.toContain("unread secret sentinel");
+        expect(await readFile(config, "utf8")).toBe("unread secret sentinel");
+    });
+
+    test("Fresh configuration uses template defaults and no longer requests manual editing", async () => {
+        const result = runTerminal(answers);
+        expect(result.status, result.output).toBe(0);
+        const expected = JSON.parse(await readFile(template, "utf8")) as Record<
+            string,
+            unknown
+        >;
+        expect(JSON.parse(await readFile(config, "utf8"))).toEqual({
+            ...expected,
+            url: "https://cluster.example.com",
+            username: "reader",
+            password: 'private-"password\\value',
+        });
+        expect(result.output).not.toContain("1. Edit");
+        expect(result.output).toMatch(
+            /1\. If in VS Code, run "Developer: Reload Window"\.[\s\S]*2\. Start a new agent session in VS Code or Copilot CLI\.[\s\S]*3\. Ask:/,
+        );
+        expect(result.output).not.toContain("Ensure");
+    });
+
+    test("Invalid answers are retried without saving partial configuration", async () => {
+        const result = runTerminal([
+            ["CycleCloud URL", "not-a-url\n"],
+            ["CycleCloud URL", "http://127.0.0.1:8080\n"],
+            ["Username", "invalid:username\n"],
+            ["Username", "reader\n"],
+            ["Password", "\n"],
+            ["Password", "hidden-secret\n"],
+        ]);
+        expect(result.status, result.output).toBe(0);
+        expect(JSON.parse(await readFile(config, "utf8"))).toMatchObject({
+            url: "http://127.0.0.1:8080",
+            username: "reader",
+            password: "hidden-secret",
+        });
+        expect(result.output).not.toContain("hidden-secret");
+    });
+
+    test("Cancelling first-time setup creates no config or plugin", async () => {
+        const result = runTerminal([["CycleCloud URL", "\x03"]]);
+        expect(result.status).not.toBe(0);
+        await expect(lstat(config)).rejects.toMatchObject({ code: "ENOENT" });
+        expect(await calls()).not.toContain(installCommand);
+    });
+
+    test.each([false, true])(
+        "Prompts and saves before installation (piped=%s)",
+        async (piped) => {
+            state.failCommand = installCommand;
+            await saveState();
+            const result = runTerminal(answers, [], piped);
+            expect(result.status).not.toBe(0);
+            expect(JSON.parse(await readFile(config, "utf8"))).toMatchObject({
+                url: "https://cluster.example.com",
+                username: "reader",
+                password: 'private-"password\\value',
+                verifyTls: true,
+                enableMutations: false,
+            });
+            expect((await lstat(config)).mode & 0o777).toBe(0o600);
+            expect((await lstat(data)).mode & 0o777).toBe(0o700);
+            expect(result.output).not.toContain("private-");
+            expect(result.output).toContain("Saved private configuration");
+        },
+    );
+
+    test("Uses masked defaults and preserves unchanged bytes, mode, and optional settings", async () => {
+        await mkdir(data, { recursive: true });
+        const contents = JSON.stringify({
+            url: "https://existing.example.com",
+            username: "existing-user",
+            password: "existing-secret",
+            caCertPath: "/private/ca.pem",
+            debug: true,
+        });
+        await writeFile(config, contents, { mode: 0o400 });
+        const result = runTerminal([
+            ["CycleCloud URL", "\n"],
+            ["Username", "\n"],
+            ["Password", "\n"],
+        ]);
+        expect(result.status, result.output).toBe(0);
+        const visible = readlineTranscript(result.output);
+        expect(visible).toContain(
+            "CycleCloud URL [https://existing.example.com]: ",
+        );
+        expect(visible).toContain("Username [existing-user]: ");
+        expect(visible).toContain("Password [********]: ");
+        expect(result.output).not.toContain("existing-secret");
+        expect(result.output).not.toContain("1. Edit");
+        expect(await readFile(config, "utf8")).toBe(contents);
+        expect((await lstat(config)).mode & 0o777).toBe(0o400);
+    });
+
+    test("Updates credentials while preserving other settings and mode", async () => {
+        await mkdir(data, { recursive: true });
+        await writeFile(
+            config,
+            JSON.stringify({
+                url: "https://old.example.com",
+                username: "old",
+                password: "old-secret",
+                enableMutations: true,
+            }),
+            { mode: 0o400 },
+        );
+        const result = runTerminal(answers);
+        expect(result.status, result.output).toBe(0);
+        expect(JSON.parse(await readFile(config, "utf8"))).toMatchObject({
+            username: "reader",
+            enableMutations: true,
+        });
+        expect((await lstat(config)).mode & 0o777).toBe(0o400);
+        expect(result.output).not.toContain("old-secret");
+    });
+
+    test.each(["\x03", "\x04"])(
+        "Cancellation leaves existing configuration unchanged (%j)",
+        async (cancel) => {
+            expect(run().status).toBe(0);
+            const contents = await readFile(config, "utf8");
+            await writeFile(callsPath, "");
+            const result = runTerminal([
+                ["CycleCloud URL", "https://new.example.com\n"],
+                ["Username", "reader\n"],
+                ["Password", cancel],
+            ]);
+            expect(result.status).not.toBe(0);
+            expect(await readFile(config, "utf8")).toBe(contents);
+            expect(await calls()).not.toContain(installCommand);
+        },
+    );
+
+    test("Malformed JSON fails without leaking or overwriting contents", async () => {
+        await mkdir(data, { recursive: true });
+        await writeFile(config, "invalid secret contents", { mode: 0o600 });
+        const result = runTerminal();
+        expect(result.status).not.toBe(0);
+        expect(result.output).toContain("Invalid configuration JSON");
+        expect(result.output).not.toContain("invalid secret contents");
+        expect(await readFile(config, "utf8")).toBe("invalid secret contents");
+    });
+
+    test("--skip-config avoids prompts and preserves existing configuration unread", async () => {
+        await mkdir(data, { recursive: true });
+        await writeFile(config, "do not parse secret", { mode: 0o600 });
+        const result = runTerminal([], ["--skip-config"]);
+        expect(result.status, result.output).toBe(0);
+        expect(result.output).not.toContain("Password");
+        expect(result.output).not.toContain("do not parse secret");
+        expect(await readFile(config, "utf8")).toBe("do not parse secret");
+    });
+
+    test("--skip-config prepares a private template on fresh installation", async () => {
+        const result = runTerminal([], ["--skip-config"]);
+        expect(result.status, result.output).toBe(0);
+        expect(await readFile(config, "utf8")).toBe(
+            await readFile(template, "utf8"),
+        );
+        expect(result.output).toContain("1. Edit");
+    });
+});
+
+describe("Interactive transport validation", () => {
+    test.each(["http://remote.example.com:8080", "http://localhost:8080"])(
+        "Rejects fresh remote HTTP without saving or installing: %s",
+        async (url) => {
+            const result = runTerminal([
+                ["CycleCloud URL", `${url}\n`],
+                ...answers.slice(1),
+            ]);
+            expect(result.status, result.output).not.toBe(0);
+            expect(result.output).toContain("Invalid transport configuration");
+            expect(result.output).toContain("allowInsecureHttp: true");
+            expect(result.output).toContain("verified HTTPS");
+            expect(result.output).not.toContain("Saved private configuration");
+            expect(result.output).not.toContain("Next steps:");
+            await expect(lstat(config)).rejects.toMatchObject({
+                code: "ENOENT",
+            });
+            expect(await calls()).not.toContain(installCommand);
+        },
+    );
+
+    test.each([
+        [
+            "HTTP opt-in with HTTPS",
+            "http://remote.example.com",
+            { allowInsecureHttp: true },
+            "https://remote.example.com",
+            "allowInsecureHttp: false",
+        ],
+        [
+            "unverified remote HTTPS",
+            "https://127.0.0.1",
+            { verifyTls: false },
+            "https://remote.example.com",
+            "verifyTls",
+        ],
+        [
+            "HTTP with verification disabled",
+            "https://127.0.0.1",
+            { verifyTls: false },
+            "http://127.0.0.1",
+            "verifyTls: true",
+        ],
+        [
+            "HTTP with a CA",
+            "https://remote.example.com",
+            { caCertPath: "/private/ca.pem" },
+            "http://127.0.0.1",
+            "caCertPath",
+        ],
+        [
+            "loopback HTTP with remote opt-in",
+            "http://remote.example.com",
+            { allowInsecureHttp: true },
+            "http://127.0.0.1",
+            "allowInsecureHttp: false",
+        ],
+        [
+            "unchanged invalid configuration",
+            "http://remote.example.com",
+            {},
+            "",
+            "allowInsecureHttp: true",
+        ],
+        [
+            "unverified loopback HTTPS with a CA",
+            "https://127.0.0.1",
+            { verifyTls: false, caCertPath: "/private/ca.pem" },
+            "",
+            "caCertPath",
+        ],
+        [
+            "invalid verifyTls type",
+            "https://remote.example.com",
+            { verifyTls: "true" },
+            "",
+            "verifyTls",
+        ],
+        [
+            "invalid allowInsecureHttp type",
+            "https://remote.example.com",
+            { allowInsecureHttp: null },
+            "",
+            "allowInsecureHttp",
+        ],
+        [
+            "relative CA path",
+            "https://remote.example.com",
+            { caCertPath: "private/ca.pem" },
+            "",
+            "caCertPath",
+        ],
+    ])(
+        "Rejects %s and preserves existing bytes and permissions",
+        async (_label, url, settings, answer, field) => {
+            await mkdir(data, { recursive: true });
+            const contents = JSON.stringify({
+                url,
+                username: "reader",
+                password: "original-secret",
+                ...settings,
+            });
+            await writeFile(config, contents, { mode: 0o400 });
+            const result = runTerminal([
+                ["CycleCloud URL", `${answer}\n`],
+                ["Username", "\n"],
+                ["Password", "\n"],
+            ]);
+            expect(result.status, result.output).not.toBe(0);
+            expect(result.output).toContain("Invalid transport configuration");
+            expect(result.output).toContain(field);
+            expect(result.output).toContain("Nothing was saved");
+            expect(result.output).not.toContain("original-secret");
+            expect(result.output).not.toContain("Next steps:");
+            expect(await readFile(config, "utf8")).toBe(contents);
+            expect((await lstat(config)).mode & 0o777).toBe(0o400);
+            expect(await calls()).not.toContain(installCommand);
+        },
+    );
+
+    test.each([
+        [
+            "verified HTTPS with implicit defaults",
+            "https://remote.example.com",
+            {},
+        ],
+        [
+            "verified HTTPS with a CA",
+            "https://remote.example.com",
+            { caCertPath: "/private/ca.pem" },
+        ],
+        ["loopback HTTP", "http://127.0.0.1:8080", {}],
+        ["loopback range HTTP", "http://127.42.0.2:8080", {}],
+        ["IPv6 loopback HTTP", "http://[::1]:8080", {}],
+        [
+            "explicit remote HTTP",
+            "http://remote.example.com:8080",
+            { allowInsecureHttp: true },
+        ],
+        [
+            "unverified loopback HTTPS",
+            "https://127.0.0.1",
+            { verifyTls: false },
+        ],
+        [
+            "unverified IPv6 loopback HTTPS",
+            "https://[::1]",
+            { verifyTls: false },
+        ],
+    ])(
+        "Accepts %s consistently with the runtime",
+        async (_label, url, settings) => {
+            await mkdir(data, { recursive: true });
+            const document = {
+                url,
+                username: "reader",
+                password: "original-secret",
+                ...settings,
+            };
+            await writeFile(config, JSON.stringify(document), { mode: 0o600 });
+            const result = runTerminal([
+                ["CycleCloud URL", "\n"],
+                ["Username", "updated-reader\n"],
+                ["Password", "\n"],
+            ]);
+            expect(result.status, result.output).toBe(0);
+            expect(JSON.parse(await readFile(config, "utf8"))).toEqual({
+                ...document,
+                username: "updated-reader",
+            });
+            await expect(
+                loadConfiguration({ pluginData: data }),
+            ).resolves.toMatchObject({
+                settings: { url: new URL(url).origin },
+            });
+            expect(result.output).not.toContain("original-secret");
+        },
+    );
+});
 
 describe.each([false, true])(
     "installer (flatPluginJson=%s)",
@@ -140,12 +555,15 @@ describe.each([false, true])(
             );
         });
 
-        test("Prints reload before plugin enablement checks", () => {
+        test("Prints concise host-aware session steps without enablement checks", () => {
             const result = run();
             expect(result.status, result.stderr).toBe(0);
             expect(result.stdout).toMatch(
-                /2\. Run "Developer: Reload Window"\.[\s\S]*3\. Ensure "Chat: Plugins Enabled"[\s\S]*4\. Ensure cyclecloud-mcp is enabled under "Agent Plugins - Installed"\.[\s\S]*5\. Start a fresh connected agent session/,
+                /1\. Edit [\s\S]*2\. If in VS Code, run "Developer: Reload Window"\.[\s\S]*3\. Start a new agent session in VS Code or Copilot CLI\.[\s\S]*4\. Ask:/,
             );
+            expect(result.stdout).not.toContain("Ensure");
+            expect(result.stdout).not.toContain("Chat: Plugins Enabled");
+            expect(result.stdout).not.toContain("Agent Plugins - Installed");
         });
 
         test("Works detached from the repository when passed through stdin", async () => {

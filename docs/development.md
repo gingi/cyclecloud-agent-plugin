@@ -4,7 +4,7 @@ For normal installation and usage, see the [README](../README.md). This guide co
 
 ## Setup and verification
 
-Use the [runtime prerequisites](../README.md#quick-start-copilot-in-vs-code), plus **Python 3.9+** for the developer reset utility and its tests.
+Use the [runtime prerequisites](../README.md#quick-start-copilot-in-vs-code), plus **Python 3.9+** for the developer reset utility and the reset/installer terminal tests.
 
 Install development dependencies and run verification:
 
@@ -23,7 +23,7 @@ From this checkout, with development dependencies installed:
 npm run install:local
 ```
 
-This builds and packages the **complete plugin**, registers a persistent local marketplace under `~/.local/share/cyclecloud-mcp/marketplace/`, and maintains an identical runtime copy under `~/.copilot/installed-plugins/cyclecloud-mcp/cyclecloud-mcp/` for VS Code discovery. Both use the same private credential file as remote installations. Rerunning updates changed files in both locations, repairs missing files, and leaves identical payloads alone. It preserves existing credentials and disabled state. The checkout is needed only to build—not to run the installed plugin.
+This builds and packages the **complete plugin**, registers a persistent local marketplace under `~/.local/share/cyclecloud-mcp/marketplace/`, and maintains an identical runtime copy under `~/.copilot/installed-plugins/cyclecloud-mcp/cyclecloud-mcp/` for VS Code discovery. Both use the same private credential file as remote installations. Rerunning updates changed files in both locations, repairs missing files, and leaves identical payloads alone. Prompts use existing configuration values as defaults and hide passwords; disabled state is preserved. Add `--skip-config` to the installer (or run `npm run install:local -- --skip-config`) to keep existing configuration unread and unchanged. The checkout is needed only to build—not to run the installed plugin.
 
 To install elsewhere without a checkout or npm dependencies:
 

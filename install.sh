@@ -4,21 +4,32 @@ set -eu
 
 main() {
     local_source=''
-    case "${1:-}" in
-        '') [ "$#" -eq 0 ] || return 1 ;;
-        --help|-h)
-            printf '%s\n' 'Usage: sh install.sh [--local [package-directory]]' \
-                'Installs the Copilot plugin and prepares private configuration.' \
-                '--local copies a complete package into private persistent storage; reruns update it.' \
-                'Without --local, installs from GitHub and preserves existing versions.' \
-                'Requires Node and Copilot CLI 1.0.81 or later; never overwrites credentials.'
-            return ;;
-        --local)
-            [ "$#" -le 2 ] || { printf '%s\n' 'Usage: sh install.sh [--local [package-directory]]' >&2; return 1; }
-            local_source=${2:-$(dirname "$0")}
-            ;;
-        *) printf '%s\n' 'Usage: sh install.sh [--local [package-directory]]' >&2; return 1 ;;
-    esac
+    skip_config=false
+    usage='Usage: sh install.sh [--local [package-directory]] [--skip-config]'
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --help|-h)
+                printf '%s\n' "$usage" \
+                    'Installs the Copilot plugin and prompts for private configuration before installation.' \
+                    '--local copies a complete package into private persistent storage; reruns update it.' \
+                    '--skip-config skips prompts: keeps existing config unread, or creates a private template.' \
+                    'Without a terminal, --skip-config behavior is automatic.' \
+                    'Without --local, installs from GitHub and preserves existing versions.' \
+                    'Requires Node and Copilot CLI 1.0.81 or later.'
+                return ;;
+            --skip-config) skip_config=true; shift ;;
+            --local)
+                [ -z "$local_source" ] || { printf '%s\n' "$usage" >&2; return 1; }
+                local_source=$(dirname "$0")
+                shift
+                case "${1:-}" in
+                    ''|--*) ;;
+                    *) local_source=$1; shift ;;
+                esac
+                ;;
+            *) printf '%s\n' "$usage" >&2; return 1 ;;
+        esac
+    done
 
     case "$(uname -s)" in
         Linux|Darwin) ;;
@@ -35,7 +46,7 @@ main() {
     node_version=$(node --version)
 
     # Node is already required by the server. Use it for JSON and exclusive file creation.
-    node - "$node_version" "$local_source" <<'NODE'
+    node - "$node_version" "$local_source" "$skip_config" <<'NODE'
 const version = /^v(\d+)\.(\d+)\.(\d+)$/.exec(process.argv[2]);
 if (!version || !(
     (Number(version[1]) === 20 && Number(version[2]) >= 19) ||
@@ -70,7 +81,7 @@ function copilot(args, capture = false) {
         maxBuffer: 4 * 1024 * 1024,
     });
     if (result.error || result.status !== 0) {
-        fail(`copilot ${args.join(' ')} failed. Check CLI plugin support, authentication, and source access, then rerun the same installer command. Completed steps were kept; credentials were not changed.`);
+        fail(`copilot ${args.join(' ')} failed. Check CLI plugin support, authentication, and source access, then rerun the same installer command. Completed steps, including any saved configuration, were kept.`);
     }
     return capture ? result.stdout : undefined;
 }
@@ -152,7 +163,156 @@ function hasConfiguration(file) {
     if (!info.isFile() || info.uid !== process.getuid() || ![0o600, 0o400].includes(info.mode & 0o777)) {
         fail(`Existing configuration must be a user-owned regular file (not a symlink), mode 0600 or 0400: ${file}. Left unchanged.`);
     }
-    return true; // Deliberately do not read credentials, validate them, or change their mode.
+    return true;
+}
+
+// This secret-free seed also works before a remote package has been downloaded.
+const configDefaults = {
+    url: 'https://cyclecloud.example.com', username: 'cyclecloud-poc', password: '',
+    verifyTls: true, allowInsecureHttp: false, enableMutations: false,
+    requestTimeoutMs: 30000, actionTimeoutMs: 60000, debug: false,
+};
+
+function validUrl(value) {
+    try {
+        const url = new URL(value);
+        return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password &&
+            !url.search && !url.hash && url.pathname === '/' && /^[\x20-\x7e]+$/.test(value);
+    } catch { return false; }
+}
+
+// Keep aligned with src/config.ts: validateUrlAndTransport and its schema defaults.
+// The downloaded installer cannot import the runtime before the plugin is installed.
+function validateTransport(document) {
+    const { verifyTls = true, allowInsecureHttp = false, caCertPath } = document;
+    function invalid(message) {
+        fail(`Invalid transport configuration: ${message} Nothing was saved. Rerun with a compatible URL or edit the transport settings in cyclecloud.json outside Chat, then rerun. Prefer verified HTTPS.`);
+    }
+    if (typeof verifyTls !== 'boolean') invalid('verifyTls must be true or false.');
+    if (typeof allowInsecureHttp !== 'boolean') invalid('allowInsecureHttp must be true or false.');
+    const hasCa = caCertPath !== undefined;
+    if (hasCa && (typeof caCertPath !== 'string' || !path.isAbsolute(caCertPath))) {
+        invalid('caCertPath must be an absolute path when present.');
+    }
+    const url = new URL(document.url);
+    const octets = url.hostname.split('.').map(Number);
+    const loopback = url.hostname === '[::1]' || url.hostname === '::1' ||
+        (octets.length === 4 && octets[0] === 127 &&
+            octets.every(octet => Number.isInteger(octet) && octet >= 0 && octet <= 255));
+    if (url.protocol === 'http:') {
+        if (!verifyTls) invalid('HTTP requires verifyTls: true.');
+        if (hasCa) invalid('HTTP cannot be combined with caCertPath.');
+        if (loopback && allowInsecureHttp) invalid('Loopback HTTP requires allowInsecureHttp: false.');
+        if (!loopback && !allowInsecureHttp) {
+            invalid('Remote HTTP requires explicit allowInsecureHttp: true and transmits credentials without TLS.');
+        }
+    } else {
+        if (allowInsecureHttp) invalid('HTTPS requires allowInsecureHttp: false.');
+        if (!verifyTls && (!loopback || hasCa)) {
+            invalid('verifyTls: false is allowed only for loopback HTTPS without caCertPath.');
+        }
+    }
+}
+
+async function configure(file, directories) {
+    if (process.argv[4] === 'true') return false;
+    let fd;
+    try { fd = fs.openSync('/dev/tty', 'r+'); }
+    catch {
+        console.log('No interactive terminal; skipping configuration prompts (--skip-config).');
+        return false;
+    }
+    const { ReadStream } = require('node:tty');
+    const { Writable } = require('node:stream');
+    const { createInterface } = require('node:readline');
+    const input = new ReadStream(fd);
+    let hidden = false;
+    const output = new Writable({
+        write(chunk, encoding, callback) {
+            if (!hidden) fs.writeSync(fd, chunk);
+            callback();
+        },
+    });
+    const rl = createInterface({ input, output, terminal: true, historySize: 0 });
+    const cancel = () => rl.close();
+    rl.on('SIGINT', cancel);
+    process.once('SIGTERM', cancel);
+    try {
+        const exists = hasConfiguration(file);
+        const original = exists ? fs.readFileSync(file, 'utf8') : undefined;
+        let document = { ...configDefaults };
+        if (exists) {
+            try { document = JSON.parse(original); }
+            catch { fail('Invalid configuration JSON. Repair it outside Chat or use --skip-config. File left unchanged.'); }
+            if (!document || typeof document !== 'object' || Array.isArray(document)) {
+                fail('Invalid configuration JSON: expected an object. File left unchanged.');
+            }
+        }
+        async function ask(label, current, valid, message, secret = false) {
+            const fallback = typeof current === 'string' ? current : '';
+            const display = secret ? (fallback ? ' [********]' : '')
+                : (fallback && valid(fallback) ? ` [${fallback}]` : '');
+            while (true) {
+                hidden = secret;
+                const prompt = `${label}${display}: `;
+                // Visible prompts belong to readline so its redraws retain the label.
+                if (secret) fs.writeSync(fd, prompt);
+                let answer;
+                try {
+                    answer = await new Promise((resolve, reject) => {
+                        const closed = () => reject(new Error('Configuration cancelled; file left unchanged.'));
+                        rl.once('close', closed);
+                        rl.question(secret ? '' : prompt, value => {
+                            rl.removeListener('close', closed);
+                            resolve(value);
+                        });
+                    });
+                } finally {
+                    hidden = false;
+                    if (secret) fs.writeSync(fd, '\n');
+                }
+                const value = answer === '' ? fallback : answer;
+                if (valid(value)) return value;
+                fs.writeSync(fd, `${message}\n`);
+            }
+        }
+        fs.writeSync(fd, `Configure ${file}\nPress Enter to keep defaults. Password input is hidden; Ctrl-C cancels without saving.\n`);
+        document.url = await ask('CycleCloud URL', document.url, validUrl,
+            'Enter an http(s) origin without credentials, a path, query, or fragment.');
+        validateTransport(document);
+        document.username = await ask('Username', document.username,
+            value => /^[\x20-\x7e]{1,256}$/.test(value) && !value.includes(':'),
+            'Username must be 1–256 printable ASCII characters without a colon.');
+        document.password = await ask('Password', document.password,
+            value => /^[\x20-\x7e]{1,4096}$/.test(value),
+            'Password must be 1–4096 printable ASCII characters.', true);
+        if (exists && JSON.stringify(document) === JSON.stringify(JSON.parse(original))) {
+            console.log(`Keeping existing configuration: ${file}`);
+            return true;
+        }
+        for (const directory of directories) checkDirectory(directory, true);
+        const mode = exists ? stat(file).mode & 0o777 : 0o600;
+        const staged = fs.mkdtempSync(path.join(path.dirname(file), '.config-'));
+        try {
+            const temporary = path.join(staged, 'cyclecloud.json');
+            fs.writeFileSync(temporary, `${JSON.stringify(document, null, 4)}\n`, { flag: 'wx', mode });
+            // Recheck before replacement; never clobber a newly created or edited file.
+            if (hasConfiguration(file) !== exists ||
+                (exists && fs.readFileSync(file, 'utf8') !== original)) {
+                fail('Configuration changed while prompting. Rerun; file left unchanged.');
+            }
+            fs.renameSync(temporary, file);
+        } finally {
+            fs.rmSync(staged, { recursive: true, force: true });
+        }
+        console.log(`Saved private configuration: ${file}`);
+        return true;
+    } finally {
+        process.removeListener('SIGTERM', cancel);
+        rl.close();
+        input.destroy();
+        output.destroy();
+    }
 }
 
 const packageFiles = ['plugin.json', 'bin/cyclecloud-mcp.mjs',
@@ -255,7 +415,7 @@ function replacePackage(directory, payload) {
     }
 }
 
-try {
+async function install() {
     const home = process.env.HOME;
     if (!home || !path.isAbsolute(home) || !fs.statSync(home).isDirectory()) {
         fail('HOME must identify an existing absolute home directory.');
@@ -303,6 +463,7 @@ try {
 
     let installed = installedPlugin(installedPlugins(), localRoot);
     let registered = registeredMarketplace(marketplaces(), localRoot);
+    const configured = await configure(config, dataDirectories);
     if (local) {
         for (const directory of localDirectories) checkDirectory(directory, true);
         // Persist a disabled choice before any destructive CLI source-switch step.
@@ -364,7 +525,7 @@ try {
     }
 
     if (hasConfiguration(config)) {
-        console.log(`Keeping existing configuration without reading its contents: ${config}`);
+        if (!configured) console.log(`Keeping existing configuration without reading its contents: ${config}`);
     } else {
         const template = path.join(pluginRoot, 'cyclecloud.example.json');
         const templateInfo = stat(template);
@@ -382,16 +543,17 @@ try {
         console.log('The plugin is disabled in Copilot CLI. That choice was preserved; enable it explicitly there if you want to use it.');
     }
     console.log(`\nNext steps:\n`);
-    console.log(`1. Edit ${config}; set url, username, and password.`);
-    console.log(`2. Run "Developer: Reload Window".`);
-    console.log(`3. Ensure "Chat: Plugins Enabled" is enabled in VS Code.`);
-    console.log(`4. Ensure cyclecloud-mcp is enabled under "Agent Plugins - Installed".`);
-    console.log(`5. Start a fresh connected agent session and ask:\n`);
+    let step = 1;
+    if (!configured) console.log(`${step++}. Edit ${config}; set url, username, and password if not already configured.`);
+    console.log(`${step++}. If in VS Code, run "Developer: Reload Window".`);
+    console.log(`${step++}. Start a new agent session in VS Code or Copilot CLI.`);
+    console.log(`${step++}. Ask:\n`);
     console.log(`   Use the cyclecloud MCP to list my clusters`);
-} catch (error) {
+}
+install().catch(error => {
     console.error(`cyclecloud-mcp installer: ${error.message}`);
     process.exitCode = 1;
-}
+});
 NODE
 }
 

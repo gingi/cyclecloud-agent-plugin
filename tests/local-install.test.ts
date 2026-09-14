@@ -82,12 +82,16 @@ afterEach(async () => {
 });
 
 function run(...args: string[]) {
-    return spawnSync("/bin/sh", [join(source, "install.sh"), ...args], {
-        cwd: home,
-        env,
-        encoding: "utf8",
-        timeout: 15_000,
-    });
+    return spawnSync(
+        "/bin/sh",
+        [join(source, "install.sh"), ...args, "--skip-config"],
+        {
+            cwd: home,
+            env,
+            encoding: "utf8",
+            timeout: 15_000,
+        },
+    );
 }
 interface State {
     plugins: Array<{
@@ -120,6 +124,21 @@ async function calls(): Promise<string[]> {
 }
 
 describe("Independent local installation", () => {
+    test.each([
+        ["--local", "--skip-config"],
+        ["--skip-config", "--local"],
+    ])("Accepts local and skip-config flags together: %j", async (...args) => {
+        const result = run(...args);
+        expect(result.status, result.stderr).toBe(0);
+        expect(await readFile(config, "utf8")).toBe(
+            await readFile(join(root, "cyclecloud.example.json"), "utf8"),
+        );
+    });
+
+    test("Accepts skip-config after an explicit package directory", () => {
+        const result = run("--local", source, "--skip-config");
+        expect(result.status, result.stderr).toBe(0);
+    });
     test("Packages only distributable runtime files and supports packaging twice", async () => {
         for (let i = 0; i < 2; i++) {
             const result = spawnSync(
