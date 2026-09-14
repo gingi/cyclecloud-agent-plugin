@@ -1,6 +1,8 @@
 import {
     appendFileSync,
     copyFileSync,
+    cpSync,
+    rmSync,
     mkdirSync,
     readFileSync,
     writeFileSync,
@@ -51,7 +53,38 @@ switch (command) {
         });
         writeFileSync(statePath, JSON.stringify(state));
         break;
+    case "plugin update cyclecloud-mcp@cyclecloud-mcp":
     case "plugin install cyclecloud-mcp@cyclecloud-mcp": {
+        const local = state.marketplaces.find(
+            (item) => item.name === "cyclecloud-mcp",
+        )?.source;
+        if (local?.startsWith("Local: ")) {
+            const source = local.slice("Local: ".length);
+            const root = join(
+                process.env.HOME,
+                ".copilot/installed-plugins/cyclecloud-mcp/cyclecloud-mcp",
+            );
+            if (!state.liveLocal) {
+                rmSync(root, { recursive: true, force: true });
+                cpSync(source, root, { recursive: true });
+            }
+            const enabled =
+                state.plugins.find((item) => item.name === "cyclecloud-mcp")
+                    ?.enabled ?? true;
+            state.plugins = state.plugins.filter(
+                (item) => item.name !== "cyclecloud-mcp",
+            );
+            state.plugins.push({
+                name: "cyclecloud-mcp",
+                marketplace: "cyclecloud-mcp",
+                version: "0.1.0",
+                enabled,
+                source: state.liveLocal ? "live" : "installed",
+                ...(state.liveLocal ? { installedFrom: source } : {}),
+            });
+            writeFileSync(statePath, JSON.stringify(state));
+            break;
+        }
         const root = join(
             process.env.HOME,
             ".copilot/installed-plugins/cyclecloud-mcp/cyclecloud-mcp",
@@ -82,6 +115,42 @@ switch (command) {
         writeFileSync(statePath, JSON.stringify(state));
         break;
     }
+    case "plugin uninstall cyclecloud-mcp@cyclecloud-mcp":
+        state.plugins = state.plugins.filter(
+            (item) => item.name !== "cyclecloud-mcp",
+        );
+        rmSync(
+            join(
+                process.env.HOME,
+                ".copilot/installed-plugins/cyclecloud-mcp/cyclecloud-mcp",
+            ),
+            { recursive: true, force: true },
+        );
+        writeFileSync(statePath, JSON.stringify(state));
+        break;
+    case "plugin marketplace remove cyclecloud-mcp":
+        state.marketplaces = state.marketplaces.filter(
+            (item) => item.name !== "cyclecloud-mcp",
+        );
+        writeFileSync(statePath, JSON.stringify(state));
+        break;
+    case "plugin disable cyclecloud-mcp@cyclecloud-mcp":
+        state.plugins.find((item) => item.name === "cyclecloud-mcp").enabled =
+            false;
+        writeFileSync(statePath, JSON.stringify(state));
+        break;
     default:
+        if (
+            args.slice(0, 3).join(" ") === "plugin marketplace add" &&
+            args[3].startsWith("/")
+        ) {
+            state.marketplaces.push({
+                name: "cyclecloud-mcp",
+                source: `Local: ${args[3]}`,
+                isDefault: false,
+            });
+            writeFileSync(statePath, JSON.stringify(state));
+            break;
+        }
         throw new Error(`Unexpected command: ${command}`);
 }

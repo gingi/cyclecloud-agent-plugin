@@ -1,7 +1,8 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { realpath, stat } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
-import { pathToFileURL } from "node:url";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
     createCycleCloudClient,
     type CycleCloudClient,
@@ -18,16 +19,17 @@ export interface PluginEnvironment {
 export async function requirePluginEnvironment(
     environment: Readonly<Record<string, string | undefined>>,
 ): Promise<PluginEnvironment> {
-    const configuredPluginRoot = environment.PLUGIN_ROOT;
-    const configuredPluginData = environment.PLUGIN_DATA;
-    if (
-        configuredPluginRoot === undefined ||
-        configuredPluginRoot.length === 0 ||
-        !isAbsolute(configuredPluginRoot) ||
-        configuredPluginData === undefined ||
-        configuredPluginData.length === 0 ||
-        !isAbsolute(configuredPluginData)
-    ) {
+    // Both source and bundled entry points live one directory below the root.
+    const configuredPluginRoot = dirname(
+        dirname(fileURLToPath(import.meta.url)),
+    );
+    const configuredPluginData =
+        environment.PLUGIN_DATA ??
+        join(
+            environment.HOME ?? homedir(),
+            ".copilot/plugin-data/cyclecloud-mcp/cyclecloud-mcp",
+        );
+    if (!isAbsolute(configuredPluginData)) {
         throw new StartupError(
             "plugin_environment_invalid",
             "invalid_plugin_data",

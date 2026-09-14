@@ -10,7 +10,6 @@ import { StartupError } from "../src/errors.js";
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const expectedPlugin = {
-    $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
     name: "cyclecloud-mcp",
     version: "0.1.0",
     description:
@@ -19,7 +18,6 @@ const expectedPlugin = {
 };
 
 const expectedMcp = {
-    $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
     mcpServers: {
         cyclecloud: {
             type: "stdio",
@@ -34,22 +32,31 @@ function readJson(path: string): unknown {
 }
 
 describe("Agent plugin manifests", () => {
-    test("Match the approved Agent Plugins 1.0 contract", () => {
+    test("Keep MCP declarations plugin-scoped, not auto-discovered workspace configuration", () => {
+        expect(readJson(resolve(repositoryRoot, "plugin.json"))).toMatchObject(
+            expectedMcp,
+        );
+        expect(existsSync(resolve(repositoryRoot, ".mcp.json"))).toBe(false);
+        expect(existsSync(resolve(repositoryRoot, ".github/mcp.json"))).toBe(
+            false,
+        );
+    });
+    test("Match the supported Copilot plugin contract", () => {
         const pluginPath = resolve(repositoryRoot, "plugin.json");
-        const mcpPath = resolve(repositoryRoot, "mcp.json");
 
         expect(existsSync(pluginPath)).toBe(true);
-        expect(existsSync(mcpPath)).toBe(true);
-        expect(readJson(pluginPath)).toEqual(expectedPlugin);
-        expect(readJson(mcpPath)).toEqual(expectedMcp);
+        expect(readJson(pluginPath)).toEqual({
+            ...expectedPlugin,
+            ...expectedMcp,
+        });
     });
 
     test("Launch the server with the exact secret-free stdio command", () => {
-        const mcpPath = resolve(repositoryRoot, "mcp.json");
+        const mcpPath = resolve(repositoryRoot, "plugin.json");
 
         expect(existsSync(mcpPath)).toBe(true);
         const mcp = readJson(mcpPath);
-        expect(mcp).toEqual(expectedMcp);
+        expect(mcp).toMatchObject(expectedMcp);
         expect(JSON.stringify(mcp)).not.toMatch(/password|credential|secret/i);
         expect(JSON.stringify(mcp)).not.toContain('"env"');
         expect(JSON.stringify(mcp)).not.toContain('"cwd"');
@@ -74,62 +81,52 @@ describe("Agent plugin manifests", () => {
 });
 
 describe("Command-line startup", () => {
-    test("Require separate existing injected plugin roots", async () => {
-        const base = await mkdtemp(join(tmpdir(), "cyclecloud-mcp-roots-"));
-        const pluginRoot = join(base, "plugin");
-        const pluginData = join(base, "data");
-        const nestedData = join(pluginRoot, "data");
-        const nestedPlugin = join(pluginData, "plugin");
-        await mkdir(pluginRoot);
-        await mkdir(pluginData);
-        await mkdir(nestedData);
-        await mkdir(nestedPlugin);
+    test("Resolve credentials without host-injected plugin variables", async () => {
+        const home = await mkdtemp(join(tmpdir(), "cyclecloud-mcp-home-"));
+        const pluginData = join(
+            home,
+            ".copilot/plugin-data/cyclecloud-mcp/cyclecloud-mcp",
+        );
+        await mkdir(pluginData, { recursive: true });
         try {
-            await expect(requirePluginEnvironment({})).rejects.toMatchObject({
-                code: "plugin_environment_invalid",
-                reason: "invalid_plugin_data",
-            });
             await expect(
-                requirePluginEnvironment({
-                    PLUGIN_ROOT: "relative",
-                    PLUGIN_DATA: pluginData,
-                }),
-            ).rejects.toThrow();
-            await expect(
-                requirePluginEnvironment({
-                    PLUGIN_ROOT: pluginRoot,
-                    PLUGIN_DATA: pluginRoot,
-                }),
-            ).rejects.toThrow();
-            await expect(
-                requirePluginEnvironment({
-                    PLUGIN_ROOT: pluginRoot,
-                    PLUGIN_DATA: nestedData,
-                }),
-            ).rejects.toThrow();
-            await expect(
-                requirePluginEnvironment({
-                    PLUGIN_ROOT: nestedPlugin,
-                    PLUGIN_DATA: pluginData,
-                }),
-            ).rejects.toThrow();
-            await expect(
-                requirePluginEnvironment({
-                    PLUGIN_ROOT: join(base, "missing"),
-                    PLUGIN_DATA: pluginData,
-                }),
-            ).rejects.toThrow();
-            await expect(
-                requirePluginEnvironment({
-                    PLUGIN_ROOT: pluginRoot,
-                    PLUGIN_DATA: pluginData,
-                }),
+                requirePluginEnvironment({ HOME: home }),
             ).resolves.toEqual({
-                pluginRoot,
+                pluginRoot: repositoryRoot,
                 pluginData,
             });
+            // Ambient roots must not change the location of our own bundle.
+            await expect(
+                requirePluginEnvironment({ HOME: home, PLUGIN_ROOT: "wrong" }),
+            ).resolves.toEqual({
+                pluginRoot: repositoryRoot,
+                pluginData,
+            });
+            await expect(
+                requirePluginEnvironment({ PLUGIN_DATA: pluginData }),
+            ).resolves.toEqual({
+                pluginRoot: repositoryRoot,
+                pluginData,
+            });
+            for (const value of [
+                "",
+                "relative",
+                join(home, "missing"),
+                repositoryRoot,
+                dirname(repositoryRoot),
+                join(repositoryRoot, "src"),
+            ]) {
+                await expect(
+                    requirePluginEnvironment({
+                        HOME: home,
+                        PLUGIN_DATA: value,
+                    }),
+                ).rejects.toMatchObject({
+                    code: "plugin_environment_invalid",
+                });
+            }
         } finally {
-            await rm(base, { recursive: true, force: true });
+            await rm(home, { recursive: true, force: true });
         }
     });
 

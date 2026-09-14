@@ -8,6 +8,8 @@
     },
     "scripts": {
         "build": "node scripts/build.mjs",
+        "package:local": "npm run build && node scripts/package-local.mjs",
+        "install:local": "npm run package:local && sh dist/cyclecloud-mcp/install.sh --local",
         "deploy": "npm run build && node scripts/deploy.mjs deploy",
         "restore": "node scripts/deploy.mjs restore",
         "typecheck": "tsc --noEmit",

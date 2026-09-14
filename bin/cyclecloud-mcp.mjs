@@ -37587,8 +37587,9 @@ var StdioServerTransport = class {
 
 // src/index.ts
 import { realpath, stat } from "node:fs/promises";
-import { isAbsolute as isAbsolute2, relative, resolve, sep } from "node:path";
-import { pathToFileURL } from "node:url";
+import { homedir } from "node:os";
+import { dirname, isAbsolute as isAbsolute2, join as join2, relative, resolve, sep } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 // src/cyclecloud-client.ts
 var import_undici = __toESM(require_undici(), 1);
@@ -46987,9 +46988,14 @@ function isWellFormed2(value) {
 
 // src/index.ts
 async function requirePluginEnvironment(environment) {
-  const configuredPluginRoot = environment.PLUGIN_ROOT;
-  const configuredPluginData = environment.PLUGIN_DATA;
-  if (configuredPluginRoot === void 0 || configuredPluginRoot.length === 0 || !isAbsolute2(configuredPluginRoot) || configuredPluginData === void 0 || configuredPluginData.length === 0 || !isAbsolute2(configuredPluginData)) {
+  const configuredPluginRoot = dirname(
+    dirname(fileURLToPath(import.meta.url))
+  );
+  const configuredPluginData = environment.PLUGIN_DATA ?? join2(
+    environment.HOME ?? homedir(),
+    ".copilot/plugin-data/cyclecloud-mcp/cyclecloud-mcp"
+  );
+  if (!isAbsolute2(configuredPluginData)) {
     throw new StartupError(
       "plugin_environment_invalid",
       "invalid_plugin_data"

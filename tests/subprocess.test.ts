@@ -38,7 +38,7 @@ const manifestSchema = z.object({
     }),
 });
 const manifest = manifestSchema.parse(
-    JSON.parse(readFileSync(join(repositoryRoot, "mcp.json"), "utf8")),
+    JSON.parse(readFileSync(join(repositoryRoot, "plugin.json"), "utf8")),
 );
 const command = manifest.mcpServers.cyclecloud.command;
 const configuredArgs = manifest.mcpServers.cyclecloud.args;
@@ -71,10 +71,6 @@ async function createPluginRoot(): Promise<string> {
         copyFile(
             join(repositoryRoot, "plugin.json"),
             join(pluginRoot, "plugin.json"),
-        ),
-        copyFile(
-            join(repositoryRoot, "mcp.json"),
-            join(pluginRoot, "mcp.json"),
         ),
         copyFile(sourceBundle, join(pluginRoot, "bin/cyclecloud-mcp.mjs")),
     ]);

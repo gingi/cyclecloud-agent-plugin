@@ -135,8 +135,17 @@ describe.each([false, true])(
                 await readFile(template, "utf8"),
             );
             expect(result.stdout).toContain(config);
-            expect(result.stdout).toContain("enableMutations");
-            expect(result.stdout).not.toContain('"password"');
+            expect(result.stdout).toContain(
+                "Use the cyclecloud MCP to list my clusters\n",
+            );
+        });
+
+        test("Prints reload before plugin enablement checks", () => {
+            const result = run();
+            expect(result.status, result.stderr).toBe(0);
+            expect(result.stdout).toMatch(
+                /2\. Run "Developer: Reload Window"\.[\s\S]*3\. Ensure "Chat: Plugins Enabled"[\s\S]*4\. Ensure cyclecloud-mcp is enabled under "Agent Plugins - Installed"\.[\s\S]*5\. Start a fresh connected agent session/,
+            );
         });
 
         test("Works detached from the repository when passed through stdin", async () => {
@@ -267,12 +276,17 @@ describe.each([false, true])(
             expect(await calls()).not.toContain(marketplaceCommand);
         });
 
-        test("Reports an old installation with no template without upgrading it", async () => {
+        test("Reports a missing template with complete-package recovery instructions", async () => {
             state.omitTemplate = true;
             await saveState();
             const result = run();
             expect(result.status).not.toBe(0);
-            expect(result.stderr).toContain("template");
+            expect(result.stderr).toContain(
+                "Installed configuration template is missing:",
+            );
+            expect(result.stderr).toContain(
+                "Reinstall a complete plugin package, then rerun this installer.",
+            );
             await expect(lstat(config)).rejects.toMatchObject({
                 code: "ENOENT",
             });
@@ -412,7 +426,7 @@ describe.each([false, true])(
             });
         });
 
-        test("Preserves existing configuration even when an older package has no template", async () => {
+        test("Preserves existing configuration even when the installed template is missing", async () => {
             expect(run().status).toBe(0);
             const installedTemplate = join(
                 home,
