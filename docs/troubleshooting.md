@@ -8,7 +8,7 @@ From a development checkout, run `npm run install:local`. To distribute without 
 
 The installer copies the package into `~/.local/share/cyclecloud-mcp/marketplace/` and registers that persistent copy as the `cyclecloud-mcp` marketplace. Current Copilot CLI reports this as a **live** installation. VS Code does not discover that live registration: it scans `~/.copilot/installed-plugins/` instead. The installer therefore also maintains an identical copy at `~/.copilot/installed-plugins/cyclecloud-mcp/cyclecloud-mcp/`. Copy-based CLI installations use this path directly. Neither copy refers to the input package or development checkout; both read the same credential file. Keep both managed package directories while the plugin is installed, and update them together by rerunning the installer.
 
-Rerunning `--local` installs changed package files and repairs missing ones. Identical payloads are left alone. Existing credentials, their mode, and deliberately disabled plugin state are preserved. The installer never copies source code, `node_modules`, `.git`, or credentials into the managed package.
+Rerunning `--local` installs changed package files and repairs missing ones. Identical payloads are left alone. Configuration prompts use existing values as defaults, mask the saved password, and hide password input. Enter keeps a value; other settings, the file's private mode, and deliberately disabled plugin state are preserved. Use `--skip-config` to leave existing configuration unread and unchanged. The installer never copies source code, `node_modules`, `.git`, or credentials into the managed package.
 
 `--local` explicitly switches this project's known GitHub marketplace installation to the managed local source. It refuses same-name entries from unrelated sources. A no-argument GitHub installation will not silently switch a local installation back.
 
@@ -28,8 +28,8 @@ These commands install the revision from the GitHub marketplace, not uncommitted
 ## Server absent or not connected
 
 - Run `copilot plugin list` in the environment where the agent runs. The plugin must be present and enabled. A local install may say **live** rather than **installed**. CLI inventory alone does not prove VS Code discovery: confirm the installed copy exists under `~/.copilot/installed-plugins/cyclecloud-mcp/cyclecloud-mcp/`. Rerun the current local installer to create or repair it.
-- After installation or a configuration change, run **Developer: Reload Window** before checking **Agent Plugins - Installed**. Plugin discovery and configuration loading are not guaranteed to update an existing session.
-- After reloading, ensure **Chat: Plugins Enabled** is on and `cyclecloud-mcp` is enabled in **Agent Plugins - Installed**, then start a fresh connected agent session. The global setting enables the feature, not every individual plugin. VS Code remembers per-plugin disabled state independently of Copilot CLI; the installer does not change VS Code's private enablement database.
+- After installation or a configuration change, start a new agent session in VS Code or Copilot CLI. In VS Code, run **Developer: Reload Window** before checking **Agent Plugins - Installed**. Plugin discovery and configuration loading are not guaranteed to update an existing session.
+- In VS Code, ensure **Chat: Plugins Enabled** is on and `cyclecloud-mcp` is enabled in **Agent Plugins - Installed**, then start a new agent session. The global setting enables the feature, not every individual plugin. VS Code remembers per-plugin disabled state independently of Copilot CLI; the installer does not change VS Code's private enablement database.
 - In WSL, install and run the agent in the same distribution. Native Windows is not supported.
 - Send a real chat message before diagnosing an idle server: some agent hosts defer runtime startup until the first message.
 - Open **MCP: List Servers → cyclecloud → Show Output** for the active session. A model saying a tool is unavailable is not itself a launch diagnostic.
@@ -47,10 +47,12 @@ If the repository is private, raw `curl` access may fail even when Copilot or Gi
 ## Installer failures and reruns
 
 - **Dependencies or OS:** use a supported Node version and Copilot CLI 1.0.81 or later on Linux, macOS, or WSL. Do not use `node.exe` inside WSL. The installer does not install dependencies, upgrade the CLI, or use sudo.
-- **CLI commands fail:** check plugin support and source access. Authenticate separately if using GitHub; local packages require no GitHub marketplace download. The installer never prompts for credentials.
+- **CLI commands fail:** check plugin support and source access. Authenticate separately if using GitHub; local packages require no GitHub marketplace download. The installer prompts only for CycleCloud configuration, never GitHub authentication.
 - **Conflicting source:** inspect `copilot plugin marketplace list` and `copilot plugin list`. Resolve unrelated same-name entries explicitly; the installer will not replace them.
 - **Unsafe configuration or destination:** inspect ownership, file type, and permissions outside Chat. Symlinks and group/world-writable managed destinations are refused rather than automatically repaired.
-- **Partial installation:** completed steps are kept. Resolve the error and rerun the same command. A local installation receipt preserves a disabled choice across source-switch retries; do not delete it during recovery. Credentials are never rolled back or overwritten.
+- **Partial installation:** completed steps, including any configuration saved before plugin installation, are kept. Resolve the error and rerun the same command; Enter keeps saved values, or `--skip-config` bypasses the prompts. A local installation receipt preserves a disabled choice across source-switch retries; do not delete it during recovery.
+- **Configuration prompts:** the installer uses the controlling terminal, so prompts work even with `curl ... | sh`. Ctrl-C or Ctrl-D cancels without saving partial answers. Invalid JSON is left untouched; repair it outside Chat or use `--skip-config`. The prompts check URL and credential syntax and validate the URL against the preserved transport settings, but do not test connectivity or authentication. An invalid transport combination stops setup without saving; use a compatible URL (prefer verified HTTPS) or explicitly edit the conflicting settings outside Chat and rerun. See the [transport policy](configuration.md#transport-policy).
+- **Unattended installation:** add `--skip-config` (also works with `--local`), or pipe to `sh -s -- --skip-config`. When no terminal is available this behavior is automatic: existing configuration stays unread and unchanged; a missing file is populated with the private template after installation and must be edited before use.
 - **Incomplete local package:** recopy the complete packaged directory. The installer validates the required files before changing registrations.
 - **Missing configuration template:** reinstall a complete plugin package, then rerun the installer. Rerunning the remote installer alone does not replace an installed package.
 - **Custom Copilot paths:** this installer targets default HOME-based paths and rejects a different `COPILOT_HOME`. Do not mix home directories between installation and the agent.
@@ -85,7 +87,7 @@ For a default remote installation, copy the packaged template privately:
 )
 ```
 
-This refuses to overwrite existing configuration. Edit the URL and credentials outside Chat and keep `enableMutations: false`. The installer performs this step for both remote and local installations.
+This refuses to overwrite existing configuration. Edit the URL and credentials outside Chat and keep `enableMutations: false`. With `--skip-config` or no terminal, the installer performs this template-only step for both remote and local installations; otherwise it prompts and saves configuration before installing the plugin.
 
 ## Configuration and connection errors
 
