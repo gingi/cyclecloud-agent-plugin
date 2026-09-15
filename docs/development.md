@@ -13,7 +13,7 @@ npm ci --ignore-scripts
 npm run verify
 ```
 
-Verification runs formatting checks, lint, typecheck, bundle generation, tests (including the developer reset tests), and a dependency audit. The dependency-complete `bin/cyclecloud-mcp.mjs` is committed; users do not need to build it.
+Verification runs formatting checks, lint, typecheck, bundle generation, tests (including the developer reset tests), and a dependency audit. `bin/cyclecloud-mcp.mjs` is generated and ignored, not committed. A clean source checkout therefore needs its development dependencies and `npm run build` (or a command such as `npm run verify`, `npm test`, `npm run package:local`, or `npm run install:local` that builds first).
 
 ## Install a local or unpublished build
 
@@ -40,6 +40,40 @@ sh install.sh --local
 Alternatively, pass the package directory explicitly: `sh /path/to/install.sh --local /path/to/package`. The input directory can be deleted afterward; **keep the managed marketplace directory**. Local installation does not fetch the plugin from GitHub, so it works before any branch is committed or published. It still requires Node and Copilot CLI.
 
 `--local` explicitly switches this plugin's known GitHub marketplace registration to the local copy, without creating a second plugin or credential file. It refuses unrelated same-name sources. Complete the [credential setup](../README.md#1-install-and-configure) and [verification](../README.md#2-verify-the-setup) steps, then use the native `cyclecloud` tools. See [local installation and recovery](troubleshooting.md#local-installation-without-a-checkout-dependency) for details.
+
+### Test a branch or commit from source
+
+The repository marketplace entry resolves from the repository's default branch. `copilot plugin marketplace add gingi/cyclecloud-mcp` cannot select an arbitrary development branch or commit.
+
+To test an unpublished branch or exact SHA, check out that ref locally, then build and install it:
+
+```bash
+git fetch origin <branch>
+git switch --detach <commit-sha> # or: git switch <branch>
+npm ci --ignore-scripts
+npm run install:local -- --skip-config
+```
+
+`npm run package:local` uses the same checked-out source and produces a self-contained `dist/cyclecloud-mcp/` package. The branch or SHA matters only when selecting the source; neither command silently substitutes `main`.
+
+### Test a development workflow artifact
+
+The **Development build** workflow runs for every pushed branch, pull request, and manually selected `workflow_dispatch` ref. It verifies the source, builds the ignored bundle, packages the complete installable directory, and uploads an artifact named `cyclecloud-mcp-package-<ref>-<source-sha>`. `SOURCE_COMMIT.json` records the full source SHA, checked-out SHA, ref, event, and run metadata. For pull requests, the source SHA is the PR head while the checked-out SHA can be GitHub's synthetic merge commit.
+
+Download the artifact from the workflow run in GitHub, extract it, and run from the extracted package root:
+
+```bash
+sh install.sh --local --skip-config
+```
+
+With GitHub CLI, for example:
+
+```bash
+gh run download <run-id> --name <artifact-name> --dir cyclecloud-mcp-artifact
+sh cyclecloud-mcp-artifact/install.sh --local --skip-config
+```
+
+The artifact is the installable package, not a source checkout: it includes the generated `bin/cyclecloud-mcp.mjs` and hidden `.github/plugin/marketplace.json`, but excludes development dependencies and source files. Keep `SOURCE_COMMIT.json` when sharing it so the build remains traceable.
 
 ## Application authoring skill
 

@@ -3,6 +3,9 @@ dist/
 coverage/
 *.tsbuildinfo
 
+# Generated bundle; run `npm run build` to produce it.
+/bin/
+
 # Local configuration and credentials
 cyclecloud.json
 .env
