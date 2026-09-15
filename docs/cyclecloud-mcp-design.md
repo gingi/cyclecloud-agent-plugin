@@ -2,9 +2,9 @@
 
 ## Purpose and scope
 
-CycleCloud MCP is a proof-of-concept Copilot agent plugin for inspecting Azure CycleCloud from GitHub Copilot. It contains a dependency-bundled, local stdio Model Context Protocol (MCP) server. Three read tools expose cluster inventory, configuration, lifecycle/capacity status, and node issues. Two optional tools start and terminate clusters; they are absent unless explicitly enabled at startup.
+CycleCloud MCP is a proof-of-concept Copilot agent plugin for inspecting Azure CycleCloud from GitHub Copilot. It contains a dependency-bundled, local stdio Model Context Protocol (MCP) server. Four read tools expose cluster inventory, configuration, lifecycle/capacity status, node issues, and application-authoring context. Two optional tools start and terminate clusters; they are absent unless explicitly enabled at startup.
 
-The package is independent of VS Code APIs. It is an agent plugin, not a VS Code extension, and includes no skills, custom agents, slash commands, or hooks. The repository includes a Copilot marketplace catalog and an installer. The [README](../README.md) provides setup and usage instructions; [configuration](configuration.md) and [troubleshooting](troubleshooting.md) cover operator procedures.
+The package is independent of VS Code APIs. It is an agent plugin, not a VS Code extension. It includes an authoring-only skill skeleton, starter assets, and a local checker; see [application authoring](application-authoring.md). It includes no custom agents or hooks. The skill does not add MCP tools or deployment capabilities. The repository includes a Copilot marketplace catalog and an installer. The [README](../README.md) provides setup and usage instructions; [configuration](configuration.md) and [troubleshooting](troubleshooting.md) cover operator procedures.
 
 The design prioritizes:
 
@@ -320,6 +320,10 @@ Optional diagnostic text may be absent or null. Present text must be a well-form
 
 If the query is unavailable, denied, malformed, or oversized, the tool preserves lifecycle/capacity status and returns `issues.available: false` with a fixed warning. This does not mean there are no issues. A successful empty result has `available: true`, `total: 0`, and empty items. Cancellation during issue retrieval propagates as a `cancelled` tool error rather than being disguised as unavailable diagnostics. No issue query runs if the primary status read or normalization fails.
 
+### `get_cluster_application_context`
+
+See [Application context](application-context.md) for the input contract, fixed query projections, normalized evidence, bounds, failure handling, and attachment workflow. `src/application-context.ts` owns allowlisted normalization and byte-limited paging; `src/application-context-reader.ts` orchestrates compact overview and single-target section reads. Overview omits full specs/mounts and skips parameter values; attachment details query only the matching parameter. The tool uses existing authenticated reads and does not add mutations. Parameter metadata is scoped to the verified root cluster; shared-use lists cover the queried cluster only. Configuration is not runtime verification.
+
 ### `start_cluster` and `terminate_cluster`
 
 Both accept required `clusterName` and optional `recursive`, default `false`. They are registered only when startup configuration has `enableMutations: true`, which also emits a `mutations_enabled` stderr event.
@@ -429,7 +433,7 @@ Remote reruns preserve plugin versions, enablement choices, and credentials. Pin
 
 `--local [package-directory]` instead validates and copies a minimal complete package into `~/.local/share/cyclecloud-mcp/marketplace`, then registers that persistent local marketplace. Depending on the CLI version, the package is loaded live from that directory or copied to the installed-plugin directory. VS Code scans only the installed-plugin directory, not the CLI's live marketplace registration, so the installer also synchronizes the full package to the default installed-plugin path for live registrations. This does not create a second CLI registration. Both runtime copies share the credential directory, and local reruns repair both. The input checkout/package is not needed afterward. Local reruns update changed files and repair missing ones while preserving credentials and enablement. The managed `installation.json` receipt retains a disabled choice across partial source-switch failures. Only this project's known GitHub source can be switched automatically by explicit `--local`; unrelated sources are refused. Partial CLI operations are kept and can be retried.
 
-`npm run package:local` builds a self-contained directory under `dist/cyclecloud-mcp`; `npm run install:local` also installs it. The artifact contains only manifests, bundled server, template, license, installer, and marketplace metadata.
+`npm run package:local` builds a self-contained directory under `dist/cyclecloud-mcp`; `npm run install:local` also installs it. The artifact contains manifests, bundled server, configuration template, license, installer, marketplace metadata, and the explicitly listed application-authoring skill assets.
 
 ### Host behavior
 

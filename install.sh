@@ -316,7 +316,16 @@ async function configure(file, directories) {
 }
 
 const packageFiles = ['plugin.json', 'bin/cyclecloud-mcp.mjs',
-    'cyclecloud.example.json', 'LICENSE', 'install.sh', '.github/plugin/marketplace.json'];
+    'cyclecloud.example.json', 'LICENSE', 'install.sh', '.github/plugin/marketplace.json',
+    'skills/author-cyclecloud-application/SKILL.md',
+    'skills/author-cyclecloud-application/references/authoring.md',
+    'skills/author-cyclecloud-application/scripts/validate-project.mjs',
+    'skills/author-cyclecloud-application/assets/project/project.ini',
+    'skills/author-cyclecloud-application/assets/project/README.md',
+    'skills/author-cyclecloud-application/assets/project/ATTACHMENT.md',
+    'skills/author-cyclecloud-application/assets/project/specs/install/cluster-init/scripts/10-install.sh',
+    'skills/author-cyclecloud-application/assets/project/specs/runtime/cluster-init/scripts/10-runtime.sh',
+    'skills/author-cyclecloud-application/assets/project/examples/openfoam.sbatch'];
 
 function validateTemplate(contents) {
     let document;

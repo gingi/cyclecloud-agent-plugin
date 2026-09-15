@@ -4,6 +4,7 @@ import { X509Certificate } from "node:crypto";
 import { rootCertificates } from "node:tls";
 import { Agent, fetch, type Dispatcher, type Response } from "undici";
 import type { CycleCloudSettings } from "./config.js";
+import type { ApplicationReadSelection } from "./application-context.js";
 import type { CredentialProvider } from "./credentials.js";
 import { CycleCloudRequestError, StartupError } from "./errors.js";
 
@@ -50,6 +51,20 @@ export interface CycleCloudClient {
     ): Promise<unknown>;
     getClusterIssues(
         clusterName: string,
+        options?: CycleCloudRequestOptions,
+    ): Promise<unknown>;
+    getApplicationNodes(
+        clusterName: string,
+        options?: CycleCloudRequestOptions,
+        selection?: ApplicationReadSelection,
+    ): Promise<unknown>;
+    getApplicationParameters(
+        clusterName: string,
+        options?: CycleCloudRequestOptions,
+        parameterName?: string,
+    ): Promise<unknown>;
+    getImageMetadata(
+        image: string,
         options?: CycleCloudRequestOptions,
     ): Promise<unknown>;
     startCluster(
@@ -131,6 +146,74 @@ class HttpCycleCloudClient implements CycleCloudClient {
             options,
             // This legacy endpoint rejects Accept: application/json (406).
             // format=json still selects JSON, as in the CycleCloud CLI.
+            "*/*",
+        );
+    }
+
+    async getApplicationNodes(
+        clusterName: string,
+        options: CycleCloudRequestOptions = {},
+        selection: ApplicationReadSelection = { view: "overview" },
+    ): Promise<unknown> {
+        const projections = {
+            overview:
+                "State, ImageName, Configuration.slurm.role as SlurmRole, Configuration.slurm.partition as SlurmPartition, Configuration.slurm.ha_enabled as SlurmHaEnabled, _Template.AdditionalClusterInitSpecs as AttachmentReference",
+            environment:
+                "Extends, State, TargetState, ImageName, MachineType, Architecture, Locker, Configuration.slurm.role as SlurmRole, Configuration.slurm.version as SlurmVersion, Configuration.slurm.partition as SlurmPartition, Configuration.slurm.ha_enabled as SlurmHaEnabled, Configuration.slurm.is_primary_scheduler as SlurmPrimaryScheduler, Configuration.slurm.autoscale as SlurmAutoscale",
+            storage: "Configuration.cyclecloud.mounts as Mounts, Volumes",
+            attachments:
+                "ClusterInitSpecs, _Template.AdditionalClusterInitSpecs as AttachmentReference",
+        };
+        const projection =
+            projections[
+                selection.view === "overview" ? "overview" : selection.section
+            ];
+        const query =
+            "select Name, Template, IsArray, " +
+            projection +
+            " from Cloud.Node where ClusterName === " +
+            JSON.stringify(clusterName) +
+            " && (Template === Name || IsArray === true) && Abstract =!= true" +
+            (selection.view === "details"
+                ? " && Name === " + JSON.stringify(selection.targetName)
+                : "");
+        return this.#read(
+            `/exec/query/?q=${encodeURIComponent(query)}&format=json`,
+            options,
+            "*/*",
+        );
+    }
+
+    async getApplicationParameters(
+        clusterName: string,
+        options: CycleCloudRequestOptions = {},
+        parameterName?: string,
+    ): Promise<unknown> {
+        const query =
+            "select Name, Label, ParameterType, Value from Cloud.ClusterParameter where ClusterName === " +
+            JSON.stringify(clusterName) +
+            ' && ParameterType === "Cloud.ClusterInitSpecs"' +
+            (parameterName === undefined
+                ? ""
+                : " && Name === " + JSON.stringify(parameterName));
+        return this.#read(
+            `/exec/query/?q=${encodeURIComponent(query)}&format=json`,
+            options,
+            "*/*",
+        );
+    }
+
+    async getImageMetadata(
+        image: string,
+        options: CycleCloudRequestOptions = {},
+    ): Promise<unknown> {
+        const query =
+            "select Name, PackageType, Label, OS, JetpackPlatform from Package where Name === " +
+            JSON.stringify(image) +
+            ' && PackageType == "image"';
+        return this.#read(
+            `/exec/query/?q=${encodeURIComponent(query)}&format=json`,
+            options,
             "*/*",
         );
     }

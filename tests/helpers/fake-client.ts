@@ -4,6 +4,8 @@ import type {
     CycleCloudRequestOptions,
 } from "../../src/cyclecloud-client.js";
 
+import type { ApplicationReadSelection } from "../../src/application-context.js";
+
 export type ActionHandler = (
     clusterName: string,
     recursive: boolean,
@@ -13,6 +15,9 @@ export type ActionHandler = (
 export class FakeCycleCloudClient implements CycleCloudClient {
     listResult: unknown = [];
     clusterResult: unknown = [];
+    applicationNodesResult: unknown = [];
+    applicationParametersResult: unknown = [];
+    imageMetadataResult: unknown = [];
     statusResult: unknown = { nodearrays: [], maxCount: 0, maxCoreCount: 0 };
     startResult: ActionDispatchResult = { outcome: "accepted" };
     terminateResult: ActionDispatchResult = { outcome: "accepted" };
@@ -23,6 +28,9 @@ export class FakeCycleCloudClient implements CycleCloudClient {
         cluster: 0,
         status: 0,
         issues: 0,
+        applicationNodes: 0,
+        applicationParameters: 0,
+        imageMetadata: 0,
         start: 0,
         terminate: 0,
         close: 0,
@@ -36,6 +44,38 @@ export class FakeCycleCloudClient implements CycleCloudClient {
     getCluster(): Promise<unknown> {
         this.calls.cluster += 1;
         return Promise.resolve(this.clusterResult);
+    }
+
+    getApplicationNodes(
+        _clusterName: string,
+        _options?: CycleCloudRequestOptions,
+        selection?: ApplicationReadSelection,
+    ): Promise<unknown> {
+        void _clusterName;
+        void _options;
+        this.calls.applicationNodes += 1;
+        const result: unknown =
+            selection?.view === "details" &&
+            Array.isArray(this.applicationNodesResult)
+                ? this.applicationNodesResult.filter(
+                      (row: unknown) =>
+                          typeof row === "object" &&
+                          row !== null &&
+                          "Name" in row &&
+                          row.Name === selection.targetName,
+                  )
+                : this.applicationNodesResult;
+        return Promise.resolve(result);
+    }
+
+    getApplicationParameters(): Promise<unknown> {
+        this.calls.applicationParameters += 1;
+        return Promise.resolve(this.applicationParametersResult);
+    }
+
+    getImageMetadata(): Promise<unknown> {
+        this.calls.imageMetadata += 1;
+        return Promise.resolve(this.imageMetadataResult);
     }
 
     getClusterStatus(): Promise<unknown> {

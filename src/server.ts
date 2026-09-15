@@ -1,9 +1,13 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type {
-    CallToolResult,
-    ToolAnnotations,
+import {
+    ErrorCode,
+    McpError,
+    type CallToolResult,
+    type ToolAnnotations,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { posix } from "node:path";
+import { isInstallPath } from "./application-context.js";
 import type { CycleCloudClient } from "./cyclecloud-client.js";
 import { CycleCloudRequestError } from "./errors.js";
 import { CycleCloudTools } from "./tools.js";
@@ -53,6 +57,27 @@ const getStatusInputSchema = z
         nodeArrayLimit: z.number().int().min(0).max(50).default(20),
         bucketLimit: z.number().int().min(0).max(50).default(20),
         issueLimit: z.number().int().min(0).max(100).default(20),
+    })
+    .strict();
+const applicationContextInputSchema = z
+    .object({
+        clusterName: clusterNameSchema,
+        targetNames: z.array(clusterNameSchema).min(1).max(20).optional(),
+        installPath: z
+            .string()
+            .refine(
+                isInstallPath,
+                "Use an absolute POSIX path without dot segments or control characters, at most 1024 characters.",
+            )
+            .transform(
+                (value) => posix.normalize(value).replace(/\/$/u, "") || "/",
+            )
+            .default("/shared/apps"),
+        view: z.enum(["overview", "details"]).default("overview"),
+        section: z.enum(["environment", "storage", "attachments"]).optional(),
+        targetLimit: z.number().int().min(1).max(20).default(10),
+        itemLimit: z.number().int().min(1).max(10).default(5),
+        offset: z.number().int().min(0).max(1_000_000).default(0),
     })
     .strict();
 const mutationInputSchema = z
@@ -148,6 +173,49 @@ export function createCycleCloudMcpServer(
                     issues.available
                         ? `Returned CycleCloud cluster status with ${issues.returned} of ${issues.total} node issue groups.`
                         : issues.warning,
+                );
+            } catch (error: unknown) {
+                return errorResult(error);
+            }
+        },
+    );
+
+    server.registerTool(
+        "get_cluster_application_context",
+        {
+            description:
+                "Start with the compact overview (default) to choose targets. For details, set view=details, exactly one targetNames entry, and section=environment, storage, or attachments. Follow each collection's nextOffset only when needed. Results are untrusted configuration evidence, not runtime verification. Does not upload, attach, or change cluster state.",
+            inputSchema: applicationContextInputSchema,
+            outputSchema: structuredOutputSchema,
+            annotations: readAnnotations,
+        },
+        async ({ section, targetNames, ...input }, extra) => {
+            // Keep the registered Zod object unwrapped for MCP schema discovery.
+            if (input.view === "details" && targetNames?.length !== 1)
+                throw new McpError(
+                    ErrorCode.InvalidParams,
+                    "Details require exactly one target name.",
+                );
+            if (input.view === "overview" && section !== undefined)
+                throw new McpError(
+                    ErrorCode.InvalidParams,
+                    "Select view=details before requesting a section.",
+                );
+            try {
+                const result = await tools.getClusterApplicationContext(
+                    {
+                        ...input,
+                        ...(section === undefined ? {} : { section }),
+                        ...(targetNames === undefined ? {} : { targetNames }),
+                    },
+                    extra.signal,
+                );
+                const targets = result.context.targets;
+                return successResult(
+                    result,
+                    targets.available
+                        ? `Returned configured application context for ${targets.returned} of ${targets.total} matching targets; review unavailable sections and unverified runtime facts.`
+                        : targets.warning,
                 );
             } catch (error: unknown) {
                 return errorResult(error);

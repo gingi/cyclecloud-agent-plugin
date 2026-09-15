@@ -26,6 +26,15 @@ const files = [
     "LICENSE",
     "install.sh",
     ".github/plugin/marketplace.json",
+    "skills/author-cyclecloud-application/SKILL.md",
+    "skills/author-cyclecloud-application/references/authoring.md",
+    "skills/author-cyclecloud-application/scripts/validate-project.mjs",
+    "skills/author-cyclecloud-application/assets/project/project.ini",
+    "skills/author-cyclecloud-application/assets/project/README.md",
+    "skills/author-cyclecloud-application/assets/project/ATTACHMENT.md",
+    "skills/author-cyclecloud-application/assets/project/specs/install/cluster-init/scripts/10-install.sh",
+    "skills/author-cyclecloud-application/assets/project/specs/runtime/cluster-init/scripts/10-runtime.sh",
+    "skills/author-cyclecloud-application/assets/project/examples/openfoam.sbatch",
 ];
 let home: string;
 let source: string;
@@ -241,6 +250,61 @@ describe("Independent local installation", () => {
         },
     );
 
+    test.each([true, false])(
+        "Installs and updates skill assets without a checkout (live=%s)",
+        async (liveLocal) => {
+            await mutateState((value) => {
+                value.liveLocal = liveLocal;
+            });
+            expect(run("--local").status).toBe(0);
+            const installed = join(
+                home,
+                ".copilot/installed-plugins/cyclecloud-mcp/cyclecloud-mcp",
+            );
+            const skill = "skills/author-cyclecloud-application";
+            for (const target of [managed, installed]) {
+                for (const file of files.filter((file) =>
+                    file.startsWith("skills/"),
+                )) {
+                    expect(await readFile(join(target, file), "utf8")).toBe(
+                        await readFile(join(source, file), "utf8"),
+                    );
+                }
+                const result = spawnSync(
+                    process.execPath,
+                    [
+                        join(target, skill, "scripts/validate-project.mjs"),
+                        join(target, skill, "assets/project"),
+                    ],
+                    { cwd: home, encoding: "utf8" },
+                );
+                expect(result.status).toBe(1);
+                expect(result.stdout).toContain("Unresolved TODO marker");
+            }
+            await writeFile(config, "keep credentials\n");
+            await mutateState((value) => {
+                value.plugins.forEach((plugin) => {
+                    plugin.enabled = false;
+                });
+            });
+            await writeFile(
+                join(source, skill, "references/authoring.md"),
+                "updated reference\n",
+            );
+            expect(run("--local").status).toBe(0);
+            for (const target of [managed, installed]) {
+                expect(
+                    await readFile(
+                        join(target, skill, "references/authoring.md"),
+                        "utf8",
+                    ),
+                ).toBe("updated reference\n");
+            }
+            expect(await readFile(config, "utf8")).toBe("keep credentials\n");
+            expect((await state()).plugins[0]?.enabled).toBe(false);
+        },
+    );
+
     test("Explicitly switches the known remote source without losing credentials or enablement", async () => {
         expect(run().status).toBe(0);
         await writeFile(config, "keep me\n");
@@ -278,8 +342,27 @@ describe("Independent local installation", () => {
         "plugin.json",
         "bin/cyclecloud-mcp.mjs",
         "cyclecloud.example.json",
+        "skills/author-cyclecloud-application/SKILL.md",
+        "skills/author-cyclecloud-application/scripts/validate-project.mjs",
     ])("Rejects incomplete packages before registration: %s", async (file) => {
         await rm(join(source, file));
+        expect(run("--local").status).not.toBe(0);
+        expect(await calls()).toEqual([]);
+    });
+
+    test("Rejects symlinked skill assets before registration", async () => {
+        const asset = join(
+            source,
+            "skills/author-cyclecloud-application/references/authoring.md",
+        );
+        await rm(asset);
+        await symlink(
+            join(
+                root,
+                "skills/author-cyclecloud-application/references/authoring.md",
+            ),
+            asset,
+        );
         expect(run("--local").status).not.toBe(0);
         expect(await calls()).toEqual([]);
     });
@@ -412,6 +495,7 @@ describe("Independent local installation", () => {
                     "list_clusters",
                     "get_cluster",
                     "get_cluster_status",
+                    "get_cluster_application_context",
                 ]);
                 const call = await client.callTool({
                     name: "list_clusters",

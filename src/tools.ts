@@ -3,6 +3,11 @@ import type {
     CycleCloudClient,
 } from "./cyclecloud-client.js";
 import { CycleCloudRequestError } from "./errors.js";
+import type {
+    ApplicationContextInput,
+    ApplicationContextResult,
+} from "./application-context.js";
+import { readApplicationContext } from "./application-context-reader.js";
 import {
     normalizeCluster,
     normalizeClusterList,
@@ -115,6 +120,13 @@ export class CycleCloudTools {
             };
         }
         return { status: { ...result.status, issues } };
+    }
+
+    async getClusterApplicationContext(
+        input: ApplicationContextInput,
+        signal: AbortSignal,
+    ): Promise<ApplicationContextResult> {
+        return readApplicationContext(this.#client, input, signal);
     }
 
     async startCluster(

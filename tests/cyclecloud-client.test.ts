@@ -144,6 +144,95 @@ describe("CycleCloud HTTP request shape", () => {
         expect([...url.searchParams.keys()]).toEqual(["q", "format"]);
     });
 
+    test("Queries application context with fixed projections and escaped scope", async () => {
+        const server = await createServer();
+        server.enqueue({ status: 200, body: "[]" });
+        server.enqueue({ status: 200, body: "[]" });
+        const client = await createClient(settings(server.origin));
+        const name = 'cluster "quoted" \\ name & 雪';
+        await client.getApplicationNodes(name);
+        await client.getApplicationParameters(name);
+        const queries = server.requests.map((request) => {
+            expect(request.method).toBe("GET");
+            expect(request.accept).toBe("*/*");
+            const url = new URL(request.url, server.origin);
+            expect(url.pathname).toBe("/exec/query/");
+            expect(url.searchParams.get("format")).toBe("json");
+            return url.searchParams.get("q");
+        });
+        expect(queries[0]).toContain(
+            `from Cloud.Node where ClusterName === ${JSON.stringify(name)}`,
+        );
+        expect(queries[0]).toContain("(Template === Name || IsArray === true)");
+        expect(queries[0]).toContain(
+            "_Template.AdditionalClusterInitSpecs as AttachmentReference",
+        );
+        expect(queries[0]).toContain(
+            "Configuration.slurm.partition as SlurmPartition",
+        );
+        expect(queries[0]).not.toContain("select *");
+        expect(queries[0]).not.toMatch(/Configuration\s*[, ]/);
+        expect(queries[1]).toBe(
+            `select Name, Label, ParameterType, Value from Cloud.ClusterParameter where ClusterName === ${JSON.stringify(name)} && ParameterType === "Cloud.ClusterInitSpecs"`,
+        );
+    });
+
+    test("Keeps overview queries small and scopes detail sections to one target", async () => {
+        const server = await createServer();
+        for (let i = 0; i < 5; i += 1)
+            server.enqueue({ status: 200, body: "[]" });
+        const client = await createClient(settings(server.origin));
+        await client.getApplicationNodes("demo");
+        for (const section of [
+            "environment",
+            "storage",
+            "attachments",
+        ] as const) {
+            await client.getApplicationNodes(
+                "demo",
+                {},
+                { view: "details", targetName: 'node "quoted"', section },
+            );
+        }
+        await client.getApplicationParameters("demo", {}, 'Specs "quoted"');
+        const queries = server.requests.map(
+            (request) =>
+                new URL(request.url, server.origin).searchParams.get("q") ?? "",
+        );
+        expect(queries[0]).not.toMatch(
+            /Mounts|Volumes|select.*ClusterInitSpecs,/,
+        );
+        for (const query of queries.slice(1, 4))
+            expect(query).toContain(' && Name === "node \\"quoted\\""');
+        expect(queries[1]).toContain("MachineType");
+        expect(queries[1]).not.toContain(" as Mounts");
+        expect(queries[2]).toContain(" as Mounts");
+        expect(queries[2]).not.toContain("ClusterInitSpecs,");
+        expect(queries[3]).toContain("ClusterInitSpecs,");
+        expect(queries[3]).not.toContain(" as Mounts");
+        expect(queries[4]).toContain(
+            ` && Name === ${JSON.stringify('Specs "quoted"')}`,
+        );
+    });
+
+    test("Looks up an exact image package with a metadata-only projection", async () => {
+        const server = await createServer();
+        server.enqueue({ status: 200, body: "[]" });
+        const client = await createClient(settings(server.origin));
+        const image = 'custom "image" & version';
+        await client.getImageMetadata(image);
+        const request = server.requests[0];
+        if (request === undefined) throw new Error("Expected metadata query");
+        const url = new URL(request.url, server.origin);
+        expect(request.method).toBe("GET");
+        expect(request.accept).toBe("*/*");
+        expect(url.pathname).toBe("/exec/query/");
+        expect(url.searchParams.get("format")).toBe("json");
+        expect(url.searchParams.get("q")).toBe(
+            `select Name, PackageType, Label, OS, JetpackPlatform from Package where Name === ${JSON.stringify(image)} && PackageType == "image"`,
+        );
+    });
+
     test("Does not follow redirects or forward credentials", async () => {
         const server = await createServer();
         server.enqueue({
