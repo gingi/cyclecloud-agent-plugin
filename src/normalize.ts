@@ -467,7 +467,7 @@ function normalizeBucketStatus(value: unknown): BucketStatus {
     };
 }
 
-function consumedFields(
+export function consumedFields(
     value: unknown,
     consumedNames: readonly string[],
 ): ConsumedFields {
@@ -483,7 +483,7 @@ function consumedFields(
     return result;
 }
 
-function requiredRecord(value: unknown): Record<string, unknown> {
+export function requiredRecord(value: unknown): Record<string, unknown> {
     if (!isRecord(value)) invalidResponse();
     return value;
 }
@@ -523,7 +523,10 @@ function optionalString(
     return optionalWireString(fields.get(name), maximumScalars);
 }
 
-function requiredWireString(value: unknown, maximumScalars: number): string {
+export function requiredWireString(
+    value: unknown,
+    maximumScalars: number,
+): string {
     const result = optionalWireString(value, maximumScalars);
     if (result === undefined || result.length === 0) invalidResponse();
     return result;
@@ -572,7 +575,7 @@ function validateLimit(value: number, minimum: number, maximum: number): void {
         invalidResponse();
 }
 
-function compareNames(left: string, right: string): number {
+export function compareNames(left: string, right: string): number {
     const foldedLeft = asciiLowercase(left);
     const foldedRight = asciiLowercase(right);
     if (foldedLeft < foldedRight) return -1;

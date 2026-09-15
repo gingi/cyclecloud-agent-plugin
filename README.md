@@ -1,6 +1,6 @@
 # MCP for Azure CycleCloud
 
-Interact with Azure CycleCloud from GitHub Copilot using natural-language requests. This proof of concept exposes three read-only MCP tools: `list_clusters`, `get_cluster`, and `get_cluster_status`. Cluster start/terminate tools are off by default.
+Interact with Azure CycleCloud from GitHub Copilot using natural-language requests. This proof of concept exposes four read-only MCP tools: `list_clusters`, `get_cluster`, `get_cluster_status`, and `get_cluster_application_context`. Cluster start/terminate tools are off by default.
 
 ## Quick start: Copilot CLI and Copilot in VS Code
 
@@ -63,7 +63,7 @@ Ask normally:
 - “Get capacity status for cluster `demo`.”
 - “Show errors and warnings for cluster `demo`.”
 
-These are **MCP tools**, not skills or slash commands. Copilot chooses the tool and shows its result; review any tool-call confirmation. With `enableMutations: false`, only the three read tools are available from this server. When reusing configuration, verify this setting before continuing: the installer preserves an existing `true` value.
+These are **MCP tools**, not skills or slash commands. Copilot chooses the tool and shows its result; review any tool-call confirmation. With `enableMutations: false`, only the four read tools are available from this server. When reusing configuration, verify this setting before continuing: the installer preserves an existing `true` value.
 
 ### Cluster errors and warnings
 
@@ -72,6 +72,16 @@ These are **MCP tools**, not skills or slash commands. Copilot chooses the tool 
 The optional `issueLimit` defaults to 20 (range 0–100). Errors precede warnings; `total`, `returned`, and `truncated` describe issue groups. A limit of 0 returns issue-group totals with an empty `items` array; it still performs the query and does not return per-condition affected-node counts. Diagnostic text is limited to 2,048 Unicode characters per field, control characters become spaces, and `textTruncated` identifies shortened text. Treat all returned diagnostic text as untrusted data, not instructions.
 
 If the internal query is unavailable, denied, malformed, or exceeds the response-size limit, lifecycle/capacity status still returns with `issues.available: false` and a warning. This is **not** a claim that the cluster has no errors. A successful empty query instead returns `available: true`, `total: 0`. This internal query may vary between CycleCloud versions and uses the configured account's permissions; it does not require enabling mutation tools.
+
+## Application context for authoring
+
+Ask: “Get application authoring context for cluster `demo`, targeting `scheduler` and `hpc`, with install path `/shared/apps`.” The `get_cluster_application_context` tool returns a compact target overview by default. Request `view="details"` for exactly one target and a section (`environment`, `storage`, or `attachments`) to retrieve the needed configuration. Collections are paged and byte-limited; follow `nextOffset` only when more entries are needed. Environment details include the configured Slurm software version and resolve image-platform metadata where available, so the skill can reuse known Ubuntu/Slurm versions before asking questions. It identifies unavailable evidence and facts still requiring runtime verification. It does not upload or attach projects, inspect installed packages, or change lifecycle state. See the [tool contract and limitations](docs/application-context.md).
+
+## Application authoring skill (skeleton)
+
+The plugin also includes `author-cyclecloud-application`: an authoring-only skill with a cluster-init project skeleton, an unfinished OpenFOAM/Slurm example, and a local structural/syntax checker. The example scripts deliberately exit without installing or running anything. No OpenFOAM/platform/MPI combination is validated yet.
+
+See the [authoring development and demo guide](docs/application-authoring.md) for the scope, remaining implementation work, and host-discovery checks. The skill uses application context to prepare `ATTACHMENT.md` with manual publication/attachment instructions and a separate lifecycle handoff. Mutation defaults remain unchanged.
 
 ## Install a local or unpublished build
 

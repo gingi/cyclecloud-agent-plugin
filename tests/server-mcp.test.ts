@@ -10,6 +10,10 @@ import {
 import { createFileCredentialProvider } from "../src/credentials.js";
 import { startFakeCycleCloudServer } from "./helpers/fake-cyclecloud.js";
 import { FakeCycleCloudClient } from "./helpers/fake-client.js";
+import {
+    applicationNodes,
+    applicationParameters,
+} from "./helpers/application-context.js";
 
 interface ConnectedServer {
     readonly client: Client;
@@ -51,8 +55,26 @@ async function connectServer(options: {
     return connected;
 }
 
+function createReadClient(origin: string) {
+    return createCycleCloudClient(
+        {
+            url: origin,
+            verifyTls: true,
+            allowInsecureHttp: false,
+            enableMutations: false,
+            requestTimeoutMs: 1000,
+            actionTimeoutMs: 1000,
+            debug: false,
+        },
+        createFileCredentialProvider({
+            username: "test-user",
+            password: "test-password",
+        }),
+    );
+}
+
 describe("CycleCloud MCP discovery", () => {
-    test("Registers exactly three read tools by default with read-only annotations", async () => {
+    test("Registers exactly four read tools by default with read-only annotations", async () => {
         const cycleCloud = new FakeCycleCloudClient();
         const { client } = await connectServer({ cycleCloud });
 
@@ -62,6 +84,7 @@ describe("CycleCloud MCP discovery", () => {
             "list_clusters",
             "get_cluster",
             "get_cluster_status",
+            "get_cluster_application_context",
         ]);
         expect(
             listed.tools.every(
@@ -83,6 +106,17 @@ describe("CycleCloud MCP discovery", () => {
                 (tool) => tool.annotations?.openWorldHint === true,
             ),
         ).toBe(true);
+        expect(
+            listed.tools.find(
+                (tool) => tool.name === "get_cluster_application_context",
+            )?.inputSchema,
+        ).toMatchObject({
+            properties: {
+                view: { default: "overview", enum: ["overview", "details"] },
+                section: { enum: ["environment", "storage", "attachments"] },
+                offset: { default: 0 },
+            },
+        });
         const absentMutation = await client.callTool({
             name: "start_cluster",
             arguments: { clusterName: "cluster-1" },
@@ -106,6 +140,7 @@ describe("CycleCloud MCP discovery", () => {
             "list_clusters",
             "get_cluster",
             "get_cluster_status",
+            "get_cluster_application_context",
             "start_cluster",
             "terminate_cluster",
         ]);
@@ -135,6 +170,7 @@ describe("CycleCloud MCP calls", () => {
         "list_clusters",
         "get_cluster",
         "get_cluster_status",
+        "get_cluster_application_context",
         "start_cluster",
         "terminate_cluster",
     ])("Reports an unreachable instance through %s", async (name) => {
@@ -182,6 +218,182 @@ describe("CycleCloud MCP calls", () => {
             await cycleCloud.close();
         }
     });
+
+    test.each([200, 403])(
+        "Reads application context over HTTP with optional parameter status %i",
+        async (parameterStatus) => {
+            const backend = await startFakeCycleCloudServer();
+            backend.enqueue({
+                status: 200,
+                body: JSON.stringify([{ ClusterName: "demo" }]),
+            });
+            backend.enqueue({
+                status: 200,
+                body: JSON.stringify([applicationNodes()[0]]),
+            });
+            backend.enqueue({
+                status: 200,
+                body: JSON.stringify(applicationNodes()),
+            });
+            backend.enqueue({
+                status: parameterStatus,
+                body: JSON.stringify(applicationParameters()),
+            });
+            const cycleCloud = await createReadClient(backend.origin);
+            try {
+                const { client } = await connectServer({ cycleCloud });
+                const result = await client.callTool({
+                    name: "get_cluster_application_context",
+                    arguments: {
+                        clusterName: "demo",
+                        targetNames: ["scheduler"],
+                        view: "details",
+                        section: "attachments",
+                        installPath: "/shared//apps/",
+                    },
+                });
+                expect(result.isError, JSON.stringify(result)).toBe(false);
+                expect(result.structuredContent).toMatchObject({
+                    context: {
+                        installPath: "/shared/apps",
+                        targets: { available: true, total: 1 },
+                        attachmentParameters: {
+                            available: parameterStatus === 200,
+                        },
+                    },
+                });
+                expect(JSON.stringify(result)).not.toContain("SECRET_");
+                expect(backend.requests).toHaveLength(4);
+                expect(
+                    backend.requests.every(
+                        (request) => request.method === "GET",
+                    ),
+                ).toBe(true);
+            } finally {
+                await cycleCloud.close();
+                await backend.close();
+            }
+        },
+    );
+
+    test.each([200, 403])(
+        "Enriches environment platform metadata over HTTP (status=%i)",
+        async (status) => {
+            const backend = await startFakeCycleCloudServer();
+            backend.enqueue({
+                status: 200,
+                body: JSON.stringify([{ ClusterName: "demo" }]),
+            });
+            backend.enqueue({
+                status: 200,
+                body: JSON.stringify([applicationNodes()[0]]),
+            });
+            backend.enqueue({
+                status,
+                body: JSON.stringify([
+                    {
+                        Name: "cycle.image.ubuntu22",
+                        PackageType: "image",
+                        OS: "linux",
+                        JetpackPlatform: "ubuntu-22.04",
+                        Label: "Ubuntu 22.04 LTS",
+                        Secret: "SECRET_IMAGE",
+                    },
+                ]),
+            });
+            const cycleCloud = await createReadClient(backend.origin);
+            try {
+                const { client } = await connectServer({ cycleCloud });
+                const result = await client.callTool({
+                    name: "get_cluster_application_context",
+                    arguments: {
+                        clusterName: "demo",
+                        view: "details",
+                        targetNames: ["scheduler"],
+                        section: "environment",
+                    },
+                });
+                expect(result.isError).toBe(false);
+                expect(result.structuredContent).toMatchObject({
+                    context: {
+                        targets: {
+                            available: true,
+                            items: [
+                                {
+                                    scheduler: { version: "23.11" },
+                                    platform: { available: status === 200 },
+                                },
+                            ],
+                        },
+                    },
+                });
+                expect(JSON.stringify(result)).not.toContain("SECRET_");
+                expect(backend.requests).toHaveLength(3);
+                expect(
+                    backend.requests.every(
+                        (request) => request.method === "GET",
+                    ),
+                ).toBe(true);
+            } finally {
+                await cycleCloud.close();
+                await backend.close();
+            }
+        },
+    );
+
+    test("Returns application authoring context with defaults and no raw secrets", async () => {
+        const cycleCloud = new FakeCycleCloudClient();
+        cycleCloud.clusterResult = [{ ClusterName: "demo" }];
+        cycleCloud.applicationNodesResult = applicationNodes();
+        cycleCloud.applicationParametersResult = applicationParameters();
+        const { client } = await connectServer({ cycleCloud });
+        const result = await client.callTool({
+            name: "get_cluster_application_context",
+            arguments: { clusterName: "demo" },
+        });
+        expect(result.isError, JSON.stringify(result)).toBe(false);
+        expect(result.structuredContent).toMatchObject({
+            context: {
+                evidence: "configured",
+                installPath: "/shared/apps",
+                targets: { available: true, total: 3 },
+            },
+        });
+        expect(JSON.stringify(result)).not.toContain("SECRET_");
+    });
+
+    test.each([
+        { installPath: "relative" },
+        { installPath: "/shared/../etc" },
+        { installPath: "/shared/\0" },
+        { installPath: "/shared/\ud800" },
+        { targetLimit: 0 },
+        { targetLimit: 21 },
+        { view: "details" },
+        { view: "details", targetNames: ["scheduler", "hpc"] },
+        { view: "details", targetNames: ["hpc"], section: "all" },
+        { section: "storage" },
+        { offset: -1 },
+        { offset: 1_000_001 },
+        { itemLimit: 11 },
+        { targetNames: [] },
+        { targetNames: ["."] },
+        { targetNames: Array(21).fill("node") },
+        { rawQuery: "select *" },
+    ])(
+        "Rejects invalid application context input before reads: %j",
+        async (args) => {
+            const cycleCloud = new FakeCycleCloudClient();
+            const { client } = await connectServer({ cycleCloud });
+            const result = await client.callTool({
+                name: "get_cluster_application_context",
+                arguments: { clusterName: "demo", ...args },
+            });
+            expect(result.isError).toBe(true);
+            expect(cycleCloud.calls.cluster).toBe(0);
+            expect(cycleCloud.calls.applicationNodes).toBe(0);
+        },
+    );
 
     test("Returns structured bounded read content and applies input defaults", async () => {
         const cycleCloud = new FakeCycleCloudClient();

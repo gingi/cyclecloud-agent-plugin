@@ -23180,7 +23180,7 @@ var require_core = __commonJS({
       errorsText(errors = this.errors, { separator = ", ", dataVar = "data" } = {}) {
         if (!errors || errors.length === 0)
           return "No errors";
-        return errors.map((e) => `${dataVar}${e.instancePath} ${e.message}`).reduce((text, msg) => text + separator + msg);
+        return errors.map((e) => `${dataVar}${e.instancePath} ${e.message}`).reduce((text2, msg) => text2 + separator + msg);
       }
       $dataMetaSchema(metaSchema, keywordsJsonPointers) {
         const rules = this.RULES.all;
@@ -23609,8 +23609,8 @@ var require_multipleOf = __commonJS({
         const { gen, data, schemaCode, it } = cxt;
         const prec = it.opts.multipleOfPrecision;
         const res = gen.let("res");
-        const invalid = prec ? (0, codegen_1._)`Math.abs(Math.round(${res}) - ${res}) > 1e-${prec}` : (0, codegen_1._)`${res} !== parseInt(${res})`;
-        cxt.fail$data((0, codegen_1._)`(${schemaCode} === 0 || (${res} = ${data}/${schemaCode}, ${invalid}))`);
+        const invalid3 = prec ? (0, codegen_1._)`Math.abs(Math.round(${res}) - ${res}) > 1e-${prec}` : (0, codegen_1._)`${res} !== parseInt(${res})`;
+        cxt.fail$data((0, codegen_1._)`(${schemaCode} === 0 || (${res} = ${data}/${schemaCode}, ${invalid3}))`);
       }
     };
     exports.default = def;
@@ -29078,7 +29078,7 @@ var require_core3 = __commonJS({
       errorsText(errors = this.errors, { separator = ", ", dataVar = "data" } = {}) {
         if (!errors || errors.length === 0)
           return "No errors";
-        return errors.map((e) => `${dataVar}${e.instancePath} ${e.message}`).reduce((text, msg) => text + separator + msg);
+        return errors.map((e) => `${dataVar}${e.instancePath} ${e.message}`).reduce((text2, msg) => text2 + separator + msg);
       }
       $dataMetaSchema(metaSchema, keywordsJsonPointers) {
         const rules = this.RULES.all;
@@ -29507,8 +29507,8 @@ var require_multipleOf2 = __commonJS({
         const { gen, data, schemaCode, it } = cxt;
         const prec = it.opts.multipleOfPrecision;
         const res = gen.let("res");
-        const invalid = prec ? (0, codegen_1._)`Math.abs(Math.round(${res}) - ${res}) > 1e-${prec}` : (0, codegen_1._)`${res} !== parseInt(${res})`;
-        cxt.fail$data((0, codegen_1._)`(${schemaCode} === 0 || (${res} = ${data}/${schemaCode}, ${invalid}))`);
+        const invalid3 = prec ? (0, codegen_1._)`Math.abs(Math.round(${res}) - ${res}) > 1e-${prec}` : (0, codegen_1._)`${res} !== parseInt(${res})`;
+        cxt.fail$data((0, codegen_1._)`(${schemaCode} === 0 || (${res} = ${data}/${schemaCode}, ${invalid3}))`);
       }
     };
     exports.default = def;
@@ -37712,6 +37712,37 @@ var HttpCycleCloudClient = class {
       options,
       // This legacy endpoint rejects Accept: application/json (406).
       // format=json still selects JSON, as in the CycleCloud CLI.
+      "*/*"
+    );
+  }
+  async getApplicationNodes(clusterName, options = {}, selection = { view: "overview" }) {
+    const projections = {
+      overview: "State, ImageName, Configuration.slurm.role as SlurmRole, Configuration.slurm.partition as SlurmPartition, Configuration.slurm.ha_enabled as SlurmHaEnabled, _Template.AdditionalClusterInitSpecs as AttachmentReference",
+      environment: "Extends, State, TargetState, ImageName, MachineType, Architecture, Locker, Configuration.slurm.role as SlurmRole, Configuration.slurm.version as SlurmVersion, Configuration.slurm.partition as SlurmPartition, Configuration.slurm.ha_enabled as SlurmHaEnabled, Configuration.slurm.is_primary_scheduler as SlurmPrimaryScheduler, Configuration.slurm.autoscale as SlurmAutoscale",
+      storage: "Configuration.cyclecloud.mounts as Mounts, Volumes",
+      attachments: "ClusterInitSpecs, _Template.AdditionalClusterInitSpecs as AttachmentReference"
+    };
+    const projection = projections[selection.view === "overview" ? "overview" : selection.section];
+    const query = "select Name, Template, IsArray, " + projection + " from Cloud.Node where ClusterName === " + JSON.stringify(clusterName) + " && (Template === Name || IsArray === true) && Abstract =!= true" + (selection.view === "details" ? " && Name === " + JSON.stringify(selection.targetName) : "");
+    return this.#read(
+      `/exec/query/?q=${encodeURIComponent(query)}&format=json`,
+      options,
+      "*/*"
+    );
+  }
+  async getApplicationParameters(clusterName, options = {}, parameterName) {
+    const query = "select Name, Label, ParameterType, Value from Cloud.ClusterParameter where ClusterName === " + JSON.stringify(clusterName) + ' && ParameterType === "Cloud.ClusterInitSpecs"' + (parameterName === void 0 ? "" : " && Name === " + JSON.stringify(parameterName));
+    return this.#read(
+      `/exec/query/?q=${encodeURIComponent(query)}&format=json`,
+      options,
+      "*/*"
+    );
+  }
+  async getImageMetadata(image, options = {}) {
+    const query = "select Name, PackageType, Label, OS, JetpackPlatform from Package where Name === " + JSON.stringify(image) + ' && PackageType == "image"';
+    return this.#read(
+      `/exec/query/?q=${encodeURIComponent(query)}&format=json`,
+      options,
       "*/*"
     );
   }
@@ -46282,6 +46313,12 @@ var EMPTY_COMPLETION_RESULT = {
   }
 };
 
+// src/server.ts
+import { posix as posix2 } from "node:path";
+
+// src/application-context.ts
+import { posix } from "node:path";
+
 // src/normalize.ts
 function normalizeClusterIssues(raw, limit) {
   validateLimit(limit, 0, 100);
@@ -46300,7 +46337,7 @@ function normalizeClusterIssues(raw, limit) {
     if (severity === "OK" || severity === "Pending") continue;
     if (severity !== "Error" && severity !== "Warning") invalidResponse();
     let textTruncated = false;
-    const text = {};
+    const text2 = {};
     for (const key of ["message", "detail", "recommendation"]) {
       const value2 = fields.get(key);
       if (value2 === void 0 || value2 === null) continue;
@@ -46310,7 +46347,7 @@ function normalizeClusterIssues(raw, limit) {
         ...value2.replace(/[\u0000-\u001f\u007f-\u009f]/gu, " ")
       ];
       textTruncated ||= characters.length > 2048;
-      text[key] = characters.length > 2048 ? characters.slice(0, 2047).join("") + "\u2026" : characters.join("");
+      text2[key] = characters.length > 2048 ? characters.slice(0, 2047).join("") + "\u2026" : characters.join("");
     }
     issues.push({
       name: requiredString(fields, "name", 256),
@@ -46318,7 +46355,7 @@ function normalizeClusterIssues(raw, limit) {
       nodeCount: requiredNonNegativeInteger(
         requiredField(fields, "nodecount")
       ),
-      ...text,
+      ...text2,
       textTruncated
     });
   }
@@ -46666,6 +46703,571 @@ function invalidResponse() {
   throw new CycleCloudRequestError("invalid_response", false);
 }
 
+// src/application-context.ts
+function unavailable(warning) {
+  return { available: false, warning };
+}
+function boundedList(items, limit = 20, offset = 0, byteLimit = 6144) {
+  const page = [];
+  let bytes = 2;
+  for (const item of items.slice(offset, offset + limit)) {
+    const size = Buffer.byteLength(JSON.stringify(item), "utf8") + 1;
+    if (bytes + size > byteLimit) {
+      if (!page.length) invalid();
+      break;
+    }
+    page.push(item);
+    bytes += size;
+  }
+  return {
+    available: true,
+    items: page,
+    total: items.length,
+    returned: page.length,
+    truncated: items.length > page.length,
+    offset,
+    nextOffset: offset + page.length < items.length ? offset + page.length : null
+  };
+}
+function invalid() {
+  throw new CycleCloudRequestError("invalid_response", false);
+}
+function text(value) {
+  return value == null || value === "" ? void 0 : requiredWireString(value, 256);
+}
+function flag(value) {
+  if (value == null) return void 0;
+  if (typeof value !== "boolean") invalid();
+  return value;
+}
+function integer2(value) {
+  if (value == null) return void 0;
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) invalid();
+  return value;
+}
+function identifier(value) {
+  const result = text(value);
+  if (result !== void 0 && /:\/\/|[?#]/u.test(result)) invalid();
+  return result;
+}
+function rows(value) {
+  if (!Array.isArray(value)) invalid();
+  return value;
+}
+function unique(items, name) {
+  const keys = items.map(name).map((key) => key.toLowerCase());
+  if (new Set(keys).size !== keys.length) invalid();
+  return items.sort((left, right) => compareNames(name(left), name(right)));
+}
+function recordList(value, normalize, page = {}) {
+  if (value == null)
+    return unavailable(
+      "This configuration collection was not supplied by CycleCloud."
+    );
+  const entries = Object.entries(requiredRecord(value));
+  for (const [name] of entries) requiredWireString(name, 256);
+  const items = unique(entries, ([name]) => name).map(
+    ([name, fields]) => normalize(name, fields)
+  );
+  return boundedList(items, page.limit, page.offset);
+}
+function isInstallPath(value) {
+  try {
+    requiredWireString(value, 1024);
+  } catch {
+    return false;
+  }
+  return value.startsWith("/") && !value.startsWith("//") && !value.split("/").some((part) => part === "." || part === "..");
+}
+function stringList(value, page = {}) {
+  if (value == null)
+    return unavailable(
+      "This configuration field was not supplied by CycleCloud."
+    );
+  const items = typeof value === "string" ? [value] : rows(value);
+  const strings = items.map((item) => requiredWireString(item, 256));
+  if (new Set(strings.map((item) => item.toLowerCase())).size !== strings.length)
+    invalid();
+  return boundedList(strings, page.limit, page.offset);
+}
+function normalizeSpecs(value, page = {}) {
+  return recordList(
+    value,
+    (_name, raw) => {
+      const f = consumedFields(raw, [
+        "project",
+        "spec",
+        "version",
+        "sourcelocker",
+        "additionalspec",
+        "order"
+      ]);
+      return {
+        project: requiredWireString(f.get("project"), 256),
+        spec: requiredWireString(f.get("spec"), 256),
+        version: identifier(f.get("version")),
+        sourceLocker: identifier(f.get("sourcelocker")),
+        additional: flag(f.get("additionalspec")),
+        order: integer2(f.get("order"))
+      };
+    },
+    page
+  );
+}
+function normalizeMounts(value, installPath, page = {}) {
+  return recordList(
+    value,
+    (name, raw) => {
+      const f = consumedFields(raw, [
+        "mountpoint",
+        "type",
+        "fs_type",
+        "disabled"
+      ]);
+      const mountpoint = text(f.get("mountpoint"));
+      if (mountpoint !== void 0 && !isInstallPath(mountpoint))
+        invalid();
+      const disabled = flag(f.get("disabled"));
+      const prefix = mountpoint === void 0 ? void 0 : posix.normalize(mountpoint).replace(/\/$/u, "");
+      const within = prefix !== void 0 && (installPath === prefix || installPath.startsWith(`${prefix}/`));
+      return {
+        name,
+        mountpoint,
+        type: text(f.get("type")),
+        filesystem: text(f.get("fs_type")),
+        disabled,
+        coversInstallPath: disabled === true || prefix !== void 0 && !within ? false : disabled === false && prefix !== void 0 ? within : null
+      };
+    },
+    page
+  );
+}
+function normalizeVolumes(value, page = {}) {
+  return recordList(
+    value,
+    (name, raw) => {
+      const f = consumedFields(raw, ["mount", "persistent", "disabled"]);
+      return {
+        name,
+        mount: text(f.get("mount")),
+        persistent: flag(f.get("persistent")),
+        disabled: flag(f.get("disabled"))
+      };
+    },
+    page
+  );
+}
+function normalizeAttachment(value) {
+  if (typeof value !== "string")
+    return unavailable(
+      "No simple additional-spec parameter reference is available; inspect the cluster template before attaching."
+    );
+  const match = /^\$(?:([A-Za-z_][A-Za-z0-9_.-]{0,255})|\{([A-Za-z_][A-Za-z0-9_.-]{0,255})\})$/u.exec(
+    value
+  );
+  const name = match?.[1] ?? match?.[2];
+  return name === void 0 ? unavailable(
+    "The attachment reference is not a simple parameter; inspect the cluster template before attaching."
+  ) : { available: true, parameterName: name };
+}
+function normalizeIdentity(f) {
+  const name = requiredWireString(f.get("name"), 256);
+  const array2 = flag(f.get("isarray"));
+  if (array2 !== true && text(f.get("template")) !== name) invalid();
+  return {
+    name,
+    kind: array2 === true ? "nodearray" : "node"
+  };
+}
+function normalizeApplicationOverview(value) {
+  return unique(
+    rows(value).map((raw) => {
+      const f = consumedFields(raw, [
+        "name",
+        "template",
+        "isarray",
+        "state",
+        "imagename",
+        "slurmrole",
+        "slurmpartition",
+        "slurmhaenabled",
+        "attachmentreference"
+      ]);
+      const identity = normalizeIdentity(f);
+      const attachment = normalizeAttachment(
+        f.get("attachmentreference")
+      );
+      return {
+        ...identity,
+        state: text(f.get("state")),
+        image: identifier(f.get("imagename")),
+        role: text(f.get("slurmrole")),
+        partition: text(f.get("slurmpartition")),
+        haEnabled: flag(f.get("slurmhaenabled")),
+        attachmentParameter: attachment.available ? attachment.parameterName : void 0
+      };
+    }),
+    (node) => node.name
+  );
+}
+function normalizeApplicationDetails(value, installPath, section, page) {
+  const sectionFields = {
+    environment: [
+      "extends",
+      "state",
+      "targetstate",
+      "imagename",
+      "machinetype",
+      "architecture",
+      "locker",
+      "slurmrole",
+      "slurmversion",
+      "slurmpartition",
+      "slurmhaenabled",
+      "slurmprimaryscheduler",
+      "slurmautoscale"
+    ],
+    storage: ["mounts", "volumes"],
+    attachments: ["clusterinitspecs", "attachmentreference"]
+  };
+  return unique(
+    rows(value).map((raw) => {
+      const f = consumedFields(raw, [
+        "name",
+        "template",
+        "isarray",
+        ...sectionFields[section]
+      ]);
+      const identity = normalizeIdentity(f);
+      if (section === "storage")
+        return {
+          ...identity,
+          mounts: normalizeMounts(f.get("mounts"), installPath, page),
+          volumes: normalizeVolumes(f.get("volumes"), page)
+        };
+      if (section === "attachments")
+        return {
+          ...identity,
+          specs: normalizeSpecs(f.get("clusterinitspecs"), page),
+          attachment: normalizeAttachment(
+            f.get("attachmentreference")
+          )
+        };
+      const image = identifier(f.get("imagename"));
+      return {
+        ...identity,
+        state: text(f.get("state")),
+        targetState: text(f.get("targetstate")),
+        bases: stringList(f.get("extends"), page),
+        image,
+        platform: unavailable(
+          image === void 0 ? "The configured image was not supplied; its OS release is unresolved." : "Image platform metadata could not be retrieved or validated."
+        ),
+        machineTypes: stringList(f.get("machinetype"), page),
+        architecture: text(f.get("architecture")),
+        locker: identifier(f.get("locker")),
+        scheduler: {
+          role: text(f.get("slurmrole")),
+          version: text(f.get("slurmversion")),
+          partition: text(f.get("slurmpartition")),
+          haEnabled: flag(f.get("slurmhaenabled")),
+          primary: flag(f.get("slurmprimaryscheduler")),
+          autoscale: flag(f.get("slurmautoscale"))
+        }
+      };
+    }),
+    (node) => node.name
+  );
+}
+function normalizeApplicationParameters(value, page = {}) {
+  return unique(
+    rows(value).map((raw) => {
+      const f = consumedFields(raw, [
+        "name",
+        "label",
+        "parametertype",
+        "value"
+      ]);
+      if (f.get("parametertype") !== "Cloud.ClusterInitSpecs") invalid();
+      return {
+        name: requiredWireString(f.get("name"), 256),
+        label: text(f.get("label")),
+        specs: normalizeSpecs(f.get("value"), page)
+      };
+    }),
+    (parameter) => parameter.name
+  );
+}
+function normalizeContextCluster(value, name) {
+  const items = rows(value);
+  if (!items.length)
+    throw new CycleCloudRequestError("cluster_not_found", false);
+  if (items.length !== 1) invalid();
+  const f = consumedFields(items[0], [
+    "clustername",
+    "parentname",
+    "state",
+    "targetstate"
+  ]);
+  if (requiredWireString(f.get("clustername"), 256) !== name) invalid();
+  return {
+    name,
+    parentName: text(f.get("parentname")),
+    state: text(f.get("state")),
+    targetState: text(f.get("targetstate"))
+  };
+}
+
+// src/image-platform.ts
+function invalid2() {
+  throw new CycleCloudRequestError("invalid_response", false);
+}
+function optionalText(value, limit) {
+  return value == null || value === "" ? void 0 : requiredWireString(value, limit);
+}
+function normalizeImagePlatform(value, image) {
+  if (!Array.isArray(value)) invalid2();
+  if (!value.length)
+    return {
+      available: false,
+      warning: "No image-package metadata was returned for the configured image. Do not infer an OS release from its name."
+    };
+  const records = value.map((raw) => {
+    const fields = consumedFields(raw, [
+      "name",
+      "packagetype",
+      "label",
+      "os",
+      "jetpackplatform"
+    ]);
+    if (requiredWireString(fields.get("name"), 256) !== image || requiredWireString(fields.get("packagetype"), 32).toLowerCase() !== "image")
+      invalid2();
+    return {
+      os: optionalText(fields.get("os"), 32)?.toLowerCase(),
+      jetpackPlatform: optionalText(fields.get("jetpackplatform"), 128),
+      label: optionalText(fields.get("label"), 256)
+    };
+  });
+  const first = records[0];
+  if (first?.os === void 0 || first.jetpackPlatform === void 0 || records.some(
+    (record2) => record2.os === void 0 || record2.jetpackPlatform === void 0
+  ))
+    return {
+      available: false,
+      warning: "Image-package metadata does not specify a complete OS and Jetpack platform. Keep the release unresolved."
+    };
+  if (records.some(
+    (record2) => record2.os !== first.os || record2.jetpackPlatform !== first.jetpackPlatform
+  ))
+    return {
+      available: false,
+      warning: "Matching image-package records disagree about the platform. Confirm the selected image revision before choosing an OS release."
+    };
+  const label = records.every((record2) => record2.label === first.label) ? first.label : void 0;
+  const linuxRelease = first.os === "linux" ? /^(ubuntu|almalinux|centos|sles)-(\d+(?:\.\d+)*)$/u.exec(
+    first.jetpackPlatform
+  ) : null;
+  const distribution = linuxRelease?.[1];
+  const release = linuxRelease?.[2];
+  return {
+    available: true,
+    source: "CycleCloud Package metadata",
+    os: first.os,
+    jetpackPlatform: first.jetpackPlatform,
+    ...label === void 0 ? {} : { label },
+    ...distribution === void 0 || release === void 0 ? {} : { distribution, release },
+    matchingRecords: records.length,
+    runtimeVerified: false
+  };
+}
+
+// src/application-context-reader.ts
+function checkCancellation(signal, error2) {
+  if (signal.aborted || error2 instanceof CycleCloudRequestError && error2.category === "cancelled")
+    throw new CycleCloudRequestError("cancelled", false);
+}
+async function readApplicationContext(client, input, signal) {
+  checkCancellation(signal);
+  const view = input.view ?? "overview";
+  const section = input.section ?? "environment";
+  const targetName = input.targetNames?.[0];
+  if (view === "details" && (input.targetNames?.length !== 1 || targetName === void 0))
+    throw new CycleCloudRequestError("invalid_response", false);
+  const cluster = normalizeContextCluster(
+    await client.getCluster(input.clusterName, { signal }),
+    input.clusterName
+  );
+  const context = {
+    clusterName: cluster.name,
+    ...cluster.state === void 0 ? {} : { state: cluster.state },
+    ...cluster.targetState === void 0 ? {} : { targetState: cluster.targetState },
+    observedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    evidence: "configured",
+    view,
+    ...view === "details" ? { section } : {},
+    installPath: input.installPath,
+    sources: [
+      "CycleCloud cluster summary",
+      `Cloud.Node ${view === "overview" ? "overview" : section}`
+    ],
+    targets: unavailable(
+      "Application node configuration could not be retrieved or validated."
+    ),
+    nextStep: view === "overview" ? "Choose a target, then request view=details with one targetNames entry and section=environment, storage, or attachments. Page only when needed using nextOffset." : "Follow a collection's nextOffset only if more entries are needed, using the same target, section and itemLimit. Other sections require separate calls.",
+    warnings: [
+      "Configuration is not an atomic snapshot. Re-read before changes.",
+      "Shared or inherited parameters may affect other targets or child clusters."
+    ],
+    unverified: [
+      "Installed application software, compiler, MPI and node-local libraries.",
+      "Actual OS/architecture, mounted/writable storage and rollout data survival.",
+      "Live Slurm accounts, QoS, jobs and MPI launcher compatibility.",
+      "Uploaded artifacts, successful spec execution and application readiness."
+    ]
+  };
+  if (view === "overview") {
+    try {
+      const nodes = normalizeApplicationOverview(
+        await client.getApplicationNodes(
+          input.clusterName,
+          { signal },
+          { view: "overview" }
+        )
+      );
+      checkCancellation(signal);
+      const selected = nodes.filter(
+        (node) => input.targetNames === void 0 || input.targetNames.includes(node.name)
+      );
+      context.targets = {
+        ...boundedList(selected, input.targetLimit, input.offset),
+        missingRequested: (input.targetNames ?? []).filter(
+          (name) => !nodes.some((node) => node.name === name)
+        )
+      };
+    } catch (error2) {
+      checkCancellation(signal, error2);
+    }
+    return { context };
+  }
+  if (targetName === void 0)
+    throw new CycleCloudRequestError("invalid_response", false);
+  const page = { limit: input.itemLimit ?? 5, offset: input.offset ?? 0 };
+  let target;
+  try {
+    const nodes = normalizeApplicationDetails(
+      await client.getApplicationNodes(
+        input.clusterName,
+        { signal },
+        { view: "details", targetName, section }
+      ),
+      input.installPath,
+      section,
+      page
+    );
+    if (nodes.length > 1 || nodes.some((node) => node.name !== targetName))
+      throw new CycleCloudRequestError("invalid_response", false);
+    checkCancellation(signal);
+    context.targets = {
+      ...boundedList(nodes, 1, 0, 24576),
+      missingRequested: nodes.length ? [] : [targetName]
+    };
+    target = nodes[0];
+  } catch (error2) {
+    checkCancellation(signal, error2);
+    return { context };
+  }
+  if (section === "environment" && target !== void 0 && "platform" in target) {
+    context.nextStep += " Use supplied platform and scheduler.version as the configured authoring baseline; ask only about missing/conflicting facts or application choices. Runtime checks are a separate follow-up.";
+    if (target.image !== void 0) {
+      context.sources.push("CycleCloud Package image metadata");
+      try {
+        const platform = normalizeImagePlatform(
+          await client.getImageMetadata(target.image, { signal }),
+          target.image
+        );
+        checkCancellation(signal);
+        if (Buffer.byteLength(JSON.stringify({ ...target, platform })) > 24576)
+          throw new CycleCloudRequestError("invalid_response", false);
+        target.platform = platform;
+      } catch (error2) {
+        checkCancellation(signal, error2);
+      }
+    }
+    return { context };
+  }
+  if (section !== "attachments" || target === void 0) return { context };
+  context.attachmentParameters = unavailable(
+    "Attachment parameter metadata could not be retrieved or validated."
+  );
+  if (!("attachment" in target) || !target.attachment.available) {
+    context.attachmentParameters = unavailable(
+      "No simple attachment parameter is available. Inspect the template before attaching."
+    );
+    return { context };
+  }
+  const parameterName = target.attachment.parameterName;
+  let usedBy = unavailable(
+    "Shared parameter uses could not be retrieved; do not assume this is a single-target edit."
+  );
+  try {
+    const overview = normalizeApplicationOverview(
+      await client.getApplicationNodes(
+        input.clusterName,
+        { signal },
+        { view: "overview" }
+      )
+    );
+    checkCancellation(signal);
+    usedBy = overview.some((node) => node.attachmentParameter === void 0) ? unavailable(
+      "Some target attachment references are missing or are not simple parameter references. Shared-use coverage is incomplete; inspect the template before assuming a single-target edit."
+    ) : boundedList(
+      overview.filter(
+        (node) => node.attachmentParameter?.toLowerCase() === parameterName.toLowerCase()
+      ).map((node) => node.name),
+      page.limit,
+      page.offset
+    );
+  } catch (error2) {
+    checkCancellation(signal, error2);
+  }
+  try {
+    let root = cluster;
+    const visited = /* @__PURE__ */ new Set([root.name.toLowerCase()]);
+    while (root.parentName !== void 0) {
+      if (visited.size >= 10 || visited.has(root.parentName.toLowerCase()))
+        throw new CycleCloudRequestError("invalid_response", false);
+      checkCancellation(signal);
+      const parentName = root.parentName;
+      root = normalizeContextCluster(
+        await client.getCluster(parentName, { signal }),
+        parentName
+      );
+      visited.add(root.name.toLowerCase());
+    }
+    context.sources.push("Cloud.ClusterParameter cluster-init metadata");
+    const parameters = normalizeApplicationParameters(
+      await client.getApplicationParameters(
+        root.name,
+        { signal },
+        parameterName
+      ),
+      page
+    );
+    checkCancellation(signal);
+    const relevant = parameters.filter(
+      (parameter) => parameter.name.toLowerCase() === parameterName.toLowerCase()
+    ).map((parameter) => ({ ...parameter, usedBy }));
+    context.attachmentParameters = {
+      ...boundedList(relevant, 1, 0, 24576),
+      clusterName: root.name,
+      missingReferenced: relevant.length ? [] : [parameterName]
+    };
+  } catch (error2) {
+    checkCancellation(signal, error2);
+  }
+  return { context };
+}
+
 // src/tools.ts
 var unknownOutcomeWarning = "The CycleCloud action may have partially completed. Inspect the cluster status before retrying.";
 var followUpWarning = "The CycleCloud action was accepted, but the follow-up status read did not complete.";
@@ -46714,6 +47316,9 @@ var CycleCloudTools = class {
       };
     }
     return { status: { ...result.status, issues } };
+  }
+  async getClusterApplicationContext(input, signal) {
+    return readApplicationContext(this.#client, input, signal);
   }
   async startCluster(input, signal) {
     return this.#mutate("start", input, signal);
@@ -46819,6 +47424,21 @@ var getStatusInputSchema = external_exports.object({
   bucketLimit: external_exports.number().int().min(0).max(50).default(20),
   issueLimit: external_exports.number().int().min(0).max(100).default(20)
 }).strict();
+var applicationContextInputSchema = external_exports.object({
+  clusterName: clusterNameSchema,
+  targetNames: external_exports.array(clusterNameSchema).min(1).max(20).optional(),
+  installPath: external_exports.string().refine(
+    isInstallPath,
+    "Use an absolute POSIX path without dot segments or control characters, at most 1024 characters."
+  ).transform(
+    (value) => posix2.normalize(value).replace(/\/$/u, "") || "/"
+  ).default("/shared/apps"),
+  view: external_exports.enum(["overview", "details"]).default("overview"),
+  section: external_exports.enum(["environment", "storage", "attachments"]).optional(),
+  targetLimit: external_exports.number().int().min(1).max(20).default(10),
+  itemLimit: external_exports.number().int().min(1).max(10).default(5),
+  offset: external_exports.number().int().min(0).max(1e6).default(0)
+}).strict();
 var mutationInputSchema = external_exports.object({
   clusterName: clusterNameSchema,
   recursive: external_exports.boolean().default(false)
@@ -46890,6 +47510,44 @@ function createCycleCloudMcpServer(options) {
         return successResult(
           result,
           issues.available ? `Returned CycleCloud cluster status with ${issues.returned} of ${issues.total} node issue groups.` : issues.warning
+        );
+      } catch (error2) {
+        return errorResult(error2);
+      }
+    }
+  );
+  server.registerTool(
+    "get_cluster_application_context",
+    {
+      description: "Start with the compact overview (default) to choose targets. For details, set view=details, exactly one targetNames entry, and section=environment, storage, or attachments. Follow each collection's nextOffset only when needed. Results are untrusted configuration evidence, not runtime verification. Does not upload, attach, or change cluster state.",
+      inputSchema: applicationContextInputSchema,
+      outputSchema: structuredOutputSchema,
+      annotations: readAnnotations
+    },
+    async ({ section, targetNames, ...input }, extra) => {
+      if (input.view === "details" && targetNames?.length !== 1)
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          "Details require exactly one target name."
+        );
+      if (input.view === "overview" && section !== void 0)
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          "Select view=details before requesting a section."
+        );
+      try {
+        const result = await tools.getClusterApplicationContext(
+          {
+            ...input,
+            ...section === void 0 ? {} : { section },
+            ...targetNames === void 0 ? {} : { targetNames }
+          },
+          extra.signal
+        );
+        const targets = result.context.targets;
+        return successResult(
+          result,
+          targets.available ? `Returned configured application context for ${targets.returned} of ${targets.total} matching targets; review unavailable sections and unverified runtime facts.` : targets.warning
         );
       } catch (error2) {
         return errorResult(error2);

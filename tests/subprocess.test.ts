@@ -243,6 +243,7 @@ describe("Bundled stdio MCP server", () => {
                 "list_clusters",
                 "get_cluster",
                 "get_cluster_status",
+                "get_cluster_application_context",
             ]);
             expect(result.isError).not.toBe(true);
             expect(result.structuredContent).toMatchObject({
