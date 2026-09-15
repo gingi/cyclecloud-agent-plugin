@@ -4,11 +4,11 @@ const npmCli = process.env.npm_execpath;
 if (npmCli === undefined)
     throw new Error("npm_execpath is required to run verification");
 
+// The test script builds through its pretest hook.
 const steps = [
     "format:check",
     "lint",
     "typecheck",
-    "build",
     "test",
     "test:reset",
     "audit",
