@@ -85,7 +85,7 @@ See the [authoring development and demo guide](docs/application-authoring.md) fo
 
 ## Install a local or unpublished build
 
-See the [development guide](docs/development.md#install-a-local-or-unpublished-build) to build and install from a checkout or distribute a self-contained local package. Local installations use the same private configuration file as remote installations.
+See the [development guide](docs/development.md#install-a-local-or-unpublished-build) to build and install from a source checkout, select an exact branch/SHA, or distribute a self-contained local or CI package. The generated server bundle is not tracked in source; local packaging commands build it first. Repository marketplace installation resolves the default branch, so use a local build or development workflow artifact to test another ref. Local installations use the same private configuration file as remote installations.
 
 ## Update or remove
 

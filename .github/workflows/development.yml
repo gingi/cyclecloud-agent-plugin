@@ -1,0 +1,94 @@
+name: Development build
+
+# Builds and verifies every branch, pull request, and manual dispatch, then
+# uploads a complete installable package as a workflow artifact. This lets a
+# branch or PR be installed and tested (see docs/development.md#test-a-branch-or-pull-request-build)
+# without merging to main, since the GitHub marketplace source only ever
+# installs the default branch.
+on:
+    push:
+        branches:
+            - "**"
+    pull_request:
+    workflow_dispatch:
+
+concurrency:
+    group: development-${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+jobs:
+    build-verify-package:
+        name: Build, verify, and package
+        runs-on: ubuntu-latest
+        steps:
+            - name: Check out source
+              uses: actions/checkout@v4
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "22"
+                  cache: npm
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Verify (format, lint, typecheck, build, test, audit)
+              run: npm run verify
+
+            - name: Package a complete installable build
+              run: npm run package:local
+
+            - name: Record source commit metadata
+              env:
+                  CHECKOUT_COMMIT: ${{ github.sha }}
+                  SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+                  SOURCE_REF: ${{ github.head_ref || github.ref_name }}
+                  WORKFLOW_REF: ${{ github.ref }}
+                  EVENT_NAME: ${{ github.event_name }}
+                  RUN_ID: ${{ github.run_id }}
+                  RUN_ATTEMPT: ${{ github.run_attempt }}
+              run: |
+                  node --input-type=module <<'NODE'
+                  import { writeFileSync } from "node:fs";
+
+                  writeFileSync(
+                    "dist/cyclecloud-mcp/SOURCE_COMMIT.json",
+                    `${JSON.stringify({
+                      repository: process.env.GITHUB_REPOSITORY,
+                      checkoutCommit: process.env.CHECKOUT_COMMIT,
+                      sourceCommit: process.env.SOURCE_COMMIT,
+                      sourceRef: process.env.SOURCE_REF,
+                      workflowRef: process.env.WORKFLOW_REF,
+                      eventName: process.env.EVENT_NAME,
+                      runId: process.env.RUN_ID,
+                      runAttempt: process.env.RUN_ATTEMPT,
+                      builtAt: new Date().toISOString(),
+                    }, null, 2)}\n`,
+                  );
+                  NODE
+
+            - name: Prove the packaged artifact is installable (install.sh --local --skip-config)
+              run: npm run verify:package
+
+            - name: Compute artifact name
+              id: artifact
+              env:
+                  REF_NAME: ${{ github.head_ref || github.ref_name }}
+                  SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+              run: |
+                  safe_ref=$(printf '%s' "$REF_NAME" | tr -c 'A-Za-z0-9._-' '-')
+                  short_sha=$(printf '%s' "$SOURCE_COMMIT" | cut -c1-12)
+                  echo "name=cyclecloud-mcp-package-${safe_ref}-${short_sha}" >> "$GITHUB_OUTPUT"
+
+            - name: Upload package artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: ${{ steps.artifact.outputs.name }}
+                  path: dist/cyclecloud-mcp
+                  include-hidden-files: true
+                  if-no-files-found: error
+                  retention-days: 14

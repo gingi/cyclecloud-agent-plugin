@@ -60,4 +60,21 @@ describe("Copilot CLI marketplace", () => {
             repository: "https://github.com/gingi/cyclecloud-mcp",
         });
     });
+
+    test("development artifacts retain the complete marketplace and source identity", async () => {
+        const workflow = await readFile(
+            resolve(repositoryRoot, ".github/workflows/development.yml"),
+            "utf8",
+        );
+
+        expect(workflow).toContain("push:");
+        expect(workflow).toContain("pull_request:");
+        expect(workflow).toContain("workflow_dispatch:");
+        expect(workflow).toContain(
+            "SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}",
+        );
+        expect(workflow).toContain("dist/cyclecloud-mcp/SOURCE_COMMIT.json");
+        expect(workflow).toContain("npm run verify:package");
+        expect(workflow).toContain("include-hidden-files: true");
+    });
 });
