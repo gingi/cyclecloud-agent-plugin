@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import {
     chmod,
+    cp,
     lstat,
     mkdir,
     mkdtemp,
@@ -10,13 +11,15 @@ import {
     writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { stripVTControlCharacters } from "node:util";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { loadConfiguration } from "../src/config.js";
 
-const installer = fileURLToPath(new URL("../install.sh", import.meta.url));
+const root = fileURLToPath(new URL("../", import.meta.url));
+let installer: string;
+let packageDirectory: string;
 const template = fileURLToPath(
     new URL("../cyclecloud.example.json", import.meta.url),
 );
@@ -25,7 +28,7 @@ const fakeCopilot = fileURLToPath(
 );
 const pluginId = "cyclecloud-mcp@cyclecloud-mcp";
 const installCommand = `plugin install ${pluginId}`;
-const marketplaceCommand = "plugin marketplace add gingi/cyclecloud-mcp";
+let marketplaceCommand: string;
 
 interface CliState {
     plugins: Array<{
@@ -62,6 +65,23 @@ async function executable(name: string, body: string): Promise<void> {
 
 beforeEach(async () => {
     home = await mkdtemp(join(tmpdir(), "cyclecloud installer "));
+    packageDirectory = join(home, "release package");
+    installer = join(packageDirectory, "install.sh");
+    for (const file of [
+        "plugin.json",
+        "bin/cyclecloud-mcp.mjs",
+        "cyclecloud.example.json",
+        "LICENSE",
+        "install.sh",
+        ".github/plugin/marketplace.json",
+        "skills",
+    ]) {
+        await mkdir(dirname(join(packageDirectory, file)), { recursive: true });
+        await cp(join(root, file), join(packageDirectory, file), {
+            recursive: true,
+        });
+    }
+    marketplaceCommand = `plugin marketplace add ${join(home, ".local/share/cyclecloud-mcp/marketplace")}`;
     bin = join(home, "bin");
     data = join(home, ".copilot/plugin-data/cyclecloud-mcp/cyclecloud-mcp");
     config = join(data, "cyclecloud.json");
@@ -69,6 +89,7 @@ beforeEach(async () => {
     callsPath = join(home, "cli-calls.jsonl");
     state = { plugins: [], marketplaces: [] };
     await mkdir(bin);
+    await symlink("/usr/bin/dirname", join(bin, "dirname"));
     await saveState();
     await executable("uname", 'printf "%s\\n" "${FAKE_OS:-Linux}"');
     await executable(
@@ -106,7 +127,7 @@ function run(extraEnv: Record<string, string> = {}, input?: string) {
         "/bin/sh",
         input === undefined
             ? [installer, "--skip-config"]
-            : ["-s", "--", "--skip-config"],
+            : ["-s", "--", "--local", packageDirectory, "--skip-config"],
         {
             cwd: home,
             env: {
@@ -136,7 +157,7 @@ function runTerminal(
         {
             input: JSON.stringify({
                 installer,
-                args,
+                args: piped ? ["--local", packageDirectory, ...args] : args,
                 steps,
                 piped,
                 detached,
@@ -645,10 +666,13 @@ describe.each([false, true])(
         test.each([
             "plugins list --json",
             "plugin marketplace list",
-            marketplaceCommand,
+            "marketplace registration",
             installCommand,
         ])("Stops on %s failure and permits a safe retry", async (command) => {
-            state.failCommand = command;
+            state.failCommand =
+                command === "marketplace registration"
+                    ? marketplaceCommand
+                    : command;
             await saveState();
             const failed = run();
             expect(failed.status).not.toBe(0);
@@ -695,16 +719,14 @@ describe.each([false, true])(
         });
 
         test("Reports a missing template with complete-package recovery instructions", async () => {
-            state.omitTemplate = true;
-            await saveState();
+            await rm(join(packageDirectory, "cyclecloud.example.json"));
             const result = run();
             expect(result.status).not.toBe(0);
+            expect(result.stderr).toContain("cyclecloud.example.json");
             expect(result.stderr).toContain(
-                "Installed configuration template is missing:",
+                "Download and extract a complete release archive",
             );
-            expect(result.stderr).toContain(
-                "Reinstall a complete plugin package, then rerun this installer.",
-            );
+            expect(await calls()).toEqual([]);
             await expect(lstat(config)).rejects.toMatchObject({
                 code: "ENOENT",
             });
@@ -861,7 +883,7 @@ describe.each([false, true])(
         });
 
         test("Rejects a template containing credentials or unsafe defaults", async () => {
-            const unsafe = join(home, "unsafe-template.json");
+            const unsafe = join(packageDirectory, "cyclecloud.example.json");
             await writeFile(
                 unsafe,
                 JSON.stringify({
@@ -869,7 +891,7 @@ describe.each([false, true])(
                     enableMutations: true,
                 }),
             );
-            const result = run({ FAKE_COPILOT_TEMPLATE: unsafe });
+            const result = run();
             expect(result.status).not.toBe(0);
             expect(result.stderr).toContain("template");
             expect(result.stdout + result.stderr).not.toContain(

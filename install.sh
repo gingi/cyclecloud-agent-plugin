@@ -1,5 +1,5 @@
 #!/bin/sh
-# Self-contained: also works when downloaded outside the repository or piped to sh.
+# Installs an extracted release/development package without a source checkout.
 set -eu
 
 main() {
@@ -11,10 +11,11 @@ main() {
             --help|-h)
                 printf '%s\n' "$usage" \
                     'Installs the Copilot plugin and prompts for private configuration before installation.' \
-                    '--local copies a complete package into private persistent storage; reruns update it.' \
+                    'Copies the adjacent package into private persistent storage; reruns update it.' \
+                    '--local [package-directory] selects another complete package (including when piped).' \
                     '--skip-config skips prompts: keeps existing config unread, or creates a private template.' \
                     'Without a terminal, --skip-config behavior is automatic.' \
-                    'Without --local, installs from GitHub and preserves existing versions.' \
+                    'Download and extract a release archive first; source-only checkouts cannot be installed.' \
                     'Requires Node and Copilot CLI 1.0.81 or later.'
                 return ;;
             --skip-config) skip_config=true; shift ;;
@@ -44,6 +45,7 @@ main() {
         return 1
     }
     node_version=$(node --version)
+    local_source=${local_source:-$(dirname "$0")}
 
     # Node is already required by the server. Use it for JSON and exclusive file creation.
     node - "$node_version" "$local_source" "$skip_config" <<'NODE'
@@ -140,7 +142,7 @@ function registeredMarketplace(marketplaces, localRoot) {
         marketplace.source !== `GitHub: ${source}` &&
         (!localRoot || marketplace.source !== `Local: ${localRoot}`)
     )) {
-        fail('The cyclecloud-mcp marketplace name has a different source. Inspect it with copilot plugin marketplace list; resolve the conflict explicitly. Use --local to maintain a managed local installation.');
+        fail('The cyclecloud-mcp marketplace name has a different source. Inspect it with copilot plugin marketplace list; resolve the conflict explicitly. Rerun the packaged installer after resolving the conflict.');
     }
     return matches[0];
 }
@@ -166,7 +168,7 @@ function hasConfiguration(file) {
     return true;
 }
 
-// This secret-free seed also works before a remote package has been downloaded.
+// Use secret-free defaults for interactive setup before installing the package.
 const configDefaults = {
     url: 'https://cyclecloud.example.com', username: 'cyclecloud-poc', password: '',
     verifyTls: true, allowInsecureHttp: false, enableMutations: false,
@@ -338,7 +340,9 @@ function validateTemplate(contents) {
 
 function readPackage(directory) {
     const payload = new Map();
-    for (const file of packageFiles) {
+    const files = stat(path.join(directory, 'SOURCE_COMMIT.json'))
+        ? [...packageFiles, 'SOURCE_COMMIT.json'] : packageFiles;
+    for (const file of files) {
         const target = path.join(directory, file);
         // Do not follow package symlinks, including intermediate directories.
         let current = directory;
@@ -346,7 +350,7 @@ function readPackage(directory) {
             current = path.join(current, component);
             const info = stat(current);
             if (!info || info.isSymbolicLink() || (current === target ? !info.isFile() : !info.isDirectory())) {
-                fail(`Missing or unsafe local package file: ${target}`);
+                fail(`Missing or unsafe local package file: ${target}. Download and extract a complete release archive, or build with npm run package:local, then rerun its installer.`);
             }
         }
         payload.set(file, fs.readFileSync(target));
@@ -434,24 +438,20 @@ async function install() {
     }
     const pluginRoot = path.join(home, '.copilot/installed-plugins', name, name);
     const installedDirectories = [path.join(home, '.copilot'), path.join(home, '.copilot/installed-plugins'), path.dirname(pluginRoot)];
-    const local = process.argv[3] !== '';
     const managedRoot = path.join(home, '.local/share', name);
-    const localRoot = local ? path.join(managedRoot, 'marketplace') : undefined;
+    const localRoot = path.join(managedRoot, 'marketplace');
     const localDirectories = ['.local', '.local/share', `.local/share/${name}`].map(part => path.join(home, part));
     const receipt = path.join(managedRoot, 'installation.json');
     let localState = { version: 1, pendingDisabled: false };
-    let payload;
-    if (local) {
-        payload = readPackage(fs.realpathSync(process.argv[3]));
-        for (const directory of [...localDirectories, ...installedDirectories]) checkDirectory(directory, false);
-        checkTree(localRoot);
-        checkTree(pluginRoot);
-        if (hasConfiguration(receipt)) {
-            localState = JSON.parse(fs.readFileSync(receipt, 'utf8'));
-            if (localState.version !== 1 || typeof localState.pendingDisabled !== 'boolean') fail('Invalid managed installation receipt.');
-        } else if (stat(localRoot)) {
-            fail(`Refusing to replace an unmanaged directory: ${localRoot}`);
-        }
+    const payload = readPackage(fs.realpathSync(process.argv[3]));
+    for (const directory of [...localDirectories, ...installedDirectories]) checkDirectory(directory, false);
+    checkTree(localRoot);
+    checkTree(pluginRoot);
+    if (hasConfiguration(receipt)) {
+        localState = JSON.parse(fs.readFileSync(receipt, 'utf8'));
+        if (localState.version !== 1 || typeof localState.pendingDisabled !== 'boolean') fail('Invalid managed installation receipt.');
+    } else if (stat(localRoot)) {
+        fail(`Refusing to replace an unmanaged directory: ${localRoot}`);
     }
     function saveLocalState() {
         const temporary = path.join(managedRoot, `.receipt-${process.pid}`);
@@ -473,26 +473,24 @@ async function install() {
     let installed = installedPlugin(installedPlugins(), localRoot);
     let registered = registeredMarketplace(marketplaces(), localRoot);
     const configured = await configure(config, dataDirectories);
-    if (local) {
-        for (const directory of localDirectories) checkDirectory(directory, true);
-        // Persist a disabled choice before any destructive CLI source-switch step.
-        localState.pendingDisabled ||= installed?.enabled === false;
-        saveLocalState();
-        replacePackage(localRoot, payload);
-        if (registered?.source === `GitHub: ${source}`) {
-            console.log('Switching this plugin from GitHub to the managed local package.');
-            if (installed) {
-                copilot(['plugin', 'uninstall', id]);
-                installed = undefined;
-            }
-            copilot(['plugin', 'marketplace', 'remove', name]);
-            registered = undefined;
+    for (const directory of localDirectories) checkDirectory(directory, true);
+    // Persist a disabled choice before any destructive CLI source-switch step.
+    localState.pendingDisabled ||= installed?.enabled === false;
+    saveLocalState();
+    replacePackage(localRoot, payload);
+    if (registered?.source === `GitHub: ${source}`) {
+        console.log('Switching this plugin from GitHub to the managed local package.');
+        if (installed) {
+            copilot(['plugin', 'uninstall', id]);
+            installed = undefined;
         }
+        copilot(['plugin', 'marketplace', 'remove', name]);
+        registered = undefined;
     }
     if (!registered) {
-        copilot(['plugin', 'marketplace', 'add', localRoot ?? source]);
+        copilot(['plugin', 'marketplace', 'add', localRoot]);
         registered = registeredMarketplace(marketplaces(), localRoot);
-        if (registered?.source !== (local ? `Local: ${localRoot}` : `GitHub: ${source}`)) {
+        if (registered?.source !== `Local: ${localRoot}`) {
             fail('Copilot did not register the expected marketplace. Inspect its output before retrying.');
         }
     }
@@ -500,7 +498,7 @@ async function install() {
         copilot(['plugin', 'install', id]);
         installed = installedPlugin(installedPlugins(), localRoot);
         if (!installed) fail('Copilot did not report the plugin as installed.');
-    } else if (local && installed.source === 'installed') {
+    } else if (installed.source === 'installed') {
         checkTree(pluginRoot);
         if (!matchesPackage(pluginRoot, payload)) {
             copilot(['plugin', 'update', id]);
@@ -510,23 +508,21 @@ async function install() {
     } else {
         console.log('Keeping the existing plugin registration; no enablement change.');
     }
-    if (local) {
-        if (localState.pendingDisabled && installed.enabled) {
-            copilot(['plugin', 'disable', id]);
-            installed = installedPlugin(installedPlugins(), localRoot);
-            if (!installed || installed.enabled) fail('Copilot did not preserve the disabled plugin state. Rerun to retry.');
-        }
-        // VS Code scans installed-plugins; it does not discover CLI live marketplaces.
-        if (installed.source === 'live') {
-            for (const directory of installedDirectories) checkDirectory(directory, true);
-            replacePackage(pluginRoot, payload);
-        }
-        checkTree(pluginRoot);
-        if (!matchesPackage(pluginRoot, payload)) fail('Installed package does not match the local payload. Rerun to repair it.');
-        localState.pendingDisabled = false;
-        saveLocalState();
-        console.log(`Local plugin is ready at ${pluginRoot}; the source directory is no longer needed.`);
+    if (localState.pendingDisabled && installed.enabled) {
+        copilot(['plugin', 'disable', id]);
+        installed = installedPlugin(installedPlugins(), localRoot);
+        if (!installed || installed.enabled) fail('Copilot did not preserve the disabled plugin state. Rerun to retry.');
     }
+    // VS Code scans installed-plugins; it does not discover CLI live marketplaces.
+    if (installed.source === 'live') {
+        for (const directory of installedDirectories) checkDirectory(directory, true);
+        replacePackage(pluginRoot, payload);
+    }
+    checkTree(pluginRoot);
+    if (!matchesPackage(pluginRoot, payload)) fail('Installed package does not match the local payload. Rerun to repair it.');
+    localState.pendingDisabled = false;
+    saveLocalState();
+    console.log(`Local plugin is ready at ${pluginRoot}; the source directory is no longer needed.`);
     const bundle = path.join(pluginRoot, 'bin/cyclecloud-mcp.mjs');
     const bundleInfo = stat(bundle);
     if (!bundleInfo || !bundleInfo.isFile()) {

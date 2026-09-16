@@ -13,7 +13,7 @@ npm ci --ignore-scripts
 npm run verify
 ```
 
-Verification runs formatting checks, lint, typecheck, bundle generation, tests (including the developer reset tests), and a dependency audit. `bin/cyclecloud-mcp.mjs` is generated and ignored, not committed. A clean source checkout therefore needs its development dependencies and `npm run build` (or a command such as `npm run verify`, `npm test`, `npm run package:local`, or `npm run install:local` that builds first).
+Verification runs formatting checks, lint, typecheck, bundle generation, tests (including the developer reset tests), and a dependency audit. The `test` script builds once through its `pretest` hook; CI packages that verified bundle without rebuilding it. Local packaging commands still build first. `bin/cyclecloud-mcp.mjs` is generated and ignored, not committed. A clean source checkout therefore needs its development dependencies and `npm run build` (or a command such as `npm run verify`, `npm test`, `npm run package:local`, or `npm run install:local` that builds first).
 
 ## Install a local or unpublished build
 
@@ -23,7 +23,7 @@ From this checkout, with development dependencies installed:
 npm run install:local
 ```
 
-This builds and packages the **complete plugin**, registers a persistent local marketplace under `~/.local/share/cyclecloud-mcp/marketplace/`, and maintains an identical runtime copy under `~/.copilot/installed-plugins/cyclecloud-mcp/cyclecloud-mcp/` for VS Code discovery. Both use the same private credential file as remote installations. Rerunning updates changed files in both locations, repairs missing files, and leaves identical payloads alone. Prompts use existing configuration values as defaults and hide passwords; disabled state is preserved. Add `--skip-config` to the installer (or run `npm run install:local -- --skip-config`) to keep existing configuration unread and unchanged. The checkout is needed only to build—not to run the installed plugin.
+This builds and packages the **complete plugin**, registers a persistent local marketplace under `~/.local/share/cyclecloud-mcp/marketplace/`, and maintains an identical runtime copy under `~/.copilot/installed-plugins/cyclecloud-mcp/cyclecloud-mcp/` for VS Code discovery. Both use the same private credential file as release installations. Rerunning updates changed files in both locations, repairs missing files, and leaves identical payloads alone. Prompts use existing configuration values as defaults and hide passwords; disabled state is preserved. Add `--skip-config` to the installer (or run `npm run install:local -- --skip-config`) to keep existing configuration unread and unchanged. The checkout is needed only to build—not to run the installed plugin.
 
 To install elsewhere without a checkout or npm dependencies:
 
@@ -39,11 +39,11 @@ sh install.sh --local
 
 Alternatively, pass the package directory explicitly: `sh /path/to/install.sh --local /path/to/package`. The input directory can be deleted afterward; **keep the managed marketplace directory**. Local installation does not fetch the plugin from GitHub, so it works before any branch is committed or published. It still requires Node and Copilot CLI.
 
-`--local` explicitly switches this plugin's known GitHub marketplace registration to the local copy, without creating a second plugin or credential file. It refuses unrelated same-name sources. Complete the [credential setup](../README.md#1-install-and-configure) and [verification](../README.md#2-verify-the-setup) steps, then use the native `cyclecloud` tools. See [local installation and recovery](troubleshooting.md#local-installation-without-a-checkout-dependency) for details.
+The installer uses the adjacent package by default; `--local` remains an explicit alias and accepts another package directory. It switches this plugin's old development GitHub marketplace registration to the managed copy, without creating a second plugin or credential file. It refuses unrelated same-name sources. Complete the [credential setup](../README.md#1-install-and-configure) and [verification](../README.md#2-verify-the-setup) steps, then use the native `cyclecloud` tools. See [local installation and recovery](troubleshooting.md#local-installation-without-a-checkout-dependency) for details.
 
 ### Test a branch or commit from source
 
-The repository marketplace entry resolves from the repository's default branch. `copilot plugin marketplace add gingi/cyclecloud-mcp` cannot select an arbitrary development branch or commit.
+The GitHub repository contains source, not the built runtime. Direct repository marketplace installation is unsupported; use release assets or build the desired source ref.
 
 To test an unpublished branch or exact SHA, check out that ref locally, then build and install it:
 
@@ -74,6 +74,88 @@ sh cyclecloud-mcp-artifact/install.sh --local --skip-config
 ```
 
 The artifact is the installable package, not a source checkout: it includes the generated `bin/cyclecloud-mcp.mjs` and hidden `.github/plugin/marketplace.json`, but excludes development dependencies and source files. Keep `SOURCE_COMMIT.json` when sharing it so the build remains traceable.
+
+## Publish a release
+
+Releases use a short-lived **release-preparation PR**. Request a version, review its version changes and release notes, and merge it only after checks and human approval. Publication happens from the PR's recorded merge commit, never from an arbitrary later `main`. SemVer prereleases such as `0.2.0-rc.1` are supported (no build-metadata suffix).
+
+There are two workflows: **Prepare release PR** opens the PR; **Release** runs after an approved release PR merges. Direct tag pushes and manual dispatch of `release.yml` no longer publish releases, so they cannot bypass this review path.
+
+### One-time repository setup
+
+The workflow files must first be merged into the default branch; GitHub requires that for manual workflow dispatch. Configure branch protection or a ruleset on `main` to require PRs, the **Build, verify, and package** check, and human approval. Dismiss stale approvals when the PR head changes. The release workflow also checks for a non-author human owner/member/collaborator's approval of the final PR head and rejects outstanding changes-requested reviews. It does not approve or merge PRs, and it does not configure repository rules on your behalf.
+
+Choose the preparation workflow's authentication:
+
+- **Recommended for automatic PR checks:** install a GitHub App on this repository with **Contents: read/write** and **Pull requests: read/write**. Set the repository Actions variable `RELEASE_APP_CLIENT_ID` and secret `RELEASE_APP_PRIVATE_KEY`. The workflow uses `actions/create-github-app-token` to create a short-lived, current-repository-scoped token. PRs use the app's identity, so a maintainer can review them even in a single-maintainer repository.
+- **Without an App:** the workflow uses `GITHUB_TOKEN`. Enable **Settings → Actions → General → Workflow permissions → Allow GitHub Actions to create and approve pull requests**. The automation only creates PRs; it never approves them. GitHub may hold the bot-created PR's `opened`/`synchronize` workflow runs for a maintainer to select **Approve workflows to run**. Approve those checks separately from reviewing the PR. The run summary reminds you of this step.
+
+See [GitHub's token-trigger rules](https://docs.github.com/en/actions/how-tos/writing-workflows/choosing-when-your-workflow-runs/triggering-a-workflow). Use human merge/auto-merge with the required reviews; a merge performed by an independent workflow using `GITHUB_TOKEN` may suppress the downstream release event.
+
+### Maintainer steps
+
+1. Choose **Actions → Prepare release PR → Run workflow**, select `main`, and enter the desired version without `v`. Or run:
+
+    ```bash
+    gh workflow run prepare-release.yml --ref main -f version=0.1.0
+    ```
+
+    This creates `release/v0.1.0` and a PR against `main`, not a tag or release. It updates all package/plugin/marketplace versions and adds generated notes at `docs/releases/v0.1.0.md`. The notes give the initial release a reviewable change even when the manifests already say `0.1.0`. No new commit reaches `main` until you merge the PR.
+
+2. Review the version changes and edit the release notes as needed. The **Development build** checks the release branch name against all manifest versions and requires a nonempty, regular notes file before running the full suite. Wait for those checks; download its complete package artifact for manual testing. Approve the final PR head, then merge it. A repeat request for the same version reuses the open PR **without overwriting reviewer edits**; use GitHub's normal branch-update mechanism if the base has advanced.
+
+3. Watch the **Release** workflow through build, publication, public curl verification, and cleanup. Its summary links the release and records post-release status. The preparation branch is deleted only after successful verification, only if it still points at the merged PR head, and only if no other open PR uses it. If GitHub already auto-deleted the branch, cleanup does nothing.
+
+Follow the [README verification steps](../README.md#2-verify-the-setup) for a real Copilot/VS Code and CycleCloud smoke test when preparing a demo.
+
+### What runs automatically
+
+- **Preparation:** use a clean checkout of the default branch to prepare version changes and release notes, then create one branch commit and PR through GitHub's API. The checkout is not modified, and no tag or public release is created. Requests refuse existing tags, closed release PRs, and orphan branches instead of overwriting them.
+- **Merged-PR build (read-only):** accept only merged `release/v<version>` PRs from this repository into its default branch. Verify the current human approval, exact merge SHA, manifest versions, and reviewed notes. Run the full suite, build the complete package with that merge SHA as its source identity, and verify checksums and installation from the archive.
+- **Publish (write access, no dependency installation):** create/verify `v<version>` at the merge SHA and publish the three assets with the **reviewed notes file**, not newly generated notes. Existing tags are never moved and existing releases are never overwritten. Tagging and publishing stay in one run; they do not depend on token-created push events.
+- **Post-release (read-only):** test anonymous curl installation from the published, version-pinned bootstrap, then check installed version/commit metadata, both runtime copies, private configuration defaults, and MCP initialization/read-only tools. If this is latest stable, test `latest/download/install.sh` too. Prereleases do not change latest stable.
+- **Cleanup (write access, no dependency installation):** remove the preparation branch using an explicit head-SHA lease, protecting commits pushed after the PR merged. Changed branches or branches with another open PR are retained.
+
+The post-release harness uses a fake Copilot CLI for registration, but real curl, tar, packaged installer, filesystem copies, and MCP runtime. It needs no personal Copilot login or CycleCloud credentials and sends no CycleCloud requests. It does not prove VS Code UI discovery or live CycleCloud access. Public downloads are tested without `GH_TOKEN`; making the repository private would require a different distribution/verification design.
+
+Publication is serialized across versions so publishing and latest-link verification do not race within this workflow. A release not selected as latest still gets its version-pinned installation verified; the summary explains why the latest check was skipped.
+
+### Persistent assets and local checks
+
+Each release contains:
+
+- `cyclecloud-mcp-<version>.tar.gz`: a complete `cyclecloud-mcp/` directory, including the built runtime, hidden marketplace metadata, and `SOURCE_COMMIT.json` (also retained in installed copies).
+- `install.sh`: a small curl bootstrap with the exact release URL embedded. Even when fetched through `latest`, its subsequent downloads use that fixed version. This is different from the archive's `install.sh`, which installs already-extracted files without network access.
+- `SHA256SUMS`: checksums for the archive and bootstrap. These are integrity checks, not signatures or provenance attestations.
+
+**GitHub Release assets have no Actions retention expiry** and remain until explicitly deleted. The one-day Actions artifact only hands verified files between jobs.
+
+To test before merging the workflow implementation, run `npm run verify`. It includes isolated GitHub-API fixtures for PR creation, approval/merge gating, and branch cleanup, plus real curl/HTTP installation tests. It creates no remote PR, tag, or release. Hosted preparation requires the initial workflow setup on the default branch; a tag pushed on a feature branch is no longer a publication shortcut.
+
+To prepare versions and create all assets locally without opening a PR or publishing:
+
+```bash
+npm run release:prepare -- 0.1.0
+npm run package:release -- v0.1.0
+```
+
+The local preparation command updates the four manifest/lockfile documents only; `npm run release:request -- <version>` is the separate remote-PR operation used by the preparation workflow. Direct invocation of that command requires GitHub CLI authentication, `GH_REPO=owner/repository`, development dependencies, and a clean checkout matching the repository's current default branch. Prefer the workflow for its bot identity and review/check handling.
+
+Local archives can include working-tree changes; official assets are built from the workflow's pinned merge commit. To recheck an already published release independently, supply its full commit SHA:
+
+```bash
+npm run verify:release -- v0.1.0 <full-commit-sha>
+```
+
+Append `--latest` only when that release is the current latest stable. The command uses an isolated home, not your installed plugin or credentials.
+
+### Failure and retry behavior
+
+Preparation refuses dirty/stale checkouts, existing version tags, and previously closed release PRs. A request for an already-open release PR leaves its branch and reviewed files unchanged. If preparation creates a branch but PR creation fails (for example, because Actions cannot create PRs), fix the permission issue and inspect that orphan branch. Open its PR using the appropriate bot identity, or explicitly remove the inspected generated branch and request it again; the automation will not overwrite or delete it to recover. A default-branch change during preparation may require a fresh request.
+
+A failed merged-PR approval/version/notes check or build creates no tag. The tag helper safely reuses an existing matching tag, but the publisher refuses to overwrite an existing release. If publication failed after creating a tag, rerun the original failed job so the same recorded merge commit is used. Inspect draft/partial releases before recovery; do not automatically delete or overwrite assets.
+
+A **post-release failure means the release is already published**, not rolled back. The workflow turns red and records that fact; automatic branch cleanup does not run. Inspect the failure and use **Re-run failed jobs** for transient download failures. If the package needs a fix, request a new version's release PR; never move the old tag or replace its assets. A cleanup failure does not undo publication, and a branch with newer work or another open PR is deliberately retained. Normal installs and updates use the release bootstrap or extracted package, not repository marketplace update commands.
 
 ## Application authoring skill
 
@@ -129,10 +211,10 @@ Keep VS Code closed while reinstalling so an agent cannot launch the server befo
     npm run install:local
     ```
 
-- Published GitHub marketplace version:
+- Published release: download, verify, and extract the chosen [release archive](../README.md#1-install-and-configure), then run:
 
     ```bash
-    (set -o pipefail; curl -fsSL https://raw.githubusercontent.com/gingi/cyclecloud-mcp/main/install.sh | sh)
+    sh /path/to/extracted/cyclecloud-mcp/install.sh
     ```
 
 Then reopen VS Code with your chosen profile and this repository. Verify that `cyclecloud-mcp` is enabled in **Agent Plugins: Installed**, start a new agent session, and follow the [quick-start verification steps](../README.md#2-verify-the-setup).
@@ -169,7 +251,7 @@ To undo the deployment:
 npm run restore
 ```
 
-Restore replaces the installed bundle with the original and removes the used backup; it does not require a local build. Restart the session/server again afterward. Restore before running a marketplace update so a later restore cannot roll that update back. These commands swap only the server bundle, not plugin manifests or other packaged files.
+Restore replaces the installed bundle with the original and removes the used backup; it does not require a local build. Restart the session/server again afterward. Restore before installing a new package so a later restore cannot roll that update back. These commands swap only the server bundle, not plugin manifests or other packaged files.
 
 ## Further reading
 
