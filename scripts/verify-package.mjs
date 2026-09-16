@@ -1,7 +1,7 @@
 // Proves that a packaged directory (the local `dist/cyclecloud-mcp/` output,
 // or a directory extracted from a downloaded CI artifact) has the expected
 // installable layout and can actually be installed with
-// `install.sh --local --skip-config`, using the same fake Copilot CLI as the
+// `install.sh --skip-config`, using the same fake Copilot CLI as the
 // installer test suite. Usage: node scripts/verify-package.mjs [package-directory]
 import { spawnSync } from "node:child_process";
 import {
@@ -54,7 +54,7 @@ async function requirePackageLayout() {
     }
 }
 
-async function createHarness() {
+export async function createHarness() {
     const home = await mktempHome();
     const bin = join(home, "commands");
     await mkdir(bin, { recursive: true });
@@ -106,14 +106,14 @@ async function main() {
     try {
         const result = spawnSync(
             "/bin/sh",
-            [join(packageDirectory, "install.sh"), "--local", "--skip-config"],
+            [join(packageDirectory, "install.sh"), "--skip-config"],
             { cwd: home, env, encoding: "utf8", timeout: 30_000 },
         );
         if (result.status !== 0) {
             process.stderr.write(result.stdout ?? "");
             process.stderr.write(result.stderr ?? "");
             throw new Error(
-                `install.sh --local --skip-config exited with status ${result.status}`,
+                `install.sh --skip-config exited with status ${result.status}`,
             );
         }
         const managed = join(home, ".local/share/cyclecloud-mcp/marketplace");
@@ -148,13 +148,18 @@ async function main() {
         await rm(home, { recursive: true, force: true });
     }
     process.stdout.write(
-        `Verified installable layout and --local --skip-config installation for ${packageDirectory}\n`,
+        `Verified installable layout and default --skip-config installation for ${packageDirectory}\n`,
     );
 }
 
-try {
-    await main();
-} catch (error) {
-    process.stderr.write(`${error.message}\n`);
-    process.exitCode = 1;
+if (
+    process.argv[1] &&
+    resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+    try {
+        await main();
+    } catch (error) {
+        process.stderr.write(`${error.message}\n`);
+        process.exitCode = 1;
+    }
 }

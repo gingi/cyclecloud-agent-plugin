@@ -2,9 +2,8 @@ name: Development build
 
 # Builds and verifies every branch, pull request, and manual dispatch, then
 # uploads a complete installable package as a workflow artifact. This lets a
-# branch or PR be installed and tested (see docs/development.md#test-a-branch-or-pull-request-build)
-# without merging to main, since the GitHub marketplace source only ever
-# installs the default branch.
+# branch or PR be installed and tested (see docs/development.md#test-a-development-workflow-artifact)
+# without merging to main or publishing a release.
 on:
     push:
         branches:
@@ -33,14 +32,20 @@ jobs:
                   node-version: "22"
                   cache: npm
 
+            - name: Check release branch versions and reviewable notes
+              if: ${{ startsWith(github.head_ref || github.ref_name, 'release/v') }}
+              env:
+                  RELEASE_BRANCH: ${{ github.head_ref || github.ref_name }}
+              run: node scripts/release-pr-context.mjs --check-branch "$RELEASE_BRANCH"
+
             - name: Install dependencies
-              run: npm ci
+              run: npm ci --ignore-scripts
 
             - name: Verify (format, lint, typecheck, build, test, audit)
               run: npm run verify
 
-            - name: Package a complete installable build
-              run: npm run package:local
+            - name: Package the verified build
+              run: node scripts/package-local.mjs
 
             - name: Record source commit metadata
               env:
@@ -71,7 +76,7 @@ jobs:
                   );
                   NODE
 
-            - name: Prove the packaged artifact is installable (install.sh --local --skip-config)
+            - name: Prove the packaged artifact is installable (install.sh --skip-config)
               run: npm run verify:package
 
             - name: Compute artifact name
