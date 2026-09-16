@@ -18,23 +18,25 @@ Review the plugin before installing: it runs code with your OS user's permission
 
 1. Create a dedicated CycleCloud user for this POC. Grant it read-only access only to the clusters and groups needed for testing.
 
-2. Run this in a Bash shell in the target environment (inside WSL for WSL):
+2. Install the latest stable release from a Bash shell in the target environment (inside WSL for WSL). This requires `curl` and `tar` in addition to Node and Copilot CLI:
 
     ```bash
-    (set -o pipefail; curl -fsSL https://raw.githubusercontent.com/gingi/cyclecloud-mcp/main/install.sh | sh)
+    (set -o pipefail; curl -fsSL https://github.com/gingi/cyclecloud-mcp/releases/latest/download/install.sh | sh)
     ```
 
-    Run only if you trust this repository, and do not use sudo. The installer prompts for configuration before installing the plugin. For other installation methods or installer errors, see [troubleshooting](docs/troubleshooting.md).
+    Run only if you trust the release and repository, and do not use sudo. The release bootstrap pins its downloads to one exact version, verifies the package checksum, extracts into temporary private storage, and runs the packaged installer. It registers persistent copies for Copilot CLI and VS Code and cleans up the temporary download afterward. Checksums detect damaged or mismatched downloads; they are not publisher signatures.
+
+    Until the first release is published, this URL returns 404: use a [development build](docs/development.md#install-a-local-or-unpublished-build). For a pinned version, prerelease, inspect-first download, or offline installation, see [download options](docs/troubleshooting.md#installer-download-options). Do not use GitHub's automatic **Source code** archives or the source repository's `install.sh` as a release bootstrap.
 
 3. Answer the installer's URL, username, and password prompts. Press Enter to keep an existing value; the saved password is shown as `********` and password input is hidden. Values are saved privately to `~/.copilot/plugin-data/cyclecloud-mcp/cyclecloud-mcp/cyclecloud.json`. Other settings are preserved; new configurations keep `enableMutations: false`.
 
-    To install without prompts, use this instead of the command in step 2:
+    To install without prompts:
 
     ```bash
-    (set -o pipefail; curl -fsSL https://raw.githubusercontent.com/gingi/cyclecloud-mcp/main/install.sh | sh -s -- --skip-config)
+    (set -o pipefail; curl -fsSL https://github.com/gingi/cyclecloud-mcp/releases/latest/download/install.sh | sh -s -- --skip-config)
     ```
 
-    If you downloaded `install.sh`, run `sh install.sh --skip-config`. Without a terminal, prompts are skipped automatically. Existing configuration is left unread and unchanged; if missing, a private template is created for you to edit before use.
+    Without a terminal, prompts are skipped automatically. Existing configuration is left unread and unchanged; if missing, a private template is created for you to edit before use. For an already extracted package, `sh cyclecloud-mcp/install.sh --skip-config` works offline.
 
     Never paste the password into Chat or commit this file. Use verified HTTPS for remote CycleCloud. For a backend in the same environment, `http://127.0.0.1:8080` is allowed for this POC. See [configuration and security](docs/configuration.md) for private CAs and all other options.
 
@@ -85,16 +87,13 @@ See the [authoring development and demo guide](docs/application-authoring.md) fo
 
 ## Install a local or unpublished build
 
-See the [development guide](docs/development.md#install-a-local-or-unpublished-build) to build and install from a source checkout, select an exact branch/SHA, or distribute a self-contained local or CI package. The generated server bundle is not tracked in source; local packaging commands build it first. Repository marketplace installation resolves the default branch, so use a local build or development workflow artifact to test another ref. Local installations use the same private configuration file as remote installations.
+See the [development guide](docs/development.md#install-a-local-or-unpublished-build) to build and install from a source checkout, select an exact branch/SHA, or use a development workflow artifact. The generated server bundle is not tracked in source; packaging commands build it first. Direct GitHub repository marketplace installation is not supported because it only retrieves source, not release assets. Release and development packages use the same managed installation and private configuration file.
 
 ## Update or remove
 
-For a **local installation**, rerun `sh install.sh --local` from a new package, or follow the [local-build workflow](docs/development.md#install-a-local-or-unpublished-build). For a **remote GitHub installation**, run these commands, reload VS Code, and start a fresh connected agent session:
+Rerun the curl command with `--skip-config` to install the latest stable release, or download and verify a chosen release in a fresh directory, extract it, and run `sh cyclecloud-mcp/install.sh --skip-config`. This updates both managed runtime copies while preserving credentials and disabled state. Reload VS Code and start a fresh connected agent session. To return to an older version, repeat with that version's release archive. For development packages, follow the [local-build workflow](docs/development.md#install-a-local-or-unpublished-build).
 
-```bash
-copilot plugin marketplace update cyclecloud-mcp
-copilot plugin update cyclecloud-mcp@cyclecloud-mcp
-```
+Copilot marketplace update commands do **not** download new GitHub Release assets; rerun the packaged installer to update.
 
 To remove, end sessions using the plugin, then run:
 

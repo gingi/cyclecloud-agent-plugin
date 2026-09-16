@@ -133,6 +133,63 @@ async function calls(): Promise<string[]> {
 }
 
 describe("Independent local installation", () => {
+    test("Preserves release identity in both copies and removes it for an unversioned development package", async () => {
+        const identity = JSON.stringify({
+            sourceCommit: "a".repeat(40),
+            sourceRef: "v0.1.0",
+        });
+        await writeFile(join(source, "SOURCE_COMMIT.json"), identity);
+        expect(run().status).toBe(0);
+        const visible = join(
+            home,
+            ".copilot/installed-plugins/cyclecloud-mcp/cyclecloud-mcp",
+        );
+        for (const directory of [managed, visible]) {
+            expect(
+                await readFile(join(directory, "SOURCE_COMMIT.json"), "utf8"),
+            ).toBe(identity);
+        }
+        await rm(join(source, "SOURCE_COMMIT.json"));
+        expect(run().status).toBe(0);
+        for (const directory of [managed, visible]) {
+            await expect(
+                lstat(join(directory, "SOURCE_COMMIT.json")),
+            ).rejects.toMatchObject({ code: "ENOENT" });
+        }
+    });
+
+    test("Rejects symlinked release metadata before registration", async () => {
+        await symlink(
+            join(source, "plugin.json"),
+            join(source, "SOURCE_COMMIT.json"),
+        );
+        expect(run().status).not.toBe(0);
+        expect(await calls()).toEqual([]);
+    });
+
+    test("Defaults to the adjacent release package without fetching GitHub source", async () => {
+        const result = run();
+        expect(result.status, result.stderr).toBe(0);
+        expect(await calls()).toContain(`plugin marketplace add ${managed}`);
+        expect(await calls()).not.toContain(
+            "plugin marketplace add gingi/cyclecloud-mcp",
+        );
+        expect(
+            (await readFile(join(managed, "bin/cyclecloud-mcp.mjs"))).equals(
+                await readFile(join(source, "bin/cyclecloud-mcp.mjs")),
+            ),
+        ).toBe(true);
+    });
+
+    test("Rejects a source-only checkout before configuration or registration", async () => {
+        await rm(join(source, "bin"), { recursive: true });
+        const result = run();
+        expect(result.status).not.toBe(0);
+        expect(result.stderr).toContain("release archive");
+        expect(await calls()).toEqual([]);
+        await expect(lstat(config)).rejects.toMatchObject({ code: "ENOENT" });
+    });
+
     test.each([
         ["--local", "--skip-config"],
         ["--skip-config", "--local"],
@@ -309,8 +366,14 @@ describe("Independent local installation", () => {
         expect(run().status).toBe(0);
         await writeFile(config, "keep me\n");
         await mutateState((value) => {
+            value.marketplaces[0] = {
+                name: "cyclecloud-mcp",
+                source: "GitHub: gingi/cyclecloud-mcp",
+            };
             value.plugins.forEach((plugin) => {
                 plugin.enabled = false;
+                plugin.source = "installed";
+                delete plugin.installedFrom;
             });
         });
         const result = run("--local");
@@ -318,14 +381,20 @@ describe("Independent local installation", () => {
         expect((await state()).plugins).toHaveLength(1);
         expect((await state()).plugins[0]?.enabled).toBe(false);
         expect(await readFile(config, "utf8")).toBe("keep me\n");
-        expect(run().status).not.toBe(0); // Never silently undo a local install.
+        expect(run().status).toBe(0); // Default installation also keeps the managed package.
     });
 
     test("Preserves disabled state across a partial source-switch failure and retry", async () => {
         expect(run().status).toBe(0);
         await mutateState((value) => {
+            value.marketplaces[0] = {
+                name: "cyclecloud-mcp",
+                source: "GitHub: gingi/cyclecloud-mcp",
+            };
             value.plugins.forEach((plugin) => {
                 plugin.enabled = false;
+                plugin.source = "installed";
+                delete plugin.installedFrom;
             });
             value.failCommand = `plugin marketplace add ${managed}`;
         });

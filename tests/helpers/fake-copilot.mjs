@@ -1,9 +1,7 @@
 import {
     appendFileSync,
-    copyFileSync,
     cpSync,
     rmSync,
-    mkdirSync,
     readFileSync,
     writeFileSync,
 } from "node:fs";
@@ -76,44 +74,28 @@ switch (command) {
             );
             state.plugins.push({
                 name: "cyclecloud-mcp",
-                marketplace: "cyclecloud-mcp",
-                version: "0.1.0",
+                version: JSON.parse(
+                    readFileSync(join(source, "plugin.json"), "utf8"),
+                ).version,
                 enabled,
-                source: state.liveLocal ? "live" : "installed",
-                ...(state.liveLocal ? { installedFrom: source } : {}),
+                ...(state.flatPluginJson
+                    ? {
+                          marketplace: "cyclecloud-mcp",
+                          source: state.liveLocal ? "live" : "installed",
+                          ...(state.liveLocal ? { installedFrom: source } : {}),
+                      }
+                    : {
+                          kind: "plugin",
+                          scope: "user",
+                          source: "marketplace:cyclecloud-mcp",
+                      }),
             });
             writeFileSync(statePath, JSON.stringify(state));
             break;
         }
-        const root = join(
-            process.env.HOME,
-            ".copilot/installed-plugins/cyclecloud-mcp/cyclecloud-mcp",
+        throw new Error(
+            "Tests require a real packaged marketplace; source-only installs have no runtime bundle.",
         );
-        mkdirSync(join(root, "bin"), { recursive: true });
-        writeFileSync(
-            join(root, "bin/cyclecloud-mcp.mjs"),
-            "// Test fixture; never executed.\n",
-        );
-        if (!state.omitTemplate) {
-            copyFileSync(
-                process.env.FAKE_COPILOT_TEMPLATE,
-                join(root, "cyclecloud.example.json"),
-            );
-        }
-        state.plugins.push({
-            name: "cyclecloud-mcp",
-            version: "0.1.0",
-            enabled: true,
-            ...(state.flatPluginJson
-                ? { marketplace: "cyclecloud-mcp", source: "installed" }
-                : {
-                      kind: "plugin",
-                      scope: "user",
-                      source: "marketplace:cyclecloud-mcp",
-                  }),
-        });
-        writeFileSync(statePath, JSON.stringify(state));
-        break;
     }
     case "plugin uninstall cyclecloud-mcp@cyclecloud-mcp":
         state.plugins = state.plugins.filter(

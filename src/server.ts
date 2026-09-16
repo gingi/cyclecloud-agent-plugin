@@ -6,6 +6,7 @@ import {
     type ToolAnnotations,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import packageMetadata from "../package.json" with { type: "json" };
 import { posix } from "node:path";
 import { isInstallPath } from "./application-context.js";
 import type { CycleCloudClient } from "./cyclecloud-client.js";
@@ -96,7 +97,10 @@ export interface CreateCycleCloudMcpServerOptions {
 export function createCycleCloudMcpServer(
     options: CreateCycleCloudMcpServerOptions,
 ): McpServer {
-    const server = new McpServer({ name: "cyclecloud-mcp", version: "0.1.0" });
+    const server = new McpServer({
+        name: "cyclecloud-mcp",
+        version: packageMetadata.version,
+    });
     const tools = new CycleCloudTools(options.client);
 
     server.registerTool(

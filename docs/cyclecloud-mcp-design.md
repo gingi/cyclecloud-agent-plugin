@@ -65,14 +65,14 @@ TypeScript uses strict checking and ECMAScript modules. Runtime dependencies are
 
 ### Package and runtime contract
 
-The repository root is the plugin root:
+The built package mirrors the source repository's plugin-root layout:
 
 - `plugin.json` declares the name `cyclecloud-mcp`, version, description, and keywords using the Copilot plugin format supported by both hosts.
 - `plugin.json` includes an inline `mcpServers` declaration for `cyclecloud`, with `type: "stdio"`, `command: "node"`, and `args: ["${PLUGIN_ROOT}/bin/cyclecloud-mcp.mjs"]`. No root `.mcp.json` is shipped, preventing the checkout from also becoming an unintended workspace MCP registration.
 - The MCP declaration contains no `env`, `cwd`, shell command string, or credentials.
-- `.github/plugin/marketplace.json` publishes the root package (`source: "./"`) in the `cyclecloud-mcp` catalog, with repository `https://github.com/gingi/cyclecloud-mcp` and matching plugin metadata.
+- `.github/plugin/marketplace.json` describes the root package (`source: "./"`) in the `cyclecloud-mcp` catalog, with repository `https://github.com/gingi/cyclecloud-mcp` and matching plugin metadata. This catalog is installed from a complete release/development package, not directly from the source-only GitHub repository.
 - `cyclecloud.example.json` is a packaged, secret-free configuration template. Its empty password is deliberately invalid for live use.
-- `bin/cyclecloud-mcp.mjs` is a committed, dependency-complete module with no shebang and non-executable Git mode `100644`. Node loads it directly; installation does not require npm or a build.
+- `bin/cyclecloud-mcp.mjs` is a generated, Git-ignored, dependency-complete module with no shebang and build mode `0644`. Release and development packages include it. Node loads it directly; installing a package does not require npm or a build.
 - The repository is MIT-licensed. `package.json` is private, so npm publication is not the distribution mechanism.
 
 The supported runtime range is Node.js `^20.19.0 || ^22.12.0 || >=24.0.0`, on Linux, macOS, or WSL with a POSIX Node executable available on the executable search path. Native Windows is unsupported. Package compatibility does not imply that every client host expands plugin placeholders or launches MCP servers identically.
@@ -409,16 +409,18 @@ A diagnostic path has C0/C1 controls removed and is limited to 512 code points. 
 
 ### Installer
 
-`install.sh` is self-contained POSIX shell with embedded Node for JSON handling and exclusive file creation. It can run from a checkout, a downloaded file, or stdin. It requires a supported OS/Node runtime and an already installed and authenticated GitHub Copilot CLI 1.0.81 or later; it does not install prerequisites, use sudo, prompt for credentials, or verify CycleCloud connectivity.
+The published release asset `install.sh` is generated from `scripts/install-release.sh`. It embeds one exact version's download URL, fetches the archive/checksum with bounded retries, validates the checksum and version, and invokes the archive's installer from private temporary storage. Its temporary files are cleaned up on completion/failure. This restores curl-based installation without treating the source repository as a built marketplace. The archive's optional `SOURCE_COMMIT.json` is retained in both installed copies.
+
+The source/packaged `install.sh` is POSIX shell with embedded Node for JSON handling and private file creation. It installs the complete adjacent release/development package by default; `--local [package-directory]` selects a package explicitly (required when the script is passed through stdin). A source-only checkout or standalone installer download is not sufficient. It requires a supported OS/Node runtime and an already installed and authenticated GitHub Copilot CLI 1.0.81 or later; it does not install prerequisites, use sudo, or verify CycleCloud connectivity.
 
 The installer:
 
-1. Inspects existing configuration destination paths and queries Copilot plugin/marketplace inventory as JSON.
-2. Rejects conflicting same-name registrations instead of replacing them.
-3. Adds `gingi/cyclecloud-mcp` as the `cyclecloud-mcp` marketplace if absent, and installs `cyclecloud-mcp@cyclecloud-mcp` if absent.
-4. Requires the installed server bundle at the default Copilot location.
-5. Preserves existing configuration without reading its contents. Otherwise it checks the packaged template for empty-password, mutation-disabled, verified-TLS defaults and creates private configuration exclusively.
-6. Prints the configuration path and instructions to edit it outside Chat and verify a read-only tool call.
+1. Validates the complete package before changing configuration or registrations.
+2. Inspects destination paths and Copilot plugin/marketplace inventory, rejecting unrelated same-name registrations.
+3. Prompts for private CycleCloud configuration when a terminal is available, preserving existing values as defaults; `--skip-config` leaves existing configuration unread or creates a private template when absent.
+4. Copies the package into the managed local marketplace and registers `cyclecloud-mcp@cyclecloud-mcp`, replacing an old known GitHub development registration if needed.
+5. Synchronizes the VS Code-visible runtime copy and preserves credentials and disabled state on reruns.
+6. Prints configuration and fresh-session verification instructions.
 
 The default paths are:
 
@@ -429,9 +431,9 @@ The default paths are:
 
 Installer directory checks require its selected data-path components to be user-owned, non-symlink directories without group/world write access. New directories use mode `0700`, and new configuration uses `0600`. These installer checks are distinct from runtime checks and are not full ancestor-chain validation.
 
-Remote reruns preserve plugin versions, enablement choices, and credentials. Pinning an installer download does not pin the plugin revision selected by the registered marketplace.
+Release archives pin both installer and runtime to the selected build. Rerunning from a new package updates the installed version; reinstalling an older package rolls it back. Copilot marketplace update commands do not fetch GitHub Release assets.
 
-`--local [package-directory]` instead validates and copies a minimal complete package into `~/.local/share/cyclecloud-mcp/marketplace`, then registers that persistent local marketplace. Depending on the CLI version, the package is loaded live from that directory or copied to the installed-plugin directory. VS Code scans only the installed-plugin directory, not the CLI's live marketplace registration, so the installer also synchronizes the full package to the default installed-plugin path for live registrations. This does not create a second CLI registration. Both runtime copies share the credential directory, and local reruns repair both. The input checkout/package is not needed afterward. Local reruns update changed files and repair missing ones while preserving credentials and enablement. The managed `installation.json` receipt retains a disabled choice across partial source-switch failures. Only this project's known GitHub source can be switched automatically by explicit `--local`; unrelated sources are refused. Partial CLI operations are kept and can be retried.
+The installer validates and copies a minimal complete package into `~/.local/share/cyclecloud-mcp/marketplace`, then registers that persistent local marketplace. Depending on the CLI version, the package is loaded live from that directory or copied to the installed-plugin directory. VS Code scans only the installed-plugin directory, not the CLI's live marketplace registration, so the installer also synchronizes the full package to the default installed-plugin path for live registrations. This does not create a second CLI registration. Both runtime copies share the credential directory, and local reruns repair both. The input checkout/package is not needed afterward. Local reruns update changed files and repair missing ones while preserving credentials and enablement. The managed `installation.json` receipt retains a disabled choice across partial source-switch failures. Only this project's known old GitHub development source can be switched automatically; unrelated sources are refused. Partial CLI operations are kept and can be retried.
 
 `npm run package:local` builds a self-contained directory under `dist/cyclecloud-mcp`; `npm run install:local` also installs it. The artifact contains manifests, bundled server, configuration template, license, installer, marketplace metadata, and the explicitly listed application-authoring skill assets.
 
@@ -445,13 +447,17 @@ Configuration and tool availability are process-scoped. Restart the relevant MCP
 
 ### Updates and removal
 
-Remote updates use explicit Copilot CLI commands; local updates rerun the local installer with the new package. Removing the plugin does not delete its credentials. Operators must remove the credential file and revoke or rotate the dedicated credential separately. After local uninstallation, the installed copy, managed marketplace, and receipt may be removed.
+Release and development updates rerun the packaged installer with the new package. Removing the plugin does not delete its credentials. Operators must remove the credential file and revoke or rotate the dedicated credential separately. After local uninstallation, the installed copy, managed marketplace, and receipt may be removed.
 
 ## Development and verification
 
 Development uses `npm ci --ignore-scripts` and the committed lockfile. `npm run build` bundles `src/index.ts` with runtime dependencies into `bin/cyclecloud-mcp.mjs`, targeting Node 20.19, without a source map or minification, and applies mode `0644`.
 
-`npm run verify` runs, in order, formatting checks, ESLint, TypeScript checking, bundle generation, the Vitest suite, Python developer-reset tests, and `npm audit --audit-level=high`, stopping on failure. Python 3.9+ is required for the developer reset utility and its tests, not for normal plugin installation or runtime. `npm run test:coverage` is a separate optional command. Verification builds the bundle but does not compare it byte-for-byte against Git; it has no dedicated full-history secret scanner, vendored canonical-schema validation suite, or CI workflow. Manifest tests assert the package's specific expected declarations.
+`npm run verify` runs, in order, formatting checks, ESLint, TypeScript checking, bundle generation, the Vitest suite, Python developer-reset tests, and `npm audit --audit-level=high`, stopping on failure. Python 3.9+ is required for the developer reset utility and its tests, not for normal plugin installation or runtime. `npm run test:coverage` is a separate optional command. Verification builds the ignored bundle; it has no dedicated full-history secret scanner or vendored canonical-schema validation suite. Manifest tests assert the package's specific expected declarations.
+
+The development workflow verifies branches and PRs, packages the plugin, records source/checkout identity, and uploads a 14-day Actions artifact. `npm run release:prepare -- <version>` updates the release manifests/lockfile without committing; the MCP handshake version is bundled from `package.json`. The release workflow accepts a manual version dispatch from the default branch or a pushed version tag. It pins and verifies the source, validates every version, builds a tarball, version-pinned curl bootstrap, and checksums, and smoke-tests the extracted archive. A separate write-permission job creates/verifies the tag at the built commit and publishes persistent assets in the same run. It never moves an existing tag or overwrites a release; prereleases do not replace latest stable.
+
+A read-only post-release job exercises anonymous curl installation from the actual public release assets (and the latest link when applicable), verifies installed version/commit metadata and both runtime copies, then initializes the bundled MCP server and lists its read-only tools. It uses a fake Copilot CLI and temporary credentials, not a personal login or a real CycleCloud connection. Failure marks the workflow red but does not delete the already-published release. `npm run package:release -- v<version>` builds assets locally; `npm run verify:release -- <tag> <commit>` rechecks a published release. See the [release guide](development.md#publish-a-release).
 
 The test suite covers:
 
@@ -473,4 +479,4 @@ These automated checks do not imply exhaustive filesystem hardening, cross-platf
 
 `npm run deploy` builds the checkout and replaces only the bundle at the default installed Copilot path. It saves the installed original as `cyclecloud-mcp.mjs.before-local-test` using exclusive copy, preserving that original across repeated deployments. Replacement stages a file beside the target and renames it into place. Required files must be regular files, not final-component symlinks.
 
-`npm run restore` restores the backup and removes it without requiring a local build. Neither command changes manifests, registration, enablement, or credential files, and neither commits, pushes, or publishes. Restart the session/server after either operation. Restore before a marketplace update so a subsequent restore cannot roll the update back.
+`npm run restore` restores the backup and removes it without requiring a local build. Neither command changes manifests, registration, enablement, or credential files, and neither commits, pushes, or publishes. Restart the session/server after either operation. Restore before installing a new package so a subsequent restore cannot roll the update back.

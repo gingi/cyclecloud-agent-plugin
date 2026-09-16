@@ -12,7 +12,13 @@ const typeCheckedConfigs = tseslint.configs.recommendedTypeChecked.map(
 
 export default tseslint.config(
     {
-        ignores: ["bin/**", "coverage/**", "dist/**", "node_modules/**"],
+        ignores: [
+            ".claude/worktrees/**",
+            "bin/**",
+            "coverage/**",
+            "dist/**",
+            "node_modules/**",
+        ],
     },
     ...typeCheckedConfigs,
     {

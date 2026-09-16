@@ -6,12 +6,13 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { formatStartupError, requirePluginEnvironment } from "../src/index.js";
 import { StartupError } from "../src/errors.js";
+import packageMetadata from "../package.json" with { type: "json" };
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const expectedPlugin = {
     name: "cyclecloud-mcp",
-    version: "0.1.0",
+    version: packageMetadata.version,
     description:
         "Inspect Azure CycleCloud with optional bounded lifecycle actions.",
     keywords: ["azure-cyclecloud", "hpc", "mcp"],

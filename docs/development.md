@@ -23,7 +23,7 @@ From this checkout, with development dependencies installed:
 npm run install:local
 ```
 
-This builds and packages the **complete plugin**, registers a persistent local marketplace under `~/.local/share/cyclecloud-mcp/marketplace/`, and maintains an identical runtime copy under `~/.copilot/installed-plugins/cyclecloud-mcp/cyclecloud-mcp/` for VS Code discovery. Both use the same private credential file as remote installations. Rerunning updates changed files in both locations, repairs missing files, and leaves identical payloads alone. Prompts use existing configuration values as defaults and hide passwords; disabled state is preserved. Add `--skip-config` to the installer (or run `npm run install:local -- --skip-config`) to keep existing configuration unread and unchanged. The checkout is needed only to build—not to run the installed plugin.
+This builds and packages the **complete plugin**, registers a persistent local marketplace under `~/.local/share/cyclecloud-mcp/marketplace/`, and maintains an identical runtime copy under `~/.copilot/installed-plugins/cyclecloud-mcp/cyclecloud-mcp/` for VS Code discovery. Both use the same private credential file as release installations. Rerunning updates changed files in both locations, repairs missing files, and leaves identical payloads alone. Prompts use existing configuration values as defaults and hide passwords; disabled state is preserved. Add `--skip-config` to the installer (or run `npm run install:local -- --skip-config`) to keep existing configuration unread and unchanged. The checkout is needed only to build—not to run the installed plugin.
 
 To install elsewhere without a checkout or npm dependencies:
 
@@ -39,11 +39,11 @@ sh install.sh --local
 
 Alternatively, pass the package directory explicitly: `sh /path/to/install.sh --local /path/to/package`. The input directory can be deleted afterward; **keep the managed marketplace directory**. Local installation does not fetch the plugin from GitHub, so it works before any branch is committed or published. It still requires Node and Copilot CLI.
 
-`--local` explicitly switches this plugin's known GitHub marketplace registration to the local copy, without creating a second plugin or credential file. It refuses unrelated same-name sources. Complete the [credential setup](../README.md#1-install-and-configure) and [verification](../README.md#2-verify-the-setup) steps, then use the native `cyclecloud` tools. See [local installation and recovery](troubleshooting.md#local-installation-without-a-checkout-dependency) for details.
+The installer uses the adjacent package by default; `--local` remains an explicit alias and accepts another package directory. It switches this plugin's old development GitHub marketplace registration to the managed copy, without creating a second plugin or credential file. It refuses unrelated same-name sources. Complete the [credential setup](../README.md#1-install-and-configure) and [verification](../README.md#2-verify-the-setup) steps, then use the native `cyclecloud` tools. See [local installation and recovery](troubleshooting.md#local-installation-without-a-checkout-dependency) for details.
 
 ### Test a branch or commit from source
 
-The repository marketplace entry resolves from the repository's default branch. `copilot plugin marketplace add gingi/cyclecloud-mcp` cannot select an arbitrary development branch or commit.
+The GitHub repository contains source, not the built runtime. Direct repository marketplace installation is unsupported; use release assets or build the desired source ref.
 
 To test an unpublished branch or exact SHA, check out that ref locally, then build and install it:
 
@@ -74,6 +74,71 @@ sh cyclecloud-mcp-artifact/install.sh --local --skip-config
 ```
 
 The artifact is the installable package, not a source checkout: it includes the generated `bin/cyclecloud-mcp.mjs` and hidden `.github/plugin/marketplace.json`, but excludes development dependencies and source files. Keep `SOURCE_COMMIT.json` when sharing it so the build remains traceable.
+
+## Publish a release
+
+The **Release** workflow automates validation, packaging, tag creation, publication, and post-release verification. Run it manually from `main` with the version already merged there; no manual `git tag` or tag push is required. Manually pushed `v<version>` tags remain supported. SemVer prereleases such as `0.2.0-rc.1` are supported (no build-metadata suffix).
+
+### Maintainer steps
+
+1. Install development dependencies, then prepare the intended version and verify locally:
+
+    ```bash
+    npm run release:prepare -- 0.1.0
+    npm run verify
+    ```
+
+    `release:prepare` updates `package.json`, both root versions in `package-lock.json`, `plugin.json`, and both marketplace versions together, preserving formatting. The MCP handshake version comes from `package.json` at build time. The command does **not** commit, tag, push, or publish. Review and merge the version changes through the normal PR process. For the first release, existing matching `0.1.0` versions need no bump.
+
+2. After merging, choose **Actions → Release → Run workflow**, select `main`, and enter `0.1.0` (without `v`). Or dispatch it with GitHub CLI:
+
+    ```bash
+    gh workflow run release.yml --ref main -f version=0.1.0
+    ```
+
+    This is the publishing action. The workflow must exist on the default branch. Manual dispatch from another branch is refused. The run pins the selected commit even if `main` advances while verification is running.
+
+3. Check that **all three jobs**, including **Verify public curl installation**, pass. The run summary links the release and records post-release verification status. Follow the [README verification steps](../README.md#2-verify-the-setup) for a real Copilot/VS Code and CycleCloud smoke test when preparing a demo.
+
+### What runs automatically
+
+- **Build (read-only):** check the requested version against every manifest/lockfile version; run the full verification suite, including local HTTP/curl regression tests; build the complete package and its source-commit metadata; verify checksums and the extracted package's default installer.
+- **Publish (write access, no dependency installation):** create `v<version>` at the exact verified commit, or verify that an existing tag peels to that same commit. A different target is an error, never a forced tag update. Publish all three assets with generated release notes. Tagging and publishing occur in the **same run** because a tag created with `GITHUB_TOKEN` does not trigger another push workflow.
+- **Post-release (read-only):** download the publicly published, version-pinned bootstrap through a real anonymous `curl ... | sh` pipeline. Verify checksums, installation into a temporary home, the installed version and commit, identical CLI/VS Code runtime copies, private configuration defaults, and the installed MCP bundle's initialization and read-only tool inventory. If this is the latest stable release, test the README's `latest/download/install.sh` endpoint too. Prereleases do not change latest stable.
+
+The post-release harness uses a fake Copilot CLI for registration, but real curl, tar, packaged installer, filesystem copies, and MCP runtime. It needs no personal Copilot login or CycleCloud credentials and sends no CycleCloud requests. It does not prove VS Code UI discovery or live CycleCloud access. Public downloads are tested without `GH_TOKEN`; making the repository private would require a different distribution/verification design.
+
+Releases are serialized so publishing and latest-link verification do not race within this workflow. A release not selected as latest still gets its version-pinned installation verified; the summary explains why the latest check was skipped.
+
+### Persistent assets and local checks
+
+Each release contains:
+
+- `cyclecloud-mcp-<version>.tar.gz`: a complete `cyclecloud-mcp/` directory, including the built runtime, hidden marketplace metadata, and `SOURCE_COMMIT.json` (also retained in installed copies).
+- `install.sh`: a small curl bootstrap with the exact release URL embedded. Even when fetched through `latest`, its subsequent downloads use that fixed version. This is different from the archive's `install.sh`, which installs already-extracted files without network access.
+- `SHA256SUMS`: checksums for the archive and bootstrap. These are integrity checks, not signatures or provenance attestations.
+
+**GitHub Release assets have no Actions retention expiry** and remain until explicitly deleted. The one-day Actions artifact only hands verified files between jobs.
+
+To create all assets locally without publishing:
+
+```bash
+npm run package:release -- v0.1.0
+```
+
+Local archives can include working-tree changes; official assets are built from the workflow's pinned commit. To recheck an already published release independently, supply its full commit SHA:
+
+```bash
+npm run verify:release -- v0.1.0 <full-commit-sha>
+```
+
+Append `--latest` only when that release is the current latest stable. The command uses an isolated home, not your installed plugin or credentials.
+
+### Failure and retry behavior
+
+A build failure creates no tag. The tag helper safely reuses an existing matching tag, but the publisher refuses to overwrite an existing release. If publication failed after creating a tag, rerun the original failed job rather than dispatching from a newer commit. Inspect draft/partial releases before recovery; do not automatically delete or overwrite assets.
+
+A **post-release failure means the release is already published**, not rolled back. The workflow turns red and records that fact. Inspect the failure and use **Re-run failed jobs** for transient download failures. If the package needs a fix, prepare and publish a new version; never move the old tag or replace its assets. Normal installs and updates use the release bootstrap or extracted package, not repository marketplace update commands.
 
 ## Application authoring skill
 
@@ -129,10 +194,10 @@ Keep VS Code closed while reinstalling so an agent cannot launch the server befo
     npm run install:local
     ```
 
-- Published GitHub marketplace version:
+- Published release: download, verify, and extract the chosen [release archive](../README.md#1-install-and-configure), then run:
 
     ```bash
-    (set -o pipefail; curl -fsSL https://raw.githubusercontent.com/gingi/cyclecloud-mcp/main/install.sh | sh)
+    sh /path/to/extracted/cyclecloud-mcp/install.sh
     ```
 
 Then reopen VS Code with your chosen profile and this repository. Verify that `cyclecloud-mcp` is enabled in **Agent Plugins: Installed**, start a new agent session, and follow the [quick-start verification steps](../README.md#2-verify-the-setup).
@@ -169,7 +234,7 @@ To undo the deployment:
 npm run restore
 ```
 
-Restore replaces the installed bundle with the original and removes the used backup; it does not require a local build. Restart the session/server again afterward. Restore before running a marketplace update so a later restore cannot roll that update back. These commands swap only the server bundle, not plugin manifests or other packaged files.
+Restore replaces the installed bundle with the original and removes the used backup; it does not require a local build. Restart the session/server again afterward. Restore before installing a new package so a later restore cannot roll that update back. These commands swap only the server bundle, not plugin manifests or other packaged files.
 
 ## Further reading
 

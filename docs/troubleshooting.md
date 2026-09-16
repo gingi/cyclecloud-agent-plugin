@@ -10,20 +10,11 @@ The installer copies the package into `~/.local/share/cyclecloud-mcp/marketplace
 
 Rerunning `--local` installs changed package files and repairs missing ones. Identical payloads are left alone. Configuration prompts use existing values as defaults, mask the saved password, and hide password input. Enter keeps a value; other settings, the file's private mode, and deliberately disabled plugin state are preserved. Use `--skip-config` to leave existing configuration unread and unchanged. The installer never copies source code, `node_modules`, `.git`, or credentials into the managed package.
 
-`--local` explicitly switches this project's known GitHub marketplace installation to the managed local source. It refuses same-name entries from unrelated sources. A no-argument GitHub installation will not silently switch a local installation back.
+Release archives and development packages use this same installation path. Running the packaged `sh install.sh` defaults to the adjacent package; `--local [package-directory]` selects a package explicitly. If an old development installation uses this project's known GitHub marketplace source, the installer switches it to the managed package while retaining credentials and disabled state. It refuses same-name entries from unrelated sources.
 
-### Return to the GitHub source
+### Return to a released version
 
-End sessions using this plugin, then explicitly run:
-
-```bash
-copilot plugin uninstall cyclecloud-mcp@cyclecloud-mcp
-copilot plugin marketplace remove cyclecloud-mcp
-copilot plugin marketplace add gingi/cyclecloud-mcp
-copilot plugin install cyclecloud-mcp@cyclecloud-mcp
-```
-
-These commands install the revision from the GitHub marketplace, not uncommitted local changes. They do not delete the existing credential file. If you deliberately disabled the plugin, disable it again after reinstalling. Once the remote installation works, the unused `~/.local/share/cyclecloud-mcp/marketplace/` and `installation.json` can be removed.
+End sessions using this plugin, download and verify the desired release in a fresh directory, extract it, and run `sh cyclecloud-mcp/install.sh --skip-config`. Reload VS Code and start a new agent session. This replaces both runtime copies without deleting credentials or changing a deliberately disabled state. The GitHub source repository is **not** an installable marketplace: it has no generated bundle. Do not switch back to direct repository installation.
 
 ## Server absent or not connected
 
@@ -57,11 +48,25 @@ If reporting the issue upstream, include the VS Code version and commit, WSL dis
 
 ## Installer download options
 
-The [README one-liner](../README.md#1-install-and-configure) streams `install.sh` from `main` to `sh`. Use Bash or Zsh for the outer `pipefail` option. The script is POSIX shell and uses Node; it does not need `jq`, Python, npm installation, or sudo.
+The README curl command downloads the **release asset** `install.sh`, a bootstrap that fetches and verifies its pinned package before installing. To select an exact release or prerelease, replace the version in this command:
 
-**Inspect-first alternative:** download `install.sh` from a reviewed commit SHA, inspect it, then run `sh install.sh`. Unlike a commit SHA, `main` can change. Pinning the installer does not pin a fresh remote plugin installation: Copilot uses its registered marketplace catalog. Use the self-contained local package to install an unpublished revision.
+```bash
+(set -o pipefail; curl -fsSL https://github.com/gingi/cyclecloud-mcp/releases/download/v0.1.0/install.sh | sh)
+```
 
-If the repository is private, raw `curl` access may fail even when Copilot or Git is authenticated. Use an authenticated checkout or a trusted local package; do not embed tokens in download URLs.
+Add `sh -s -- --skip-config` instead of `sh` to preserve configuration without prompts. The bootstrap requires curl and tar, cleans up temporary downloads, and never falls back to the repository's default branch. The source repository's `install.sh` is a different script that requires an adjacent built package. Until the first release exists, release URLs return 404; use a development workflow artifact or build from source.
+
+For inspect-first or offline installation, download **all three** assets (`cyclecloud-mcp-<version>.tar.gz`, `install.sh`, and `SHA256SUMS`) from the same [GitHub Release](https://github.com/gingi/cyclecloud-mcp/releases). The automatic **Source code** archives are not installable. With GitHub CLI:
+
+```bash
+gh release download v0.1.0 --repo gingi/cyclecloud-mcp \
+    --pattern 'cyclecloud-mcp-*.tar.gz' --pattern install.sh --pattern SHA256SUMS \
+    --dir cyclecloud-mcp-release
+```
+
+Use a fresh directory for each download. From that directory, verify with `shasum -a 256 -c SHA256SUMS` (or `sha256sum -c SHA256SUMS` on Linux/WSL), then extract the matching archive. Review the package before running `sh cyclecloud-mcp/install.sh`. The installed plugin comes entirely from that archive, not the repository's current default branch. Keep `SOURCE_COMMIT.json` when sharing packages to retain their source identity.
+
+This repository's release bootstrap and post-release workflow assume public, anonymously downloadable assets. If using a private fork, download all assets through an authenticated browser or `gh`, then use the extracted package's installer offline; the public curl verification workflow would need adapting. Do not embed tokens in download URLs. After download and extraction, package installation needs only Node and Copilot CLI, not repository access, npm dependencies, `jq`, Python, or sudo.
 
 ## Installer failures and reruns
 
@@ -70,27 +75,21 @@ If the repository is private, raw `curl` access may fail even when Copilot or Gi
 - **Conflicting source:** inspect `copilot plugin marketplace list` and `copilot plugin list`. Resolve unrelated same-name entries explicitly; the installer will not replace them.
 - **Unsafe configuration or destination:** inspect ownership, file type, and permissions outside Chat. Symlinks and group/world-writable managed destinations are refused rather than automatically repaired.
 - **Partial installation:** completed steps, including any configuration saved before plugin installation, are kept. Resolve the error and rerun the same command; Enter keeps saved values, or `--skip-config` bypasses the prompts. A local installation receipt preserves a disabled choice across source-switch retries; do not delete it during recovery.
-- **Configuration prompts:** the installer uses the controlling terminal, so prompts work even with `curl ... | sh`. Ctrl-C or Ctrl-D cancels without saving partial answers. Invalid JSON is left untouched; repair it outside Chat or use `--skip-config`. The prompts check URL and credential syntax and validate the URL against the preserved transport settings, but do not test connectivity or authentication. An invalid transport combination stops setup without saving; use a compatible URL (prefer verified HTTPS) or explicitly edit the conflicting settings outside Chat and rerun. See the [transport policy](configuration.md#transport-policy).
-- **Unattended installation:** add `--skip-config` (also works with `--local`), or pipe to `sh -s -- --skip-config`. When no terminal is available this behavior is automatic: existing configuration stays unread and unchanged; a missing file is populated with the private template after installation and must be edited before use.
+- **Configuration prompts:** the installer uses the controlling terminal, independently of stdin. Ctrl-C or Ctrl-D cancels without saving partial answers. Invalid JSON is left untouched; repair it outside Chat or use `--skip-config`. The prompts check URL and credential syntax and validate the URL against the preserved transport settings, but do not test connectivity or authentication. An invalid transport combination stops setup without saving; use a compatible URL (prefer verified HTTPS) or explicitly edit the conflicting settings outside Chat and rerun. See the [transport policy](configuration.md#transport-policy).
+- **Unattended installation:** add `--skip-config` (also works with `--local`). If passing the script through stdin, supply the package explicitly with `sh -s -- --local /path/to/package --skip-config`. When no terminal is available this behavior is automatic: existing configuration stays unread and unchanged; a missing file is populated with the private template after installation and must be edited before use.
 - **Incomplete local package:** recopy the complete packaged directory. The installer validates the required files before changing registrations.
-- **Missing configuration template:** reinstall a complete plugin package, then rerun the installer. Rerunning the remote installer alone does not replace an installed package.
+- **Missing configuration template:** download or rebuild a complete package, then rerun its installer. Source-only downloads are not installable.
 - **Custom Copilot paths:** this installer targets default HOME-based paths and rejects a different `COPILOT_HOME`. Do not mix home directories between installation and the agent.
 
 ## Manual installation
 
-If you do not want the installer, register the remote marketplace and install the plugin yourself:
+Use the packaged installer for supported installation: it maintains both the CLI marketplace and the VS Code-discoverable runtime copy. Registering an extracted package directly can leave a live CLI registration that VS Code does not discover, and deleting that download can break the installation. Registering the GitHub source repository does not fetch release assets.
 
-```bash
-copilot plugin marketplace add gingi/cyclecloud-mcp
-copilot plugin install cyclecloud-mcp@cyclecloud-mcp
-copilot plugin list
-```
-
-Skip commands for entries you already have. For independent local installation, use `--local` rather than registering the development checkout directly.
+To configure manually rather than answer prompts, run `sh cyclecloud-mcp/install.sh --skip-config`, then edit the private configuration file outside Chat. The recovery command below is useful if configuration was subsequently removed.
 
 ### Prepare configuration
 
-For a default remote installation, copy the packaged template privately:
+For an installed package with missing configuration, copy the packaged template privately:
 
 ```bash
 (
@@ -106,7 +105,7 @@ For a default remote installation, copy the packaged template privately:
 )
 ```
 
-This refuses to overwrite existing configuration. Edit the URL and credentials outside Chat and keep `enableMutations: false`. With `--skip-config` or no terminal, the installer performs this template-only step for both remote and local installations; otherwise it prompts and saves configuration before installing the plugin.
+This refuses to overwrite existing configuration. Edit the URL and credentials outside Chat and keep `enableMutations: false`. With `--skip-config` or no terminal, the installer performs this template-only step for both release and development installations; otherwise it prompts and saves configuration before installing the plugin.
 
 ## Configuration and connection errors
 
@@ -125,6 +124,6 @@ Tool calls check reachability through their actual CycleCloud request, without a
 
 If the configuration file is missing but its directory exists, server startup still attempts to create a secret-free `cyclecloud.example.json` there with mode `0600`. It never overwrites an existing example. This is a fallback, not a required onboarding step.
 
-Local-package and remote-marketplace installations share `~/.copilot/plugin-data/cyclecloud-mcp/cyclecloud-mcp/cyclecloud.json`. Configure that file outside Chat; no second credential copy is needed.
+Release and development installations share `~/.copilot/plugin-data/cyclecloud-mcp/cyclecloud-mcp/cyclecloud.json`. Configure that file outside Chat; no second credential copy is needed.
 
 See the [configuration and security reference](configuration.md) for all options.
