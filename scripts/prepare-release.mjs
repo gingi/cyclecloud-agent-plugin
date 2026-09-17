@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { format, resolveConfig } from "prettier";
 import { releaseDocuments, versionFromTag } from "./release-version.mjs";
+import { prepareChangelog, readChangelog } from "./release-changelog.mjs";
 
 export async function prepareReleaseChanges(root, requestedVersion) {
     const version = versionFromTag(`v${requestedVersion}`);
@@ -38,10 +39,22 @@ if (
         const root = process.cwd();
         const version = process.argv[2];
         const updates = await prepareReleaseChanges(root, version);
+        const filepath = join(root, "CHANGELOG.md");
+        const changelog = prepareChangelog(
+            await readChangelog(root),
+            `v${version}`,
+        );
+        updates.push([
+            "CHANGELOG.md",
+            await format(changelog, {
+                ...(await resolveConfig(filepath)),
+                filepath,
+            }),
+        ]);
         for (const [file, contents] of updates)
             await writeFile(join(root, file), contents);
         process.stdout.write(
-            `Prepared ${version}; changes are not committed. Review, verify, and merge them through a release PR.\n`,
+            `Prepared ${version} and CHANGELOG.md; changes are not committed. Commit them on your branch before previewing, or use a release PR for a reviewed release.\n`,
         );
     } catch (error) {
         process.stderr.write(`${error.message}\n`);

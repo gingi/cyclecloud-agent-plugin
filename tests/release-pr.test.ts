@@ -23,25 +23,7 @@ function git(...args: string[]) {
     return result.stdout.trim();
 }
 
-beforeEach(async () => {
-    workspace = await mkdtemp(join(tmpdir(), "release PR "));
-    for (const file of [
-        "package.json",
-        "package-lock.json",
-        "plugin.json",
-        ".github/plugin/marketplace.json",
-        ".prettierrc.json",
-    ]) {
-        await mkdir(dirname(join(workspace, file)), { recursive: true });
-        await cp(join(root, file), join(workspace, file));
-    }
-    await setFixtureVersion(workspace, "0.1.0");
-    await mkdir(join(workspace, "docs/releases"), { recursive: true });
-    await writeFile(
-        join(workspace, "docs/releases/v0.1.0.md"),
-        "# v0.1.0\n\nReviewed release notes.\n",
-    );
-    git("init", "--quiet");
+function commitFixture() {
     git("add", ".");
     git(
         "-c",
@@ -57,7 +39,28 @@ beforeEach(async () => {
         "-m",
         "Fixture",
     );
-    base = git("rev-parse", "HEAD");
+    return git("rev-parse", "HEAD");
+}
+
+beforeEach(async () => {
+    workspace = await mkdtemp(join(tmpdir(), "release PR "));
+    for (const file of [
+        "package.json",
+        "package-lock.json",
+        "plugin.json",
+        ".github/plugin/marketplace.json",
+        ".prettierrc.json",
+    ]) {
+        await mkdir(dirname(join(workspace, file)), { recursive: true });
+        await cp(join(root, file), join(workspace, file));
+    }
+    await setFixtureVersion(workspace, "0.1.0");
+    await writeFile(
+        join(workspace, "CHANGELOG.md"),
+        "# Changelog\n\n## [Unreleased]\n\n## [0.1.0]\n\nReviewed release notes.\n",
+    );
+    git("init", "--quiet");
+    base = commitFixture();
     bin = await mkdtemp(join(tmpdir(), "release PR commands "));
     await writeFile(
         join(bin, "gh"),
@@ -165,7 +168,7 @@ describe("Release preparation PR", () => {
                 "package-lock.json",
                 "plugin.json",
                 ".github/plugin/marketplace.json",
-                "docs/releases/v0.2.0-rc.1.md",
+                "CHANGELOG.md",
             ].sort(),
         );
         expect(
@@ -187,6 +190,11 @@ describe("Release preparation PR", () => {
         expect(writes.some((call) => call.route.endsWith("/releases"))).toBe(
             false,
         );
+        const changelog = tree?.find(
+            (entry) => entry.path === "CHANGELOG.md",
+        )?.content;
+        expect(changelog).toContain("## [0.2.0-rc.1]");
+        expect(changelog).toContain("Reviewed release notes.");
         expect(git("status", "--porcelain")).toBe("");
     });
     test("Reuses an open PR without overwriting reviewer edits", async () => {
@@ -267,7 +275,7 @@ describe("Release PR contents before merge", () => {
         pr().merged = false;
         state.reviews = [];
         const result = await run(
-            "release-pr-context.mjs",
+            "release-context.mjs",
             "--check-branch",
             "release/v0.1.0",
         );
@@ -277,7 +285,7 @@ describe("Release PR contents before merge", () => {
     });
     test("Rejects a branch version different from its manifests", async () => {
         const result = await run(
-            "release-pr-context.mjs",
+            "release-context.mjs",
             "--check-branch",
             "release/v0.2.0",
         );
@@ -288,9 +296,9 @@ describe("Release PR contents before merge", () => {
     test("Rejects missing notes before a PR can merge", async () => {
         event.action = "opened";
         pr().merged = false;
-        await rm(join(workspace, "docs/releases/v0.1.0.md"));
+        await rm(join(workspace, "CHANGELOG.md"));
         const result = await run(
-            "release-pr-context.mjs",
+            "release-context.mjs",
             "--check-branch",
             "release/v0.1.0",
         );
@@ -301,12 +309,11 @@ describe("Release PR contents before merge", () => {
 
 describe("Merged release PR gate", () => {
     test("Selects the recorded merge commit and reviewed notes", async () => {
-        const result = await run("release-pr-context.mjs");
+        const result = await run("release-context.mjs");
         expect(result.status, result.stderr).toBe(0);
         const output = await readFile(join(bin, "output"), "utf8");
         expect(output).toContain(`commit=${base}\n`);
         expect(output).toContain("tag=v0.1.0\n");
-        expect(output).toContain("notes=docs/releases/v0.1.0.md\n");
         expect(output).not.toContain(`commit=${head}\n`);
     });
     test.each(["unmerged", "fork", "other-base", "feature"])(
@@ -316,7 +323,7 @@ describe("Merged release PR gate", () => {
             if (kind === "fork") pr().head.repo.full_name = "other/plugin";
             if (kind === "other-base") pr().base.ref = "maintenance";
             if (kind === "feature") pr().head.ref = "feat/example";
-            const result = await run("release-pr-context.mjs");
+            const result = await run("release-context.mjs");
             expect(result.status, result.stderr).toBe(0);
             await expect(readFile(join(bin, "output"))).rejects.toMatchObject({
                 code: "ENOENT",
@@ -353,17 +360,99 @@ describe("Merged release PR gate", () => {
                           commit_id: kind === "stale" ? base : head,
                       },
                   ];
-        const result = await run("release-pr-context.mjs");
+        const result = await run("release-context.mjs");
         expect(result.status).not.toBe(0);
         expect(result.stderr).toMatch(/approval|changes requested/);
     });
     test("Rejects a checkout different from the merged commit", async () => {
         pr().merge_commit_sha = "f".repeat(40);
-        expect((await run("release-pr-context.mjs")).status).not.toBe(0);
+        expect((await run("release-context.mjs")).status).not.toBe(0);
     });
     test("Requires reviewed release notes", async () => {
-        await rm(join(workspace, "docs/releases/v0.1.0.md"));
-        expect((await run("release-pr-context.mjs")).status).not.toBe(0);
+        await rm(join(workspace, "CHANGELOG.md"));
+        expect((await run("release-context.mjs")).status).not.toBe(0);
+    });
+});
+
+describe("Preview release gate", () => {
+    beforeEach(async () => {
+        await setFixtureVersion(workspace, "0.1.0-rc.3");
+        await writeFile(
+            join(workspace, "CHANGELOG.md"),
+            "# Changelog\n\n## [0.1.0-rc.3]\n\nPreview changes.\n",
+        );
+        base = commitFixture();
+        event = {
+            repository: { full_name: "example/plugin", default_branch: "main" },
+            inputs: { mode: "preview", version: "0.1.0-rc.3" },
+        };
+        env.GITHUB_EVENT_NAME = "workflow_dispatch";
+        env.GITHUB_REF = "refs/heads/feat/preview-test";
+        env.GITHUB_SHA = base;
+    });
+    test("Pins a clean branch commit without creating a PR or requesting approval", async () => {
+        state.reviews = [];
+        const result = await run(
+            "release-context.mjs",
+            "--preview",
+            "0.1.0-rc.3",
+        );
+        expect(result.status, result.stderr).toBe(0);
+        expect(await readFile(join(bin, "output"), "utf8")).toBe(
+            `tag=v0.1.0-rc.3\ncommit=${base}\n`,
+        );
+        expect(await calls()).toEqual([]);
+    });
+    test("Refuses a stable release in preview mode", async () => {
+        const result = await run("release-context.mjs", "--preview", "0.1.0");
+        expect(result.status).not.toBe(0);
+        expect(result.stderr).toContain("prerelease");
+        expect(await calls()).toEqual([]);
+    });
+    test.each(["default-branch", "tag", "push", "wrong-mode", "other-repo"])(
+        "Rejects an invalid preview source: %s",
+        async (kind) => {
+            if (kind === "default-branch") env.GITHUB_REF = "refs/heads/main";
+            if (kind === "tag") env.GITHUB_REF = "refs/tags/v0.1.0-rc.3";
+            if (kind === "push") env.GITHUB_EVENT_NAME = "push";
+            if (kind === "wrong-mode")
+                event.inputs = { mode: "request", version: "0.1.0-rc.3" };
+            if (kind === "other-repo")
+                event.repository = {
+                    full_name: "other/plugin",
+                    default_branch: "main",
+                };
+            const result = await run(
+                "release-context.mjs",
+                "--preview",
+                "0.1.0-rc.3",
+            );
+            expect(result.status).not.toBe(0);
+            expect(await calls()).toEqual([]);
+        },
+    );
+    test("Rejects a checkout different from the dispatched commit", async () => {
+        env.GITHUB_SHA = "f".repeat(40);
+        const result = await run(
+            "release-context.mjs",
+            "--preview",
+            "0.1.0-rc.3",
+        );
+        expect(result.status).not.toBe(0);
+        expect(result.stderr).toContain("commit");
+    });
+    test("Requires committed version and changelog changes", async () => {
+        await writeFile(
+            join(workspace, "CHANGELOG.md"),
+            "uncommitted changes\n",
+        );
+        const result = await run(
+            "release-context.mjs",
+            "--preview",
+            "0.1.0-rc.3",
+        );
+        expect(result.status).not.toBe(0);
+        expect(result.stderr).toContain("clean");
     });
 });
 
@@ -380,6 +469,18 @@ describe("Release branch cleanup", () => {
             { mode: 0o700 },
         );
         env.FAKE_GIT_CALL = join(bin, "git-call.json");
+    });
+    test("Never deletes the source branch of a preview dispatch", async () => {
+        event = {
+            repository: { full_name: "example/plugin", default_branch: "main" },
+            inputs: { mode: "preview" },
+        };
+        const result = await run("cleanup-release-branch.mjs");
+        expect(result.status).not.toBe(0);
+        expect(await calls()).toEqual([]);
+        await expect(
+            readFile(join(bin, "git-call.json")),
+        ).rejects.toMatchObject({ code: "ENOENT" });
     });
     test("Deletes only the merged head with a force-with-lease check", async () => {
         state.branches = [

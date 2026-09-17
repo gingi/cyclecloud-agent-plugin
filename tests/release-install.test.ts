@@ -1,5 +1,13 @@
 import { execFile } from "node:child_process";
-import { cp, mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
+import {
+    cp,
+    mkdir,
+    mkdtemp,
+    readFile,
+    rm,
+    symlink,
+    writeFile,
+} from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -36,6 +44,10 @@ beforeAll(async () => {
         await mkdir(dirname(join(workspace, file)), { recursive: true });
         await cp(join(root, file), join(workspace, file));
     }
+    await writeFile(
+        join(workspace, "CHANGELOG.md"),
+        "# Changelog\n\n## [Unreleased]\n\nRelease installation test.\n",
+    );
     // Prepare a different version and build it, so a hardcoded runtime version cannot pass.
     tag = "v9.8.7-rc.1";
     await cp(

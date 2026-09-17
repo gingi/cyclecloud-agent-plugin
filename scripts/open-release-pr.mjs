@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { format, resolveConfig } from "prettier";
 import { prepareReleaseChanges } from "./prepare-release.mjs";
 import { versionFromTag } from "./release-version.mjs";
+import { prepareChangelog, readChangelog } from "./release-changelog.mjs";
 import { githubApi, releaseRepository, requireSha } from "./release-github.mjs";
 
 function git(...args) {
@@ -91,11 +92,15 @@ async function main() {
     });
     if (typeof notes.body !== "string")
         throw new Error("GitHub did not return release notes");
-    const notesPath = `docs/releases/${tag}.md`;
-    const filepath = join(process.cwd(), notesPath);
+    const filepath = join(process.cwd(), "CHANGELOG.md");
+    const changelog = prepareChangelog(
+        await readChangelog(process.cwd()),
+        tag,
+        notes.body,
+    );
     changes.push([
-        notesPath,
-        await format(`# ${tag}\n\n${notes.body.trim()}\n`, {
+        "CHANGELOG.md",
+        await format(changelog, {
             ...(await resolveConfig(filepath)),
             filepath,
         }),
@@ -129,7 +134,7 @@ async function main() {
             title: `Release ${tag}`,
             head: branch,
             base: defaultBranch,
-            body: `Prepare ${tag} for release.\n\nReview the version changes and docs/releases/${tag}.md, and wait for the Development build checks and package artifact. A current human approval is required before merging.\n\nMerging this PR triggers the Release workflow on the recorded merge commit: build, tag, publish, public curl verification, and safe branch cleanup. No tag or release has been created yet.`,
+            body: `Prepare ${tag} for release.\n\nReview the version changes and the ${version} entry in CHANGELOG.md, and wait for the Development build checks and package artifact. A current human approval is required before merging.\n\nMerging this PR triggers the Release workflow on the recorded merge commit: build, tag, publish, public curl verification, and safe branch cleanup. No tag or release has been created yet.`,
         },
     });
     await report(pr);
