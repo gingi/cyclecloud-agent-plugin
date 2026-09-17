@@ -100,7 +100,8 @@ export function requireApproval(pr, reviews) {
         !(
             pr.merged_by?.type === "User" &&
             typeof pr.merged_by.login === "string" &&
-            pr.merged_by.login.length > 0
+            pr.merged_by.login.length > 0 &&
+            !pr.merged_by.login.endsWith("[bot]")
         )
     ) {
         throw new Error(
