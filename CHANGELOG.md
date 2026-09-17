@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.0]
+
 ### Added
 
 - Publish prerelease previews from a selected feature-branch commit without merging into `main` or changing the latest stable release.
