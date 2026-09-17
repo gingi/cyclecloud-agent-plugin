@@ -1,9 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { appendFile, lstat, readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { appendFile, readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkReleaseVersions, versionFromTag } from "./release-version.mjs";
 import { githubApi, releaseRepository, requireSha } from "./release-github.mjs";
+import { readReleaseNotes } from "./release-changelog.mjs";
 
 export function releasePrContext(event, repository) {
     const pr = event.pull_request;
@@ -27,7 +28,41 @@ export function releasePrContext(event, repository) {
         head: requireSha(pr.head.sha),
         branch: pr.head.ref,
         pr: pr.number,
-        notes: `docs/releases/${tag}.md`,
+    };
+}
+
+export function previewReleaseContext(
+    event,
+    repository,
+    requestedVersion,
+    env = process.env,
+) {
+    const version = versionFromTag(`v${requestedVersion}`);
+    if (!version.includes("-"))
+        throw new Error("Preview mode only accepts prerelease versions");
+    if (
+        env.GITHUB_EVENT_NAME !== "workflow_dispatch" ||
+        event.inputs?.mode !== "preview" ||
+        event.inputs?.version !== version
+    ) {
+        throw new Error(
+            "Preview releases require an explicit preview workflow dispatch",
+        );
+    }
+    if (event.repository?.full_name !== repository)
+        throw new Error("Preview source must belong to this repository");
+    if (
+        !env.GITHUB_REF?.startsWith("refs/heads/") ||
+        env.GITHUB_REF === `refs/heads/${event.repository.default_branch}`
+    ) {
+        throw new Error(
+            "Preview releases require a non-default branch, not a tag or the default branch",
+        );
+    }
+    return {
+        tag: `v${version}`,
+        commit: requireSha(env.GITHUB_SHA),
+        branch: env.GITHUB_REF.slice("refs/heads/".length),
     };
 }
 
@@ -70,21 +105,7 @@ export function requireApproval(pr, reviews) {
 
 async function checkReleaseFiles(tag) {
     await checkReleaseVersions(process.cwd(), tag);
-    let path = process.cwd();
-    for (const component of `docs/releases/${tag}.md`.split("/")) {
-        path = join(path, component);
-        const info = await lstat(path);
-        if (
-            info.isSymbolicLink() ||
-            (component.endsWith(".md") ? !info.isFile() : !info.isDirectory())
-        ) {
-            throw new Error(
-                "Release notes must be a regular file in the checkout",
-            );
-        }
-    }
-    if (!(await readFile(path, "utf8")).trim())
-        throw new Error("Reviewed release notes are empty");
+    await readReleaseNotes(process.cwd(), tag);
 }
 
 async function main() {
@@ -97,43 +118,47 @@ async function main() {
         process.stdout.write(`Release PR contents match ${tag}\n`);
         return;
     }
-    if (process.argv.length !== 2)
+    const preview =
+        process.argv[2] === "--preview" && process.argv.length === 4;
+    if (!preview && process.argv.length !== 2)
         throw new Error(
-            "Usage: node scripts/release-pr-context.mjs [--check-branch release/v<version>]",
+            "Usage: node scripts/release-context.mjs [--check-branch release/v<version> | --preview <version>]",
         );
     const repository = releaseRepository();
     const event = JSON.parse(
         await readFile(process.env.GITHUB_EVENT_PATH, "utf8"),
     );
-    const context = releasePrContext(event, repository);
+    const context = preview
+        ? previewReleaseContext(event, repository, process.argv[3])
+        : releasePrContext(event, repository);
     if (!context) return;
     const actual = execFileSync("git", ["rev-parse", "HEAD"], {
         encoding: "utf8",
     }).trim();
     if (actual !== context.commit)
-        throw new Error(
-            "Checkout must be the recorded release PR merge commit",
-        );
+        throw new Error("Checkout must match the selected release commit");
     if (
         execFileSync("git", ["status", "--porcelain"], {
             encoding: "utf8",
         }).trim()
     )
         throw new Error(
-            "Release verification requires a clean merged checkout",
+            "Release verification requires a clean committed checkout",
         );
     await checkReleaseFiles(context.tag);
-    const reviews = githubApi(
-        `repos/${repository}/pulls/${context.pr}/reviews?per_page=100`,
-        { paginate: true },
-    );
-    requireApproval(event.pull_request, reviews);
+    if (!preview) {
+        const reviews = githubApi(
+            `repos/${repository}/pulls/${context.pr}/reviews?per_page=100`,
+            { paginate: true },
+        );
+        requireApproval(event.pull_request, reviews);
+    }
     await appendFile(
         process.env.GITHUB_OUTPUT,
-        `tag=${context.tag}\ncommit=${context.commit}\nnotes=${context.notes}\n`,
+        `tag=${context.tag}\ncommit=${context.commit}\n`,
     );
     process.stdout.write(
-        `Approved release PR #${context.pr}: ${context.tag} at merge commit ${context.commit}\n`,
+        `${preview ? "Preview" : "Approved PR"} release ${context.tag} at ${context.commit}\n`,
     );
 }
 

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { releasePrContext } from "./release-pr-context.mjs";
+import { releasePrContext } from "./release-context.mjs";
 import { githubApi, releaseRepository } from "./release-github.mjs";
 
 try {

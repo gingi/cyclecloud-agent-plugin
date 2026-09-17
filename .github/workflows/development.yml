@@ -36,7 +36,7 @@ jobs:
               if: ${{ startsWith(github.head_ref || github.ref_name, 'release/v') }}
               env:
                   RELEASE_BRANCH: ${{ github.head_ref || github.ref_name }}
-              run: node scripts/release-pr-context.mjs --check-branch "$RELEASE_BRANCH"
+              run: node scripts/release-context.mjs --check-branch "$RELEASE_BRANCH"
 
             - name: Install dependencies
               run: npm ci --ignore-scripts

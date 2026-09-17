@@ -106,6 +106,7 @@ Delete the credential file from the Copilot data directory and revoke the dedica
 
 ## More information
 
+- [Changelog](CHANGELOG.md)
 - [Design and architecture](docs/cyclecloud-mcp-design.md)
 - [Configuration and security](docs/configuration.md)
 - [Troubleshooting and local installation](docs/troubleshooting.md)

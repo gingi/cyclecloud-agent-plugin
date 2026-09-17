@@ -1,0 +1,197 @@
+name: Build and publish release
+
+on:
+    workflow_call:
+        inputs:
+            preview:
+                type: boolean
+                default: false
+            version:
+                type: string
+                default: ""
+        outputs:
+            commit:
+                value: ${{ jobs.build.outputs.commit }}
+            tag:
+                value: ${{ jobs.build.outputs.tag }}
+
+# Shared by reviewed releases and previews; callers must not use this group.
+concurrency:
+    group: release
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+    pull-requests: read
+
+jobs:
+    build:
+        name: Verify the release source
+        runs-on: ubuntu-latest
+        outputs:
+            tag: ${{ steps.release.outputs.tag }}
+            commit: ${{ steps.release.outputs.commit }}
+        steps:
+            - name: Check out the exact release commit
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ inputs.preview && github.sha || github.event.pull_request.merge_commit_sha }}
+                  persist-credentials: false
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "22"
+                  cache: npm
+
+            - name: Validate release mode, source, versions, and changelog
+              id: release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  PREVIEW: ${{ inputs.preview }}
+                  RELEASE_VERSION: ${{ inputs.version }}
+              run: |
+                  if [[ "$PREVIEW" == true ]]; then
+                      node scripts/release-context.mjs --preview "$RELEASE_VERSION"
+                  else
+                      node scripts/release-context.mjs
+                  fi
+
+            - name: Install dependencies
+              run: npm ci --ignore-scripts
+
+            - name: Verify source and release regression tests
+              run: npm run verify
+
+            - name: Package the verified build for release
+              env:
+                  RELEASE_TAG: ${{ steps.release.outputs.tag }}
+                  RELEASE_SOURCE_COMMIT: ${{ steps.release.outputs.commit }}
+              run: |
+                  node scripts/package-local.mjs
+                  node scripts/package-release.mjs "$RELEASE_TAG"
+
+            - name: Verify the archive users will download
+              env:
+                  RELEASE_TAG: ${{ steps.release.outputs.tag }}
+              run: |
+                  (cd dist/releases && sha256sum --check SHA256SUMS)
+                  mkdir -p "$RUNNER_TEMP/release-extracted"
+                  tar -xzf "dist/releases/cyclecloud-mcp-${RELEASE_TAG#v}.tar.gz" -C "$RUNNER_TEMP/release-extracted"
+                  npm run verify:package -- "$RUNNER_TEMP/release-extracted/cyclecloud-mcp"
+
+            - name: Pass verified assets to the publishing job
+              uses: actions/upload-artifact@v4
+              with:
+                  name: release-assets
+                  path: |
+                      dist/releases/*.tar.gz
+                      dist/releases/install.sh
+                      dist/releases/SHA256SUMS
+                  if-no-files-found: error
+                  retention-days: 1
+
+    publish:
+        name: Tag and publish the verified release
+        needs: build
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+        env:
+            GH_TOKEN: ${{ github.token }}
+            GH_REPO: ${{ github.repository }}
+            RELEASE_TAG: ${{ needs.build.outputs.tag }}
+            RELEASE_COMMIT: ${{ needs.build.outputs.commit }}
+            PREVIEW: ${{ inputs.preview }}
+        steps:
+            - name: Check out the verified helpers and changelog
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ needs.build.outputs.commit }}
+                  persist-credentials: false
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "22"
+
+            - name: Download verified assets
+              uses: actions/download-artifact@v4
+              with:
+                  name: release-assets
+                  path: release-assets
+
+            - name: Verify assets and select the changelog entry
+              run: |
+                  (cd release-assets && sha256sum --check SHA256SUMS)
+                  node scripts/release-changelog.mjs "$RELEASE_TAG" > "$RUNNER_TEMP/release-notes.md"
+
+            - name: Create or verify the tag at the exact commit
+              run: node scripts/tag-release.mjs "$RELEASE_TAG" "$RELEASE_COMMIT"
+
+            # GITHUB_TOKEN-created tags do not trigger another push workflow.
+            - name: Publish the changelog notes and assets without overwriting a release
+              run: |
+                  flags=()
+                  if [[ "$PREVIEW" == true || "$RELEASE_TAG" == *-* ]]; then
+                      flags+=(--prerelease --latest=false)
+                  fi
+                  gh release create "$RELEASE_TAG" \
+                      "release-assets/cyclecloud-mcp-${RELEASE_TAG#v}.tar.gz" \
+                      release-assets/install.sh release-assets/SHA256SUMS \
+                      --verify-tag --title "$RELEASE_TAG" \
+                      --notes-file "$RUNNER_TEMP/release-notes.md" "${flags[@]}"
+
+    post-release:
+        name: Verify public curl installation
+        needs: [build, publish]
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        env:
+            RELEASE_TAG: ${{ needs.build.outputs.tag }}
+            RELEASE_COMMIT: ${{ needs.build.outputs.commit }}
+        steps:
+            - name: Check out the verification harness at the released commit
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ needs.build.outputs.commit }}
+                  persist-credentials: false
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "22"
+                  cache: npm
+
+            - name: Install verification dependencies
+              run: npm ci --ignore-scripts
+
+            - name: Verify anonymous curl installation of this release
+              run: npm run verify:release -- "$RELEASE_TAG" "$RELEASE_COMMIT"
+
+            - name: Verify the latest installer when this is the latest stable release
+              if: ${{ !inputs.preview && !contains(needs.build.outputs.tag, '-') }}
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+                  if [[ "$latest" == "$RELEASE_TAG" ]]; then
+                      npm run verify:release -- "$RELEASE_TAG" "$RELEASE_COMMIT" --latest
+                  else
+                      printf 'Latest still points to %s; the version-pinned installation was verified.\n' "$latest" >> "$GITHUB_STEP_SUMMARY"
+                  fi
+
+            - name: Record post-release outcome
+              if: ${{ always() }}
+              env:
+                  VERIFICATION_STATUS: ${{ job.status }}
+                  PREVIEW: ${{ inputs.preview }}
+              run: |
+                  printf '## Release %s\n\nPost-release verification: **%s**\n' "$RELEASE_TAG" "$VERIFICATION_STATUS" >> "$GITHUB_STEP_SUMMARY"
+                  printf '\nRelease: https://github.com/%s/releases/tag/%s\n' "$GITHUB_REPOSITORY" "$RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"
+                  if [[ "$PREVIEW" == true ]]; then
+                      printf '\nThis is a prerelease preview. No release PR was created, latest stable was not changed, and the source branch is retained.\n' >> "$GITHUB_STEP_SUMMARY"
+                  fi
+                  if [[ "$VERIFICATION_STATUS" != success ]]; then
+                      printf '\nThe release is already published. Inspect the failure and rerun failed jobs; do not move the tag or overwrite assets.\n' >> "$GITHUB_STEP_SUMMARY"
+                  fi
