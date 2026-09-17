@@ -382,7 +382,9 @@ describe("Merged release PR gate", () => {
             };
             const result = await run("release-context.mjs");
             expect(result.status).not.toBe(0);
-            expect(result.stderr).toContain("human");
+            expect(result.stderr).toContain(
+                "owner/member/collaborator approval",
+            );
         },
     );
     test("A human merge does not override requested changes", async () => {

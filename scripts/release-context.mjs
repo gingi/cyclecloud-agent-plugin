@@ -96,7 +96,8 @@ export function requireApproval(pr, reviews) {
             (review) =>
                 review.state === "APPROVED" && review.commit_id === pr.head.sha,
         ) &&
-        // A recorded merger necessarily had permission to merge this PR.
+        // A recorded merger had merge permission. Self-merge is deliberately
+        // allowed, but GitHub bot identities must not satisfy this gate.
         !(
             pr.merged_by?.type === "User" &&
             typeof pr.merged_by.login === "string" &&
