@@ -96,6 +96,7 @@ export function requireApproval(pr, reviews) {
             (review) =>
                 review.state === "APPROVED" && review.commit_id === pr.head.sha,
         ) &&
+        // A recorded merger necessarily had permission to merge this PR.
         !(
             pr.merged_by?.type === "User" &&
             typeof pr.merged_by.login === "string" &&
@@ -103,7 +104,7 @@ export function requireApproval(pr, reviews) {
         )
     ) {
         throw new Error(
-            "Release requires a current human approval or a deliberate human merge",
+            "Release requires a current human owner/member/collaborator approval or a deliberate merge by a GitHub user with merge access",
         );
     }
 }
