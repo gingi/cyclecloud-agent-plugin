@@ -95,10 +95,15 @@ export function requireApproval(pr, reviews) {
         ![...latest.values()].some(
             (review) =>
                 review.state === "APPROVED" && review.commit_id === pr.head.sha,
+        ) &&
+        !(
+            pr.merged_by?.type === "User" &&
+            typeof pr.merged_by.login === "string" &&
+            pr.merged_by.login.length > 0
         )
     ) {
         throw new Error(
-            "Release requires a current, non-author human approval from a repository owner/member/collaborator",
+            "Release requires a current human approval or a deliberate human merge",
         );
     }
 }
