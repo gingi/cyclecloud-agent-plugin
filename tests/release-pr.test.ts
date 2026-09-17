@@ -372,14 +372,14 @@ describe("Merged release PR gate", () => {
         const result = await run("release-context.mjs");
         expect(result.status, result.stderr).toBe(0);
     });
-    test.each(["Bot", "bot-login"])(
+    test.each([
+        ["Bot type", { login: "automation", type: "Bot" }],
+        ["bot login", { login: "release-bot[bot]", type: "User" }],
+    ])(
         "Does not treat an automated merge as human approval: %s",
-        async (kind) => {
+        async (_kind, merger) => {
             state.reviews = [];
-            pr().merged_by = {
-                login: "release-bot[bot]",
-                type: kind === "Bot" ? "Bot" : "User",
-            };
+            pr().merged_by = merger;
             const result = await run("release-context.mjs");
             expect(result.status).not.toBe(0);
             expect(result.stderr).toContain(
