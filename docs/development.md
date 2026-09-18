@@ -77,122 +77,97 @@ The artifact is the installable package, not a source checkout: it includes the 
 
 ## Publish a release
 
-Releases use a short-lived **release-preparation PR**. Request a version, review its version changes and release notes, and merge it only after checks and deliberate human approval. A submitted review or the act of merging the PR yourself satisfies the human-approval gate. Publication happens from the PR's recorded merge commit, never from an arbitrary later `main`. SemVer prereleases such as `0.2.0-rc.1` are supported (no build-metadata suffix).
+Prepare the version and changelog, review them through a normal PR, then **push a version tag**. The **Release** workflow builds and publishes the exact tagged commit. Stable tags must identify a commit on the default branch; SemVer prerelease tags such as `v0.2.0-rc.1` may identify a feature-branch commit.
 
-**Prepare or preview release** has two explicit modes: `request` opens a reviewed release PR from `main`; `preview` publishes a prerelease from a non-default branch. **Release** still runs only after an approved release PR merges. Both publication paths call the same reusable **Build and publish release** workflow, so build, packaging, checksums, and curl verification do not diverge. Direct tag pushes do not publish releases.
+### Repository settings
 
-### One-time repository setup
+Configure these rules in GitHub:
 
-GitHub requires the dispatchable `prepare-release.yml` to exist on the default branch. That initial setup is already sufficient to dispatch an updated copy from another branch, including its branch-local reusable workflow. Configure branch protection or a ruleset on `main` to require PRs and the **Build, verify, and package** check. If the repository has multiple maintainers, requiring human approval is also recommended. The release workflow accepts either a current non-author human owner/member/collaborator approval of the final PR head or a deliberate merge by a human, including the PR author, and rejects outstanding changes-requested reviews. It does not approve or merge PRs, and it does not configure repository rules on your behalf.
+- Protect the default branch with required PRs and the **Build, verify, and package** check. Require reviews as the maintainer team grows; GitHub enforces that policy when merging.
+- Restrict creation of `v*` tags to release maintainers. Use a separate tag ruleset to block tag updates and deletions, without granting those maintainers a bypass of that rule.
+- Enable [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases) to lock published tags and assets. The workflow uploads all assets to a draft before publishing, so it works with immutability enabled.
 
-Choose the preparation workflow's authentication:
+The workflow authenticates with the built-in `GITHUB_TOKEN`. Only the publishing job requests `contents: write`; other jobs are read-only.
 
-- **Recommended for automatic PR checks:** install a GitHub App on this repository with **Contents: read/write** and **Pull requests: read/write**. Set the repository Actions variable `RELEASE_APP_CLIENT_ID` and secret `RELEASE_APP_PRIVATE_KEY`. The workflow uses `actions/create-github-app-token` to create a short-lived, current-repository-scoped token. PRs use the app's identity, so a maintainer can review them even in a single-maintainer repository.
-- **Without an App:** the workflow uses `GITHUB_TOKEN`. Enable **Settings → Actions → General → Workflow permissions → Allow GitHub Actions to create and approve pull requests**. The automation only creates PRs; it never approves them. GitHub may hold the bot-created PR's `opened`/`synchronize` workflow runs for a maintainer to select **Approve workflows to run**. Approve those checks separately from reviewing the PR. The run summary reminds you of this step.
+### Stable release
 
-See [GitHub's token-trigger rules](https://docs.github.com/en/actions/how-tos/writing-workflows/choosing-when-your-workflow-runs/triggering-a-workflow). Use human merge/auto-merge with the required reviews; a merge performed by an independent workflow using `GITHUB_TOKEN` may suppress the downstream release event.
-
-### Reviewed releases
-
-1. Choose **Actions → Prepare or preview release → Run workflow**, select `main`, mode `request`, and the desired version without `v`. Or run:
+1. Fetch release tags and prepare on your working branch:
 
     ```bash
-    gh workflow run prepare-release.yml --ref main -f mode=request -f version=0.1.0
+    git fetch origin --tags
+    npm run release:prepare -- 0.2.0
     ```
 
-    This creates `release/v0.1.0` and a PR against `main`, not a tag or release. It updates all package/plugin/marketplace versions and prepares the `0.1.0` entry in the top-level `CHANGELOG.md`, preserving earlier release history. No new commit reaches `main` until you merge the PR.
+    Preparation updates all four manifest/lockfile documents and adds a `## [0.2.0]` changelog draft from commit subjects. An existing entry is preserved. It does not commit, tag, or publish anything.
 
-2. Review the version changes and changelog entry. The **Development build** checks the release branch name against all manifest versions and requires a nonempty changelog entry for that version before running the full suite. Wait for those checks; download its complete package artifact for manual testing. Approve the final PR head, then merge it. A repeat request for the same version reuses the open PR **without overwriting reviewer edits**; use GitHub's normal branch-update mechanism if the base has advanced.
+2. Review and edit the draft in `CHANGELOG.md`, then run `npm run verify`. Commit the version and changelog changes, open a PR, and merge after the required checks/reviews. For manual testing, use the Development build artifact and the [README verification steps](../README.md#2-verify-the-setup).
+3. Fetch the merged commit and push an annotated tag at that exact SHA:
 
-3. Watch the **Release** workflow through build, publication, public curl verification, and cleanup. Its summary links the release and records post-release status. The preparation branch is deleted only after successful verification, only if it still points at the merged PR head, and only if no other open PR uses it. If GitHub already auto-deleted the branch, cleanup does nothing.
+    ```bash
+    git fetch origin
+    git tag -a v0.2.0 <merged-commit-sha> -m 'Release v0.2.0'
+    git push origin v0.2.0
+    ```
 
-Follow the [README verification steps](../README.md#2-verify-the-setup) for a real Copilot/VS Code and CycleCloud smoke test when preparing a demo.
+4. Watch **Actions → Release** through publication and public installation verification. Push the tag, **do not pre-create a release in the GitHub UI**: the workflow creates it with the verified assets and committed notes.
+
+GitHub loads `.github/workflows/release.yml` from the tagged commit. Push one release tag at a time and wait for its workflow to finish. Tags pushed by another workflow using `GITHUB_TOKEN` do not normally trigger a new workflow; see [GitHub's token-trigger rules](https://docs.github.com/en/actions/how-tos/writing-workflows/choosing-when-your-workflow-runs/triggering-a-workflow).
 
 ### Preview a prerelease from a branch
 
-Preview mode needs repository write access to dispatch Actions, but no new GitHub settings, App secret, or PR approval. Its publishing job explicitly requests `contents: write`; the repository's default token permissions can stay read-only. Keep branch protection on `main`. If you later add tag rules, ensure they allow the workflow to create the chosen prerelease tag.
+Use the same process with an unused prerelease version, without merging to the default branch:
 
-The existing `prepare-release.yml` must already be registered on the default branch. Once it is, you can change that workflow on a feature branch and invoke **the branch's definition** with `--ref`. The relative reusable workflow is loaded from that same commit; it does not first need merging into `main`. While testing branch-only inputs, use the CLI rather than relying on the default branch's Run workflow form.
+```bash
+git fetch origin --tags
+npm run release:prepare -- 0.2.0-rc.1
+# Review and edit the generated notes in CHANGELOG.md, then:
+npm run verify
+# Commit all intended source, version, and changelog changes, then:
+git tag -a v0.2.0-rc.1 HEAD -m 'Preview v0.2.0-rc.1'
+git push origin v0.2.0-rc.1
+```
 
-To test `0.1.0-rc.3`, use an unused version and a non-default branch containing your build changes:
-
-1. Add notes under `## [Unreleased]` in `CHANGELOG.md` (or write the exact `## [0.1.0-rc.3]` entry yourself).
-2. Prepare the version, run verification, and commit **all intended workflow/code changes**, the four manifest/lockfile changes, and `CHANGELOG.md` on that branch:
-
-    ```bash
-    npm run release:prepare -- 0.1.0-rc.3
-    npm run verify
-    # Review and commit the changes on your feature branch, then:
-    git push -u origin HEAD
-    ```
-
-3. Dispatch the preview from that branch:
-
-    ```bash
-    gh workflow run prepare-release.yml \
-        --ref feat/preview-releases \
-        -f mode=preview \
-        -f version=0.1.0-rc.3
-    ```
-
-    Replace the branch name as needed. This publishes a **real GitHub prerelease**, not a dry run. Preview mode rejects stable versions, `main`, tag refs, mismatched versions, missing changelog entries, and dirty or mismatched source checkouts. It never edits the source to silently stamp a different version into the build: manifests and notes must already be committed.
-
-The dispatch pins the selected branch commit even if the branch advances during the run. The workflow creates/verifies the tag at that commit, uploads persistent assets with `--prerelease --latest=false`, and tests the version-pinned public curl installer. It creates no release PR, makes no commit on `main`, never updates latest stable, and never deletes the preview source branch. Tag immutability and no-overwrite rules still apply; use `rc.4` for another build after changing the source.
-
-### Changelog format
-
-`CHANGELOG.md` is the only maintained release-notes document. Use `## [Unreleased]` for pending notes and `## [<version>]` for each release; a ` - YYYY-MM-DD` suffix is also accepted. Subsections such as `### Added` belong inside a version's entry. Entries must be nonempty and unique; headings inside fenced examples are not treated as releases.
-
-`release:prepare` promotes nonempty Unreleased notes to the requested version and keeps older entries. If that version already has notes, they are preserved. With no matching entry or pending notes, the local command stops before writing version changes. The hosted release-PR operation can fall back to GitHub-generated notes when Unreleased is empty. Publication extracts **only the chosen version's entry** from the committed changelog, not the entire release history.
+This publishes a **real GitHub prerelease**, not a dry run. Prereleases never update latest stable. A tag fixes the source commit even if the feature branch advances. Use a new prerelease version for a changed build. For testing without publication, use the Development build artifacts or local packaging instead.
 
 ### What runs automatically
 
-- **Preparation:** use a clean checkout of the default branch to prepare version changes and release notes, then create one branch commit and PR through GitHub's API. The checkout is not modified, and no tag or public release is created. Requests refuse existing tags, closed release PRs, and orphan branches instead of overwriting them.
-- **Shared build (read-only):** reviewed mode accepts only approved, merged `release/v<version>` PRs and pins their recorded merge SHA. Preview mode accepts only explicit prerelease dispatches on non-default branches and pins the dispatch SHA, without PR approval. Both modes validate committed manifests and the matching changelog entry, run the full suite, package the verified bundle, and check archive installation.
-- **Publish (write access, no dependency installation):** create/verify `v<version>` at the validated SHA and publish the three assets with the selected **committed changelog entry**, not newly generated notes. Existing tags are never moved and existing releases are never overwritten. Tagging and publishing stay in one run; they do not depend on token-created push events.
-- **Post-release (read-only):** test anonymous curl installation from the published, version-pinned bootstrap, then check installed version/commit metadata, both runtime copies, private configuration defaults, and MCP initialization/read-only tools. If this is latest stable, test `latest/download/install.sh` too. Prereleases do not change latest stable.
-- **Reviewed-release cleanup only (write access, no dependency installation):** remove the preparation branch using an explicit head-SHA lease, protecting commits pushed after the PR merged. Previews have no cleanup job. Changed branches or branches with another open PR are retained.
+- **Build (read-only):** validate the tag/event commit, stable-branch ancestry, committed manifest versions, and changelog entry; run the full verification suite; package the verified bundle; check checksums and archive installation.
+- **Publish (write access, no dependency installation):** confirm the existing remote tag still identifies the built commit, upload the three assets and committed notes into a draft, then publish. Existing releases/drafts are refused; tags and assets are never overwritten. Prereleases are explicitly excluded from latest; GitHub selects latest for stable releases.
+- **Post-release (read-only):** test anonymous curl installation, installed version/commit metadata, both runtime copies, private configuration defaults, and MCP initialization/read-only tools. If this release is latest stable, test `latest/download/install.sh` too.
 
-The post-release harness uses a fake Copilot CLI for registration, but real curl, tar, packaged installer, filesystem copies, and MCP runtime. It needs no personal Copilot login or CycleCloud credentials and sends no CycleCloud requests. It does not prove VS Code UI discovery or live CycleCloud access. Public downloads are tested without `GH_TOKEN`; making the repository private would require a different distribution/verification design.
+Publication is serialized across versions. The post-release harness uses a fake Copilot CLI for registration, but real curl, tar, packaged installer, filesystem copies, and MCP runtime. It needs no personal Copilot login or real CycleCloud credentials and sends no CycleCloud requests. It does not prove VS Code UI discovery or live CycleCloud access. Public downloads use no `GH_TOKEN`; a private repository would need a different distribution design.
 
-Publication is serialized across versions so publishing and latest-link verification do not race within this workflow. A release not selected as latest still gets its version-pinned installation verified; the summary explains why the latest check was skipped.
+### Changelog and assets
 
-### Persistent assets and local checks
+Changelog notes are drafted and reviewed during release preparation. `release:prepare` adds a `## [<version>]` entry using non-merge commit subjects, oldest first, since the nearest reachable SemVer `v*` tag through the current `HEAD`. Prerelease tags count as releases; with no release tags, the draft uses all committed history. Fetch tags before preparing and use a full-history checkout; shallow clones are rejected for drafting.
+
+Mechanical version/preparation subjects such as `chore: prepare v0.2.0`, `chore(release): 0.2.0`, and `Bump version to 0.2.0`, plus exact changelog/release-notes update subjects, are omitted. Improvements to release tooling remain in the draft. Review the generated bullets for relevance and wording before committing them. If no subjects remain, write the version's notes manually.
+
+Existing version entries are validated and preserved verbatim, so rerunning preparation keeps your edits. To regenerate a draft, remove only that version's entry after saving any edits you want to retain. Entries must be nonempty and unique; a ` - YYYY-MM-DD` heading suffix is also accepted. Publication uses only the chosen version's committed entry. Versions follow SemVer without a build-metadata suffix.
 
 Each release contains:
 
-- `cyclecloud-mcp-<version>.tar.gz`: a complete `cyclecloud-mcp/` directory, including the built runtime, hidden marketplace metadata, and `SOURCE_COMMIT.json` (also retained in installed copies).
-- `install.sh`: a small curl bootstrap with the exact release URL embedded. Even when fetched through `latest`, its subsequent downloads use that fixed version. This is different from the archive's `install.sh`, which installs already-extracted files without network access.
-- `SHA256SUMS`: checksums for the archive and bootstrap. These are integrity checks, not signatures or provenance attestations.
+- `cyclecloud-mcp-<version>.tar.gz`: the complete plugin, built runtime, hidden marketplace metadata, and `SOURCE_COMMIT.json`.
+- `install.sh`: a curl bootstrap with the exact release URL embedded; even a download through `latest` then fetches assets from that fixed version.
+- `SHA256SUMS`: checksums for the archive and bootstrap (integrity checks, not signatures).
 
-**GitHub Release assets have no Actions retention expiry** and remain until explicitly deleted. The one-day Actions artifact only hands verified files between jobs.
+GitHub Release assets do not expire with Actions retention. The one-day Actions artifact only transfers verified files between jobs. Local archives can include working-tree changes; published assets always use the pinned tag-event commit.
 
-For local verification without publication, run `npm run verify`. It includes changelog and preview-gate tests, isolated GitHub-API fixtures for PR creation, approval/merge gating, and branch cleanup, plus real curl/HTTP installation tests. It creates no remote PR, tag, or release. Use the explicit preview dispatch above for a hosted branch test; a tag push alone is not a publication trigger.
-
-To prepare versions and create all assets locally without opening a PR or publishing:
+For local verification, run `npm run verify`. It includes tag validation, isolated publication fixtures, and real curl/HTTP installation tests without remote writes. To build release assets locally, run `npm run package:release -- v0.2.0` after preparing that version. To recheck an existing public release independently:
 
 ```bash
-npm run release:prepare -- 0.1.0
-npm run package:release -- v0.1.0
+npm run verify:release -- v0.2.0 <full-commit-sha>
 ```
 
-The local preparation command updates the four manifest/lockfile documents and promotes or retains the matching entry in `CHANGELOG.md`; `npm run release:request -- <version>` is the separate remote-PR operation used by the preparation workflow. Direct invocation of that command requires GitHub CLI authentication, `GH_REPO=owner/repository`, development dependencies, and a clean checkout matching the repository's current default branch. Prefer the workflow for its bot identity and review/check handling.
-
-Local archives can include working-tree changes; published assets are built from the pinned merge commit or preview dispatch commit. To recheck an already published release independently, supply its full commit SHA:
-
-```bash
-npm run verify:release -- v0.1.0 <full-commit-sha>
-```
-
-Append `--latest` only when that release is the current latest stable. The command uses an isolated home, not your installed plugin or credentials.
+Append `--latest` only when it is the current latest stable release. Verification uses an isolated home, not your installed plugin or credentials.
 
 ### Failure and retry behavior
 
-Preparation refuses dirty/stale checkouts, existing version tags, and previously closed release PRs. A request for an already-open release PR leaves its branch and reviewed files unchanged. If preparation creates a branch but PR creation fails (for example, because Actions cannot create PRs), fix the permission issue and inspect that orphan branch. Open its PR using the appropriate bot identity, or explicitly remove the inspected generated branch and request it again; the automation will not overwrite or delete it to recover. A default-branch change during preparation may require a fresh request.
+- **Validation/build failed:** no release was created. For transient failures, use **Re-run failed jobs** on the original run. If the tagged source needs changes, commit a fix and use a new version/tag; do not move the old tag.
+- **Publication failed:** inspect GitHub first. An upload failure can leave an unpublished draft; the workflow deliberately refuses to overwrite it. After inspecting it, either finish that draft manually with the verified assets, or delete only the incomplete draft (keep its tag) and rerun the failed publishing job. If the transfer artifact has expired, rebuild by rerunning the original workflow. If publication actually succeeded despite a connection error, verify the existing release instead of trying to publish it again.
+- **Post-release check failed:** the release is already public, not rolled back. Rerun the failed verification job for transient download failures. For a package defect, release a new version; never replace published assets or move its tag.
 
-A failed merged-PR approval/version/notes check or build creates no tag. The tag helper safely reuses an existing matching tag, but the publisher refuses to overwrite an existing release. If publication failed after creating a tag, rerun the original failed job so the same recorded merge commit is used. Inspect draft/partial releases before recovery; do not automatically delete or overwrite assets.
-
-A **post-release failure means the release is already published**, not rolled back. The workflow turns red and records that fact; automatic branch cleanup does not run. Inspect the failure and use **Re-run failed jobs** for transient download failures. If the package needs a fix, request a new version's release PR or dispatch a new prerelease version from the updated preview branch; never move the old tag or replace its assets. A cleanup failure does not undo publication, and a branch with newer work or another open PR is deliberately retained. Normal installs and updates use the release bootstrap or extracted package, not repository marketplace update commands.
+Install and update using the release bootstrap or extracted package.
 
 ## Application authoring skill
 

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { lstat, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -66,34 +67,84 @@ export function releaseNotes(text, tag) {
     return `${body(entry)}\n`;
 }
 
-export function prepareChangelog(text, tag, generatedNotes = "") {
+function isVersionTag(tag) {
+    try {
+        versionFromTag(tag);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function isReleaseBookkeeping(subject) {
+    const title = subject
+        .replace(/\s+\(#\d+\)$/, "")
+        .replace(/^(?:chore|build|docs)(?:\([^)]+\))?:\s*/i, "");
+    if (/^update (?:the )?(?:changelog|release notes)$/i.test(title))
+        return true;
+    const version = title.replace(
+        /^(?:(?:prepare|publish|release)(?: release)?|bump(?: (?:package )?version)?(?: from \S+)?(?: to)?|version)\s+/i,
+        "",
+    );
+    return isVersionTag(version.startsWith("v") ? version : `v${version}`);
+}
+
+function commitSubjects(root) {
+    const git = (...args) =>
+        execFileSync("git", args, {
+            cwd: root,
+            encoding: "utf8",
+            timeout: 30_000,
+        }).trim();
+    if (git("rev-parse", "--is-shallow-repository") === "true")
+        throw new Error(
+            "Cannot draft from shallow history; fetch full history and tags first",
+        );
+    const head = git("rev-parse", "HEAD");
+    const tags = git("tag", "--list", "--merged", head, "v*")
+        .split("\n")
+        .filter(isVersionTag);
+    const base = tags.length
+        ? git(
+              "describe",
+              "--tags",
+              "--abbrev=0",
+              `--candidates=${tags.length}`,
+              ...tags.flatMap((tag) => ["--match", tag]),
+              head,
+          )
+        : undefined;
+    return git(
+        "log",
+        "--reverse",
+        "--no-merges",
+        "--format=%s",
+        base ? `${base}..${head}` : head,
+    )
+        .split("\n")
+        .filter((subject) => subject && !isReleaseBookkeeping(subject));
+}
+
+export async function draftChangelog(root, tag) {
     const version = versionFromTag(tag);
+    const text = await readChangelog(root);
     if (section(text, version)) {
         releaseNotes(text, tag);
-        return text;
+        return undefined;
     }
-    const pending = section(text, "Unreleased");
-    const pendingNotes = pending ? body(pending) : "";
-    // GitHub's generated headings belong below the version heading.
-    const notes = hasNotes(pendingNotes)
-        ? pendingNotes
-        : generatedNotes.trim().replace(/^##(?=\s)/gm, "###");
-    if (!hasNotes(notes))
+    const subjects = commitSubjects(root);
+    if (!subjects.length)
         throw new Error(
-            "Add release notes to CHANGELOG.md under ## [Unreleased] before preparing the version",
+            `No changelog subjects to draft; add notes under ## [${version}] in CHANGELOG.md`,
         );
     const lines = text.replaceAll("\r\n", "\n").split("\n");
-    const start = pending
-        ? pending.start + 1
-        : (sections(text)[0]?.start ?? lines.length);
-    const end = pending?.end ?? start;
+    const start = sections(text)[0]?.start ?? lines.length;
     const before = lines.slice(0, start).join("\n").trimEnd() || "# Changelog";
-    const after = lines.slice(end).join("\n").trim();
+    const after = lines.slice(start).join("\n").trim();
     return (
         [
             before,
-            ...(pending ? [] : ["## [Unreleased]"]),
-            `## [${version}]\n\n${notes}`,
+            `## [${version}]\n\n${subjects.map((subject) => `- ${subject}`).join("\n")}`,
             after,
         ]
             .filter(Boolean)

@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { format, resolveConfig } from "prettier";
 import { releaseDocuments, versionFromTag } from "./release-version.mjs";
-import { prepareChangelog, readChangelog } from "./release-changelog.mjs";
+import { draftChangelog } from "./release-changelog.mjs";
 
 export async function prepareReleaseChanges(root, requestedVersion) {
     const version = versionFromTag(`v${requestedVersion}`);
@@ -38,23 +38,13 @@ if (
             throw new Error("Usage: npm run release:prepare -- <version>");
         const root = process.cwd();
         const version = process.argv[2];
+        const changelog = await draftChangelog(root, `v${version}`);
         const updates = await prepareReleaseChanges(root, version);
-        const filepath = join(root, "CHANGELOG.md");
-        const changelog = prepareChangelog(
-            await readChangelog(root),
-            `v${version}`,
-        );
-        updates.push([
-            "CHANGELOG.md",
-            await format(changelog, {
-                ...(await resolveConfig(filepath)),
-                filepath,
-            }),
-        ]);
+        if (changelog !== undefined) updates.push(["CHANGELOG.md", changelog]);
         for (const [file, contents] of updates)
             await writeFile(join(root, file), contents);
         process.stdout.write(
-            `Prepared ${version} and CHANGELOG.md; changes are not committed. Commit them on your branch before previewing, or use a release PR for a reviewed release.\n`,
+            `Prepared ${version}; ${changelog === undefined ? "preserved existing release notes" : "drafted release notes from commit subjects"}. Review and edit CHANGELOG.md, then commit the version and notes before pushing tag v${version}. Nothing has been committed or published.\n`,
         );
     } catch (error) {
         process.stderr.write(`${error.message}\n`);

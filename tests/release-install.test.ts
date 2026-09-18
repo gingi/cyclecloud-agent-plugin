@@ -46,7 +46,7 @@ beforeAll(async () => {
     }
     await writeFile(
         join(workspace, "CHANGELOG.md"),
-        "# Changelog\n\n## [Unreleased]\n\nRelease installation test.\n",
+        "# Changelog\n\n## [9.8.7-rc.1]\n\nRelease installation test.\n",
     );
     // Prepare a different version and build it, so a hardcoded runtime version cannot pass.
     tag = "v9.8.7-rc.1";
