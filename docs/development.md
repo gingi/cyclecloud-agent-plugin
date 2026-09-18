@@ -77,13 +77,13 @@ The artifact is the installable package, not a source checkout: it includes the 
 
 ## Publish a release
 
-Releases use a short-lived **release-preparation PR**. Request a version, review its version changes and release notes, and merge it only after checks and human approval. Publication happens from the PR's recorded merge commit, never from an arbitrary later `main`. SemVer prereleases such as `0.2.0-rc.1` are supported (no build-metadata suffix).
+Releases use a short-lived **release-preparation PR**. Request a version, review its version changes and release notes, and merge it only after checks and deliberate human approval. A submitted review or the act of merging the PR yourself satisfies the human-approval gate. Publication happens from the PR's recorded merge commit, never from an arbitrary later `main`. SemVer prereleases such as `0.2.0-rc.1` are supported (no build-metadata suffix).
 
 **Prepare or preview release** has two explicit modes: `request` opens a reviewed release PR from `main`; `preview` publishes a prerelease from a non-default branch. **Release** still runs only after an approved release PR merges. Both publication paths call the same reusable **Build and publish release** workflow, so build, packaging, checksums, and curl verification do not diverge. Direct tag pushes do not publish releases.
 
 ### One-time repository setup
 
-GitHub requires the dispatchable `prepare-release.yml` to exist on the default branch. That initial setup is already sufficient to dispatch an updated copy from another branch, including its branch-local reusable workflow. Configure branch protection or a ruleset on `main` to require PRs, the **Build, verify, and package** check, and human approval. Dismiss stale approvals when the PR head changes. The release workflow also checks for a non-author human owner/member/collaborator's approval of the final PR head and rejects outstanding changes-requested reviews. It does not approve or merge PRs, and it does not configure repository rules on your behalf.
+GitHub requires the dispatchable `prepare-release.yml` to exist on the default branch. That initial setup is already sufficient to dispatch an updated copy from another branch, including its branch-local reusable workflow. Configure branch protection or a ruleset on `main` to require PRs and the **Build, verify, and package** check. If the repository has multiple maintainers, requiring human approval is also recommended. The release workflow accepts either a current non-author human owner/member/collaborator approval of the final PR head or a deliberate merge by a human, including the PR author, and rejects outstanding changes-requested reviews. It does not approve or merge PRs, and it does not configure repository rules on your behalf.
 
 Choose the preparation workflow's authentication:
 

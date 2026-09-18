@@ -134,7 +134,7 @@ async function main() {
             title: `Release ${tag}`,
             head: branch,
             base: defaultBranch,
-            body: `Prepare ${tag} for release.\n\nReview the version changes and the ${version} entry in CHANGELOG.md, and wait for the Development build checks and package artifact. A current human approval is required before merging.\n\nMerging this PR triggers the Release workflow on the recorded merge commit: build, tag, publish, public curl verification, and safe branch cleanup. No tag or release has been created yet.`,
+            body: `Prepare ${tag} for release.\n\nReview the version changes and the ${version} entry in CHANGELOG.md, and wait for the Development build checks and package artifact. Submit a current human approval, or deliberately merge the PR yourself after review.\n\nMerging this PR triggers the Release workflow on the recorded merge commit: build, tag, publish, public curl verification, and safe branch cleanup. No tag or release has been created yet.`,
         },
     });
     await report(pr);

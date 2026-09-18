@@ -95,10 +95,18 @@ export function requireApproval(pr, reviews) {
         ![...latest.values()].some(
             (review) =>
                 review.state === "APPROVED" && review.commit_id === pr.head.sha,
+        ) &&
+        // A recorded merger had merge permission. Self-merge is deliberately
+        // allowed, but GitHub bot identities must not satisfy this gate.
+        !(
+            pr.merged_by?.type === "User" &&
+            typeof pr.merged_by.login === "string" &&
+            pr.merged_by.login.length > 0 &&
+            !pr.merged_by.login.endsWith("[bot]")
         )
     ) {
         throw new Error(
-            "Release requires a current, non-author human approval from a repository owner/member/collaborator",
+            "Release requires a current human owner/member/collaborator approval or a deliberate merge by a GitHub user with merge access",
         );
     }
 }

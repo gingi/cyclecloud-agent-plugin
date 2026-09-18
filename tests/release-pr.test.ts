@@ -145,6 +145,7 @@ function pr() {
         head: { ref: string; sha: string; repo: { full_name: string } };
         base: { ref: string };
         user: { login: string };
+        merged_by?: { login: string; type: string };
     };
 }
 
@@ -363,6 +364,42 @@ describe("Merged release PR gate", () => {
         const result = await run("release-context.mjs");
         expect(result.status).not.toBe(0);
         expect(result.stderr).toMatch(/approval|changes requested/);
+    });
+    test("Accepts a deliberate human merge, including by the PR author", async () => {
+        state.reviews = [];
+        pr().user.login = "maintainer";
+        pr().merged_by = { login: "maintainer", type: "User" };
+        const result = await run("release-context.mjs");
+        expect(result.status, result.stderr).toBe(0);
+    });
+    test.each([
+        ["Bot type", { login: "automation", type: "Bot" }],
+        ["bot login", { login: "release-bot[bot]", type: "User" }],
+    ])(
+        "Does not treat an automated merge as human approval: %s",
+        async (_kind, merger) => {
+            state.reviews = [];
+            pr().merged_by = merger;
+            const result = await run("release-context.mjs");
+            expect(result.status).not.toBe(0);
+            expect(result.stderr).toContain(
+                "owner/member/collaborator approval",
+            );
+        },
+    );
+    test("A human merge does not override requested changes", async () => {
+        state.reviews = [
+            {
+                user: { login: "reviewer", type: "User" },
+                author_association: "OWNER",
+                state: "CHANGES_REQUESTED",
+                commit_id: head,
+            },
+        ];
+        pr().merged_by = { login: "maintainer", type: "User" };
+        const result = await run("release-context.mjs");
+        expect(result.status).not.toBe(0);
+        expect(result.stderr).toContain("changes requested");
     });
     test("Rejects a checkout different from the merged commit", async () => {
         pr().merge_commit_sha = "f".repeat(40);
