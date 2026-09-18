@@ -247,6 +247,18 @@ describe("Release preparation PR", () => {
             true,
         );
     });
+    test("Refuses ambiguous closed release PRs", async () => {
+        state.prs = [
+            { state: "closed", number: 12, head: pr().head, base: pr().base },
+            { state: "closed", number: 13, head: pr().head, base: pr().base },
+        ];
+        const result = await run("open-release-pr.mjs", "0.1.0");
+        expect(result.status).not.toBe(0);
+        expect(result.stderr).toContain("Multiple closed release PRs");
+        expect((await calls()).every((call) => call.method === "GET")).toBe(
+            true,
+        );
+    });
     test("Rejects a dirty source checkout before making remote changes", async () => {
         await writeFile(join(workspace, "local-note"), "keep me");
         const result = await run("open-release-pr.mjs", "0.1.0");

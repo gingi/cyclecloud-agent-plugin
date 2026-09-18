@@ -74,9 +74,13 @@ async function main() {
         );
         return;
     }
-    const closed = matching.find((pr) => pr.state === "closed");
-    if (closed) {
-        await report(closed);
+    const closed = matching.filter((pr) => pr.state === "closed");
+    if (closed.length > 1)
+        throw new Error(
+            "Multiple closed release PRs exist for this version; inspect them rather than reopening automatically",
+        );
+    if (closed.length) {
+        await report(closed[0]);
         process.stdout.write(
             "Keeping the existing closed PR unchanged; inspect it rather than reopening automatically.\n",
         );
