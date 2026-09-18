@@ -74,10 +74,14 @@ async function main() {
         );
         return;
     }
-    if (matching.length)
-        throw new Error(
-            "A closed release PR already exists for this version; inspect it rather than reopening automatically",
+    const closed = matching.find((pr) => pr.state === "closed");
+    if (closed) {
+        await report(closed);
+        process.stdout.write(
+            "Keeping the existing closed PR unchanged; inspect it rather than reopening automatically.\n",
         );
+        return;
+    }
     const branches = githubApi(`${base}/git/matching-refs/heads/${branch}`, {
         paginate: true,
     });

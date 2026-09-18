@@ -233,11 +233,16 @@ describe("Release preparation PR", () => {
             true,
         );
     });
-    test("Refuses a closed release PR rather than reopening it automatically", async () => {
+    test("Reports a closed release PR without reopening it automatically", async () => {
         state.prs = [
             { state: "closed", number: 12, head: pr().head, base: pr().base },
         ];
-        expect((await run("open-release-pr.mjs", "0.1.0")).status).not.toBe(0);
+        const result = await run("open-release-pr.mjs", "0.1.0");
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toContain(
+            "https://github.com/example/plugin/pull/12",
+        );
+        expect(result.stdout).toContain("closed PR");
         expect((await calls()).every((call) => call.method === "GET")).toBe(
             true,
         );
