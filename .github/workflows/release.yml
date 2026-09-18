@@ -1,40 +1,93 @@
 name: Release
 
-# Reviewed releases still require an approved PR merged into the default branch.
 on:
-    pull_request:
-        types: [closed]
+    push:
+        tags: ["v*"]
+
+concurrency:
+    group: release
+    cancel-in-progress: false
 
 permissions:
     contents: read
-    pull-requests: read
 
 jobs:
-    publish:
-        name: Publish the reviewed release
-        if: >-
-            github.event.pull_request.merged == true &&
-            github.event.pull_request.base.ref == github.event.repository.default_branch &&
-            github.event.pull_request.base.repo.full_name == github.repository &&
-            github.event.pull_request.head.repo.full_name == github.repository &&
-            startsWith(github.event.pull_request.head.ref, 'release/v')
-        permissions:
-            contents: write
-            pull-requests: read
-        uses: ./.github/workflows/publish-release.yml
+    build:
+        name: Verify the tagged release
+        if: ${{ !github.event.deleted }}
+        runs-on: ubuntu-latest
+        outputs:
+            tag: ${{ steps.release.outputs.tag }}
+            commit: ${{ steps.release.outputs.commit }}
+            prerelease: ${{ steps.release.outputs.prerelease }}
+        steps:
+            - name: Check out the exact tagged commit and branch history
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.sha }}
+                  fetch-depth: 0
+                  persist-credentials: false
 
-    cleanup:
-        name: Remove the completed release branch safely
-        needs: publish
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "22"
+                  cache: npm
+
+            - name: Validate tag, source, versions, and changelog
+              id: release
+              run: node scripts/release-context.mjs
+
+            - name: Install dependencies
+              run: npm ci --ignore-scripts
+
+            - name: Verify source and release regression tests
+              run: npm run verify
+
+            - name: Package the verified build for release
+              env:
+                  RELEASE_TAG: ${{ steps.release.outputs.tag }}
+                  RELEASE_SOURCE_COMMIT: ${{ steps.release.outputs.commit }}
+              run: |
+                  node scripts/package-local.mjs
+                  node scripts/package-release.mjs "$RELEASE_TAG"
+
+            - name: Verify the archive users will download
+              env:
+                  RELEASE_TAG: ${{ steps.release.outputs.tag }}
+              run: |
+                  (cd dist/releases && sha256sum --check SHA256SUMS)
+                  mkdir -p "$RUNNER_TEMP/release-extracted"
+                  tar -xzf "dist/releases/cyclecloud-mcp-${RELEASE_TAG#v}.tar.gz" -C "$RUNNER_TEMP/release-extracted"
+                  npm run verify:package -- "$RUNNER_TEMP/release-extracted/cyclecloud-mcp"
+
+            - name: Pass verified assets to the publishing job
+              uses: actions/upload-artifact@v4
+              with:
+                  name: release-assets
+                  path: |
+                      dist/releases/*.tar.gz
+                      dist/releases/install.sh
+                      dist/releases/SHA256SUMS
+                  if-no-files-found: error
+                  retention-days: 1
+
+    publish:
+        name: Publish the verified assets
+        needs: build
         runs-on: ubuntu-latest
         permissions:
             contents: write
-            pull-requests: read
+        env:
+            GH_TOKEN: ${{ github.token }}
+            GH_REPO: ${{ github.repository }}
+            RELEASE_TAG: ${{ needs.build.outputs.tag }}
+            RELEASE_COMMIT: ${{ needs.build.outputs.commit }}
         steps:
-            - name: Check out the verified cleanup helper
+            - name: Check out the verified helpers and changelog
               uses: actions/checkout@v4
               with:
-                  ref: ${{ needs.publish.outputs.commit }}
+                  ref: ${{ needs.build.outputs.commit }}
                   persist-credentials: false
 
             - name: Set up Node.js
@@ -42,7 +95,64 @@ jobs:
               with:
                   node-version: "22"
 
-            - name: Delete only the unchanged merged branch
+            - name: Download verified assets
+              uses: actions/download-artifact@v4
+              with:
+                  name: release-assets
+                  path: release-assets
+
+            - name: Verify asset checksums
+              run: (cd release-assets && sha256sum --check SHA256SUMS)
+
+            - name: Stage all assets in a draft, then publish
+              run: node scripts/publish-release.mjs "$RELEASE_TAG" "$RELEASE_COMMIT" release-assets
+
+    post-release:
+        name: Verify public curl installation
+        needs: [build, publish]
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        env:
+            RELEASE_TAG: ${{ needs.build.outputs.tag }}
+            RELEASE_COMMIT: ${{ needs.build.outputs.commit }}
+        steps:
+            - name: Check out the verification harness at the released commit
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ needs.build.outputs.commit }}
+                  persist-credentials: false
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "22"
+                  cache: npm
+
+            - name: Install verification dependencies
+              run: npm ci --ignore-scripts
+
+            - name: Verify anonymous curl installation of this release
+              run: npm run verify:release -- "$RELEASE_TAG" "$RELEASE_COMMIT"
+
+            - name: Verify the latest installer when this is the latest stable release
+              if: ${{ needs.build.outputs.prerelease == 'false' }}
               env:
                   GH_TOKEN: ${{ github.token }}
-              run: node scripts/cleanup-release-branch.mjs
+              run: |
+                  latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+                  if [[ "$latest" == "$RELEASE_TAG" ]]; then
+                      npm run verify:release -- "$RELEASE_TAG" "$RELEASE_COMMIT" --latest
+                  else
+                      printf 'Latest still points to %s; the version-pinned installation was verified.\n' "$latest" >> "$GITHUB_STEP_SUMMARY"
+                  fi
+
+            - name: Record post-release outcome
+              if: ${{ always() }}
+              env:
+                  VERIFICATION_STATUS: ${{ job.status }}
+              run: |
+                  printf '## Release %s\n\nPost-release verification: **%s**\n' "$RELEASE_TAG" "$VERIFICATION_STATUS" >> "$GITHUB_STEP_SUMMARY"
+                  printf '\nRelease: https://github.com/%s/releases/tag/%s\n' "$GITHUB_REPOSITORY" "$RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"
+                  if [[ "$VERIFICATION_STATUS" != success ]]; then
+                      printf '\nThe release is already published. Inspect the failure and rerun failed jobs; do not move the tag or overwrite assets.\n' >> "$GITHUB_STEP_SUMMARY"
+                  fi

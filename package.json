@@ -11,7 +11,6 @@
         "package:local": "npm run build && node scripts/package-local.mjs",
         "package:release": "npm run package:local && node scripts/package-release.mjs",
         "release:prepare": "node scripts/prepare-release.mjs",
-        "release:request": "node scripts/open-release-pr.mjs",
         "verify:release": "node scripts/verify-release.mjs",
         "install:local": "npm run package:local && sh dist/cyclecloud-mcp/install.sh --local",
         "deploy": "npm run build && node scripts/deploy.mjs deploy",
