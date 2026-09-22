@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { checkReleaseVersions } from "./release-version.mjs";
+import { checkOutputDirectory } from "./package-layout.mjs";
+import { verifyPackage } from "./verify-package.mjs";
 
 const root = process.cwd();
 const args = process.argv.slice(2);
@@ -12,10 +14,11 @@ async function main() {
     if (args.length !== 1)
         throw new Error("Usage: node scripts/package-release.mjs v<version>");
     const version = await checkReleaseVersions(root, tag);
-    const packageDirectory = join(root, "dist/cyclecloud-mcp");
-    const packaged = JSON.parse(
-        await readFile(join(packageDirectory, "plugin.json"), "utf8"),
-    );
+    const packageDirectory = join(root, "dist/cyclecloud-agent-plugin");
+    await checkOutputDirectory(join(root, "dist"));
+    const packaged = await verifyPackage(packageDirectory, {
+        sourceRoot: root,
+    });
     if (packaged.version !== version)
         throw new Error(
             "Packaged plugin version does not match the release; run npm run package:release",
@@ -29,7 +32,8 @@ async function main() {
         }).trim();
     if (!/^[a-f0-9]{40}$/.test(commit))
         throw new Error("Expected a full source commit SHA");
-    const repository = process.env.GITHUB_REPOSITORY ?? "gingi/cyclecloud-mcp";
+    const repository =
+        process.env.GITHUB_REPOSITORY ?? "gingi/cyclecloud-agent-plugin";
     if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository))
         throw new Error("Invalid release repository");
     await writeFile(
@@ -53,40 +57,25 @@ async function main() {
     );
     const assets = join(root, "dist/releases");
     await mkdir(assets, { recursive: true });
-    const name = `cyclecloud-mcp-${version}.tar.gz`;
+    const name = `cyclecloud-agent-plugin-${version}.tar.gz`;
     execFileSync(
         "tar",
         [
+            "--format=ustar",
             "-czf",
             join(assets, name),
             "-C",
             join(root, "dist"),
-            "cyclecloud-mcp",
+            "cyclecloud-agent-plugin",
         ],
         { stdio: "inherit" },
     );
-    const template = await readFile(
-        new URL("./install-release.sh", import.meta.url),
-        "utf8",
-    );
-    const bootstrap = template
-        .replaceAll(
-            "@RELEASE_BASE_URL@",
-            `https://github.com/${repository}/releases/download/${tag}`,
-        )
-        .replaceAll("@RELEASE_VERSION@", version);
-    await writeFile(join(assets, "install.sh"), bootstrap);
-    const checksums = await Promise.all(
-        [name, "install.sh"].map(async (file) => {
-            const digest = createHash("sha256")
-                .update(await readFile(join(assets, file)))
-                .digest("hex");
-            return `${digest}  ${file}\n`;
-        }),
-    );
-    await writeFile(join(assets, "SHA256SUMS"), checksums.join(""));
+    const digest = createHash("sha256")
+        .update(await readFile(join(assets, name)))
+        .digest("hex");
+    await writeFile(join(assets, "SHA256SUMS"), `${digest}  ${name}\n`);
     process.stdout.write(
-        `Release assets: ${join(assets, name)}, install.sh, and SHA256SUMS\n`,
+        `Release assets: ${join(assets, name)} and SHA256SUMS\n`,
     );
 }
 

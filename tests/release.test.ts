@@ -1,11 +1,18 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+    mkdir,
+    mkdtemp,
+    readFile,
+    readdir,
+    rm,
+    writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { setFixtureVersion } from "./helpers/release.js";
+import { copySourceFixture, setFixtureVersion } from "./helpers/release.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const script = join(root, "scripts/package-release.mjs");
@@ -14,15 +21,7 @@ let workspace: string;
 
 beforeEach(async () => {
     workspace = await mkdtemp(join(tmpdir(), "cyclecloud release "));
-    for (const file of [
-        "package.json",
-        "package-lock.json",
-        "plugin.json",
-        ".github/plugin/marketplace.json",
-    ]) {
-        await mkdir(dirname(join(workspace, file)), { recursive: true });
-        await cp(join(root, file), join(workspace, file));
-    }
+    await copySourceFixture(root, workspace);
     await setFixtureVersion(workspace, "0.1.0");
 });
 
@@ -37,7 +36,7 @@ function run(...args: string[]) {
             ...process.env,
             GITHUB_SHA: "f".repeat(40),
             RELEASE_SOURCE_COMMIT: commit,
-            GITHUB_REPOSITORY: "gingi/cyclecloud-mcp",
+            GITHUB_REPOSITORY: "gingi/cyclecloud-agent-plugin",
         },
         encoding: "utf8",
         timeout: 15_000,
@@ -73,45 +72,26 @@ describe("Release packaging", () => {
         expect(result.stderr).toContain("version");
     });
 
-    test("Produces a checksummed archive that installs after extraction", async () => {
-        const packageDirectory = join(workspace, "dist/cyclecloud-mcp");
-        for (const file of [
-            "plugin.json",
-            "bin/cyclecloud-mcp.mjs",
-            "cyclecloud.example.json",
-            "LICENSE",
-            "install.sh",
-            ".github/plugin/marketplace.json",
-            "skills",
-        ]) {
-            await mkdir(dirname(join(packageDirectory, file)), {
-                recursive: true,
-            });
-            const source =
-                file === "plugin.json" ||
-                file === ".github/plugin/marketplace.json"
-                    ? workspace
-                    : root;
-            await cp(join(source, file), join(packageDirectory, file), {
-                recursive: true,
-            });
-        }
+    test("Produces a checksummed source archive that verifies after extraction", async () => {
+        const packageDirectory = join(
+            workspace,
+            "dist/cyclecloud-agent-plugin",
+        );
+        const packaged = spawnSync(
+            process.execPath,
+            [join(workspace, "scripts/package-local.mjs")],
+            { cwd: workspace, encoding: "utf8" },
+        );
+        expect(packaged.status, packaged.stderr).toBe(0);
         const result = run("v0.1.0");
         expect(result.status, result.stderr).toBe(0);
         const assets = join(workspace, "dist/releases");
-        const name = "cyclecloud-mcp-0.1.0.tar.gz";
+        const name = "cyclecloud-agent-plugin-0.1.0.tar.gz";
         const archive = await readFile(join(assets, name));
-        const bootstrap = await readFile(join(assets, "install.sh"), "utf8");
-        expect(bootstrap).toContain(
-            "https://github.com/gingi/cyclecloud-mcp/releases/download/v0.1.0",
-        );
-        expect(bootstrap).not.toContain("@RELEASE_BASE_URL@");
+        expect((await readdir(assets)).sort()).toEqual(["SHA256SUMS", name]);
         const checksums = await readFile(join(assets, "SHA256SUMS"), "utf8");
-        expect(checksums).toContain(
+        expect(checksums).toBe(
             `${createHash("sha256").update(archive).digest("hex")}  ${name}\n`,
-        );
-        expect(checksums).toContain(
-            `${createHash("sha256").update(bootstrap).digest("hex")}  install.sh\n`,
         );
         const extracted = join(workspace, "extracted");
         await mkdir(extracted);
@@ -123,7 +103,7 @@ describe("Release packaging", () => {
         expect(unpack.status, unpack.stderr).toBe(0);
         const metadata = JSON.parse(
             await readFile(
-                join(extracted, "cyclecloud-mcp/SOURCE_COMMIT.json"),
+                join(extracted, "cyclecloud-agent-plugin/SOURCE_COMMIT.json"),
                 "utf8",
             ),
         ) as Record<string, unknown>;
@@ -138,7 +118,7 @@ describe("Release packaging", () => {
             process.execPath,
             [
                 join(root, "scripts/verify-package.mjs"),
-                join(extracted, "cyclecloud-mcp"),
+                join(extracted, "cyclecloud-agent-plugin"),
             ],
             { encoding: "utf8", timeout: 30_000 },
         );

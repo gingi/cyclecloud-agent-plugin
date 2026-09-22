@@ -1,0 +1,75 @@
+#!/bin/sh
+# Source-only POSIX entry point. Never select Python from PATH or evaluate a
+# shebang. The isolated bootstrap verifies the sibling Python/CLI identity.
+set -f
+operation=inspect
+case ${1-} in
+    capabilities|clusters|cluster|status|application-context) operation=$1 ;;
+esac
+failure() {
+    printf '{"schemaVersion":1,"command":"%s","error":{"code":"%s","message":"%s"}}\n' "$operation" "$1" "$2"
+    exit 1
+}
+for argument do
+    case $argument in
+        --) break ;;
+        --help|-h)
+            printf '%s\n' 'Usage: cyclecloud-inspect COMMAND [options]' \
+                'Read-only commands: capabilities, clusters, cluster NAME, status NAME, application-context NAME' \
+                'All commands: --schema-version 1 --config PATH (absolute POSIX path)' \
+                'clusters: --limit N' \
+                'cluster: --fixed-node-limit N --node-array-limit N' \
+                'status: --node-array-limit N --bucket-limit N --issue-limit N' \
+                'application-context: --view overview|details --target-name NAME (repeatable)' \
+                '  --section environment|storage|attachments --install-path PATH' \
+                '  --target-limit N --item-limit N --offset N' \
+                'Uses the installed official CLI Python. No login, password flags, or mutation.'
+            exit 0 ;;
+    esac
+done
+case $(uname -s 2>/dev/null) in
+    Linux|Darwin) ;;
+    *) failure unsupported_layout 'Inspection supports Linux, macOS, and WSL only.' ;;
+esac
+# Resolve at most 40 links; relative symlink targets are relative to their link.
+resolve() {
+    resolved=$1
+    links=0
+    while [ -L "$resolved" ]; do
+        links=$((links + 1))
+        [ "$links" -le 40 ] || return 1
+        target=$(readlink "$resolved" 2>/dev/null) || return 1
+        case $target in
+            /*) resolved=$target ;;
+            *) resolved=$(dirname "$resolved")/$target ;;
+        esac
+    done
+    directory=$(CDPATH= cd -P "$(dirname "$resolved")" 2>/dev/null && pwd -P) || return 1
+    resolved=$directory/$(basename "$resolved")
+}
+resolve "$0" || failure unsupported_layout 'The plugin launcher installation could not be resolved.'
+script_directory=$(dirname "$resolved")
+if [ "${CYCLECLOUD_CLI+x}" = x ]; then
+    case $CYCLECLOUD_CLI in
+        /*) cli=$CYCLECLOUD_CLI ;;
+        *) failure missing_cli 'CYCLECLOUD_CLI must be an absolute executable file path, not a command string.' ;;
+    esac
+else
+    cli=$(command -v cyclecloud 2>/dev/null) || failure missing_cli 'Install the official CycleCloud CLI or set CYCLECLOUD_CLI to its absolute executable path.'
+fi
+[ -f "$cli" ] && [ -x "$cli" ] || failure missing_cli 'The selected CycleCloud CLI executable is unavailable.'
+resolve "$cli" || failure unsupported_layout 'The selected CLI installation could not be resolved.'
+cli=$resolved
+bin=$(dirname "$cli")
+python=
+for candidate in "$bin/python3" "$bin/python"; do
+    if [ -f "$candidate" ] && [ -x "$candidate" ]; then
+        python=$candidate
+        break
+    fi
+done
+[ -n "$python" ] || failure unsupported_layout 'No Python interpreter was found beside the selected CLI. Reinstall the official embedded or virtual-environment CLI.'
+# -I ignores PYTHONHOME/PYTHONPATH and user site packages; -B prevents writes to
+# installed plugin/CLI packages. Keep the venv executable path (not its target).
+unset PYTHONHOME PYTHONPATH PYTHONSTARTUP PYTHONINSPECT
+exec "$python" -I -B "$script_directory/inspect-bootstrap.py" "$cli" "$@" 2>/dev/null

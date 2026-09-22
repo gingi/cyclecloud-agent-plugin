@@ -1,8 +1,8 @@
 name: Development build
 
-# Builds and verifies every branch, pull request, and manual dispatch, then
-# uploads a complete installable package as a workflow artifact. This lets a
-# branch or PR be installed and tested (see docs/development.md#test-a-development-workflow-artifact)
+# Verifies and packages every branch, pull request, and manual dispatch, then
+# uploads a complete source plugin as a workflow artifact. This lets a
+# branch or PR be installed and tested (see docs/development.md#development-workflow-artifacts)
 # without merging to main or publishing a release.
 on:
     push:
@@ -20,7 +20,7 @@ permissions:
 
 jobs:
     build-verify-package:
-        name: Build, verify, and package
+        name: Verify and package source
         runs-on: ubuntu-latest
         steps:
             - name: Check out source
@@ -35,10 +35,10 @@ jobs:
             - name: Install dependencies
               run: npm ci --ignore-scripts
 
-            - name: Verify (format, lint, typecheck, build, test, audit)
+            - name: Verify (format, lint, typecheck, JavaScript, Python, audit)
               run: npm run verify
 
-            - name: Package the verified build
+            - name: Package the verified source
               run: node scripts/package-local.mjs
 
             - name: Record source commit metadata
@@ -55,7 +55,7 @@ jobs:
                   import { writeFileSync } from "node:fs";
 
                   writeFileSync(
-                    "dist/cyclecloud-mcp/SOURCE_COMMIT.json",
+                    "dist/cyclecloud-agent-plugin/SOURCE_COMMIT.json",
                     `${JSON.stringify({
                       repository: process.env.GITHUB_REPOSITORY,
                       checkoutCommit: process.env.CHECKOUT_COMMIT,
@@ -70,7 +70,7 @@ jobs:
                   );
                   NODE
 
-            - name: Prove the packaged artifact is installable (install.sh --skip-config)
+            - name: Verify source layout and isolated launcher smoke (no host installation)
               run: npm run verify:package
 
             - name: Compute artifact name
@@ -81,13 +81,13 @@ jobs:
               run: |
                   safe_ref=$(printf '%s' "$REF_NAME" | tr -c 'A-Za-z0-9._-' '-')
                   short_sha=$(printf '%s' "$SOURCE_COMMIT" | cut -c1-12)
-                  echo "name=cyclecloud-mcp-package-${safe_ref}-${short_sha}" >> "$GITHUB_OUTPUT"
+                  echo "name=cyclecloud-agent-plugin-package-${safe_ref}-${short_sha}" >> "$GITHUB_OUTPUT"
 
             - name: Upload package artifact
               uses: actions/upload-artifact@v4
               with:
                   name: ${{ steps.artifact.outputs.name }}
-                  path: dist/cyclecloud-mcp
+                  path: dist/cyclecloud-agent-plugin
                   include-hidden-files: true
                   if-no-files-found: error
                   retention-days: 14

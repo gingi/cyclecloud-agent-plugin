@@ -60,9 +60,11 @@ describe("Application authoring skeleton", () => {
 
     test("guides context discovery and produces an actionable attachment handoff", async () => {
         const text = await readFile(join(skill, "SKILL.md"), "utf8");
-        expect(text).toContain("get_cluster_application_context");
-        expect(text).toContain('view="overview"');
-        expect(text).toContain('view="details"');
+        expect(text).toContain("scripts/cyclecloud-inspect");
+        expect(text).toContain("application-context");
+        expect(text).toContain("--schema-version 1");
+        expect(text).toContain("--view overview");
+        expect(text).toContain("--view details");
         expect(text).toContain("nextOffset");
         expect(text).toContain("Do not exhaustively");
         expect(text).toContain("ATTACHMENT.md");
@@ -73,6 +75,44 @@ describe("Application authoring skeleton", () => {
         expect(attachment).toContain("usedBy");
         expect(attachment).toContain("terminate_cluster");
         expect(attachment).toContain("upload");
+    });
+
+    test("separates local project files from the cluster installation prefix", async () => {
+        const text = await readFile(join(skill, "SKILL.md"), "utf8");
+        expect(text).toContain("local project output directory");
+        expect(text).toContain("cluster installation prefix");
+        expect(text).toContain(
+            "Do not inspect or create the cluster prefix locally",
+        );
+        expect(text).toContain(
+            "Omit `--install-path` for the default `/shared/apps`",
+        );
+        expect(text).toContain("non-default prefix");
+        expect(text).toContain(
+            "every overview, detail, and pagination request",
+        );
+    });
+
+    test("demonstrates workspace authoring without passing the default remote path", async () => {
+        const authoring = await readFile(
+            new URL("../docs/application-authoring.md", import.meta.url),
+            "utf8",
+        );
+        expect(authoring).toContain("in the current workspace");
+        expect(authoring).toContain(
+            "targeting /shared/apps on the cluster nodes",
+        );
+        const context = await readFile(
+            new URL("../docs/application-context.md", import.meta.url),
+            "utf8",
+        );
+        const examples = [...context.matchAll(/```sh\n([\s\S]*?)```/g)];
+        expect(examples.length).toBeGreaterThan(0);
+        for (const [, command] of examples) {
+            expect(command).not.toMatch(
+                /--install-path(?:=|\s+)["']?\/shared\/apps/,
+            );
+        }
     });
 
     test("requires an attachment guide in the generated project", async () => {

@@ -1,0 +1,13 @@
+{
+    "compatibility": {
+        "cliFamily": [8, 10],
+        "schemaVersion": 1,
+        "developmentBuilds": ["SNAPSHOT"],
+        "packagedBuildSuffixPattern": "[0-9]+"
+    },
+    "native": {
+        "minimumCliVersion": [8, 10, 0],
+        "schemaVersion": 1,
+        "commands": ["clusters", "cluster", "status", "application-context"]
+    }
+}

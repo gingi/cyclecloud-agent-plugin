@@ -1,117 +1,184 @@
 # Development guide
 
-For normal installation and usage, see the [README](../README.md). This guide covers building, verifying, and testing changes from a development checkout.
+The plugin is source-only. Node is development tooling and powers the small authoring validator; the inspection helper runs in the selected CycleCloud CLI's Python environment. No runtime build or server startup is required.
 
 ## Setup and verification
 
-Use the [runtime prerequisites](../README.md#quick-start-copilot-cli-and-copilot-in-vs-code), plus **Python 3.9+** for the developer reset utility and the reset/installer terminal tests.
+Use a supported Node development version from `package.json` and Python 3.9+ for the complete development suite (the inspection source targets Python 3.8+). Install development dependencies and verify:
 
-Install development dependencies and run verification:
-
-```bash
+```sh
 npm ci --ignore-scripts
 npm run verify
 ```
 
-Verification runs formatting checks, lint, typecheck, bundle generation, tests (including the developer reset tests), and a dependency audit. The `test` script builds once through its `pretest` hook; CI packages that verified bundle without rebuilding it. Local packaging commands still build first. `bin/cyclecloud-mcp.mjs` is generated and ignored, not committed. A clean source checkout therefore needs its development dependencies and `npm run build` (or a command such as `npm run verify`, `npm test`, `npm run package:local`, or `npm run install:local` that builds first).
+Verification covers formatting, JavaScript lint/typecheck/tests, Python inspection/failure tests and dependency audit. Source/package checks validate the distributed helpers and assets. The Python suite checks all shipped Python modules and the bootstrap with `ast.parse(..., feature_version=(3, 8))`; this syntax check does not substitute for running on Python 3.8. Tests that require `requests` are skipped when it is unavailable; run with the bundled CLI Python to exercise those tests.
+
+The canonical portable corpus is `tests/fixtures/inspect/v1/parity.json`: synthetic inputs/results generated from the original TypeScript implementation, with source commit and frozen-clock provenance. Keep it with the Python tests when upstreaming inspection into CycleCloud 8.11; do not maintain two diverging normalizers. Native routing tests use a fake capability-compatible CLI until the real implementation exists.
+
+### Explicit packaged-CLI smoke
+
+The default Python suite never discovers external CLI artifacts or reads the user's configuration. To opt into integration tests against a **reviewed, explicitly approved** CLI artifact:
+
+```sh
+CYCLECLOUD_TEST_CLI=/absolute/path/to/approved/cyclecloud \
+  python3 -B -m unittest discover -s tests/python
+```
+
+These tests create synthetic configuration and fake credentials, use a local HTTP backend, and exercise all read commands/context sections plus failure paths. They do not initialize the CLI, contact a real CycleCloud instance, or alter user credentials. Record the exact artifact and checks run; see [verification status](#verification-status) for existing evidence.
+
+## Verification status
+
+The plugin is a proof of concept. Passing local checks does not qualify every CLI installer, server, identity provider, agent host, or application runtime.
+
+| Area                     | Recorded evidence                                                                                              | Still requires verification                                                                                 |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Inspection core          | Synthetic golden fixtures and Python boundary, failure-path, transport, process, and launcher tests.           | Supported live CycleCloud server combinations.                                                              |
+| Packaged CLI integration | A local 8.10 snapshot passed opt-in tests using synthetic configuration and a local fake backend.              | Released CLI installers and live identity-provider behavior.                                                |
+| Authentication           | Unit tests exercise Basic, public-client silent, confidential-client, and managed-identity integration points. | Real Entra and managed-identity services in the intended deployment.                                        |
+| Copilot CLI              | Isolated registration and launcher checks on version **1.0.86-2**, recorded on **2026-09-18** (details below). | Model-backed skill behavior and other host versions.                                                        |
+| Platforms and hosts      | Local development checks.                                                                                      | macOS execution and VS Code runtime behavior; native Windows is not qualified.                              |
+| Python                   | Shipped modules and bootstrap are checked with `ast.parse(..., feature_version=(3, 8))`.                       | Execution on Python 3.8 itself; syntax acceptance is not a runtime test.                                    |
+| Native inspection        | Routing tests use a fake capability-compatible CLI.                                                            | The real native implementation, intended for CLI 8.11.                                                      |
+| Application authoring    | Structural/TODO checks, Bash syntax checks, and skill-guidance assertions.                                     | Agent compliance, installation, and serial/parallel workloads. No OpenFOAM/OS/MPI combination is validated. |
+
+The 2026-09-18 Copilot CLI checks used isolated state and covered non-persistent source discovery, native local marketplace registration, installation discovering both skills, live-source update preserving a disabled state, packaged launcher capabilities with the local 8.10 snapshot, and uninstall/marketplace removal leaving an empty inventory. Normal host configuration was not changed. This is host registration/launcher evidence, not a model-backed skill evaluation or a VS Code runtime test.
+
+Update this section when an authorized environment check is completed, recording the version, environment, scope, and result rather than inferring support from a unit test.
+
+## Application authoring evaluation
+
+The user workflow and expected files are in [application authoring](application-authoring.md). The following checks are for contributors evaluating the skill and its bundled assets.
+
+### Local checks
+
+From the repository root:
+
+```sh
+node skills/author-cyclecloud-application/scripts/validate-project.mjs \
+  skills/author-cyclecloud-application/assets/project
+npx vitest run tests/application-skill.test.ts tests/source-package.test.ts
+npm run verify
+```
+
+The untouched skeleton deliberately makes the checker exit **1**. The tests exercise required files, TODO markers, shell syntax, and asset use outside the checkout. They are not agent-behavior or live OpenFOAM evaluations.
+
+### Host evaluation
+
+Use an isolated host configuration and a separate workspace; follow [isolated host checks](#isolated-host-checks). Register the reviewed persistent source, start a fresh agent session, and use the example request in the authoring guide. A model-backed evaluation may incur charges and requires explicit approval; a live installation requires separate authorization and an appropriate test cluster. Neither is part of the unit suite.
+
+Check that the agent:
+
+1. Discovers the skill, resolves assets relative to the installed plugin, and writes only to the chosen workspace while preserving existing files.
+2. For a named cluster, checks launcher capabilities, starts with `application-context NAME --schema-version 1 --view overview`, and selects relevant targets before requesting details for one target and section at a time.
+3. Follows needed collection cursors to preserve existing specs and assess `usedBy`, inheritance, and HA scope; leaves incomplete evidence explicit and never invents attachment mappings.
+4. Reads relevant environment sections and summarizes configured `platform.release` and `scheduler.version` before asking version questions. It reuses known values, asks about material conflicts or missing facts, and keeps OpenFOAM distribution/release as an application choice.
+5. Runs the checker on the authored directory and reports both failures and unchecked runtime assumptions. It does not claim successful installation or execute deployment steps.
+
+| Scenario                                | Expected behavior                                                                           |
+| --------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Named reachable cluster                 | Gather relevant evidence; clarify only missing environment facts and application choices.   |
+| Missing CLI or unavailable evidence     | Offer opt-in setup or offline authoring with explicit unknowns.                             |
+| Ambiguous OpenFOAM distribution/version | Ask rather than silently choose incompatible software.                                      |
+| Existing workspace files                | Inspect and preserve unrelated work.                                                        |
+| Shared installer                        | Designate one writer and a readiness protocol; do not race installers across compute nodes. |
+| Incomplete scaffold or malformed shell  | Report local check failures; leave unresolved drafts visibly incomplete.                    |
+| Authoring-only request                  | No upload, deployment, installer execution, or job submission.                              |
+| Complete OS/Slurm context               | Provide a sourced baseline summary without repeating answered version questions.            |
+| Mixed scheduler/compute images          | Report per-target facts; ask only when the difference requires an implementation choice.    |
+| Unknown custom image                    | Mark the OS release unresolved rather than guessing from the image name.                    |
+| Denied or conflicting metadata          | Preserve available facts and ask about the specific missing or conflicting evidence.        |
+| Different project and software versions | Use `scheduler.version` for Slurm, never the cluster-init project revision.                 |
+
+Repeat in Copilot CLI and VS Code before claiming cross-host behavior. Record observations and limitations in [verification status](#verification-status); instruction-text assertions and fixture tests do not prove agent compliance. Planned application implementation work belongs in the [design roadmap](agent-plugin-design.md#application-authoring-evolution).
 
 ## Install a local or unpublished build
 
-From this checkout, with development dependencies installed:
+Use a persistent source directory. No `npm ci` or build is needed just to install the plugin:
 
-```bash
-npm run install:local
+```sh
+copilot plugin marketplace add /absolute/path/to/cyclecloud-agent-plugin
+copilot plugin install cyclecloud@cyclecloud
 ```
 
-This builds and packages the **complete plugin**, registers a persistent local marketplace under `~/.local/share/cyclecloud-mcp/marketplace/`, and maintains an identical runtime copy under `~/.copilot/installed-plugins/cyclecloud-mcp/cyclecloud-mcp/` for VS Code discovery. Both use the same private credential file as release installations. Rerunning updates changed files in both locations, repairs missing files, and leaves identical payloads alone. Prompts use existing configuration values as defaults and hide passwords; disabled state is preserved. Add `--skip-config` to the installer (or run `npm run install:local -- --skip-config`) to keep existing configuration unread and unchanged. The checkout is needed only to build—not to run the installed plugin.
+A local marketplace can be **live**: deleting or moving its directory can break the registration. For VS Code, use the supported `chat.pluginLocations` setting to register the same persistent directory, and enable `chat.plugins.enabled`. Do not copy files into private host caches or edit state databases to force discovery.
 
-To install elsewhere without a checkout or npm dependencies:
+To make a source package from a developer checkout:
 
-```bash
+```sh
 npm run package:local
+npm run verify:package
 ```
 
-Copy the complete `dist/cyclecloud-mcp/` directory to the target environment. From that directory run:
+Copy the complete `dist/cyclecloud-agent-plugin/` directory to a persistent destination and register it through the host. The package includes the Python inspection source, launcher, skills, assets, compatibility metadata, docs/license and hidden marketplace catalog. It excludes credentials, `node_modules`, bytecode caches and generated bundles. Install and remove the plugin through the host's native plugin mechanism.
 
-```bash
-sh install.sh --local
+To test a specific branch/SHA, select that reviewed source in a separate checkout/worktree and register that persistent path. Nothing silently substitutes `main`. Do not change the active checkout to test another branch.
+
+### Repository distribution
+
+The distribution target is `gingi/cyclecloud-agent-plugin`. Repository installation becomes available only after the repository rename **and publication of the `cyclecloud` plugin on its default branch**:
+
+```sh
+copilot plugin marketplace add gingi/cyclecloud-agent-plugin
+copilot plugin install cyclecloud@cyclecloud
 ```
 
-Alternatively, pass the package directory explicitly: `sh /path/to/install.sh --local /path/to/package`. The input directory can be deleted afterward; **keep the managed marketplace directory**. Local installation does not fetch the plugin from GitHub, so it works before any branch is committed or published. It still requires Node and Copilot CLI.
+For VS Code, the equivalent repository path uses **Chat: Install Plugin From Source** with the reviewed repository URL. Until publication, register local source as described above.
 
-The installer uses the adjacent package by default; `--local` remains an explicit alias and accepts another package directory. It switches this plugin's old development GitHub marketplace registration to the managed copy, without creating a second plugin or credential file. It refuses unrelated same-name sources. Complete the [credential setup](../README.md#1-install-and-configure) and [verification](../README.md#2-verify-the-setup) steps, then use the native `cyclecloud` tools. See [local installation and recovery](troubleshooting.md#local-installation-without-a-checkout-dependency) for details.
+Repository registration follows the repository's default source, not a release or preview archive. For an exact release, feature-branch preview, or offline installation, verify and extract the selected source archive into a persistent directory and register that local path. Publishing a preview does not update the default source.
 
-### Test a branch or commit from source
+### Isolated host checks
 
-The GitHub repository contains source, not the built runtime. Direct repository marketplace installation is unsupported; use release assets or build the desired source ref.
+Copilot CLI supports `COPILOT_HOME` for an isolated configuration/state directory. Use `--no-auto-update` so validation does not update the host CLI. Register only the local test marketplace there; never reuse the user's normal plugin inventory for automated cleanup tests. No model invocation is required to inspect plugin registration.
 
-To test an unpublished branch or exact SHA, check out that ref locally, then build and install it:
+VS Code `chat.pluginLocations` and `chat.plugins.marketplaces` are supported discovery surfaces. A disposable VS Code profile alone does not isolate files under a shared home directory; ensure test locations are actually separate. Register/enable through supported UI/settings, never by editing `state.vscdb`. See [host discovery](troubleshooting.md#host-discovery).
 
-```bash
-git fetch origin <branch>
-git switch --detach <commit-sha> # or: git switch <branch>
-npm ci --ignore-scripts
-npm run install:local -- --skip-config
-```
+Record results in [verification status](#verification-status), separately from model-backed skill evaluations. Registration checks alone do not validate agent behavior.
 
-`npm run package:local` uses the same checked-out source and produces a self-contained `dist/cyclecloud-mcp/` package. The branch or SHA matters only when selecting the source; neither command silently substitutes `main`.
+### Development workflow artifacts
 
-### Test a development workflow artifact
+The **Development build** workflow verifies and packages the selected source. Artifacts use `cyclecloud-agent-plugin-package-<ref>-<source-sha>` naming. `SOURCE_COMMIT.json` records source SHA, checkout SHA, ref, event and run metadata; a PR's source SHA and synthetic merge checkout SHA may differ. Keep the file when sharing a package.
 
-The **Development build** workflow runs for every pushed branch, pull request, and manually selected `workflow_dispatch` ref. It verifies the source, builds the ignored bundle, packages the complete installable directory, and uploads an artifact named `cyclecloud-mcp-package-<ref>-<source-sha>`. `SOURCE_COMMIT.json` records the full source SHA, checked-out SHA, ref, event, and run metadata. For pull requests, the source SHA is the PR head while the checked-out SHA can be GitHub's synthetic merge commit.
+Extract artifacts to a persistent directory for host registration. A source package does not need a compiled `bin` directory. Host discovery tests and structured-helper smoke tests are separate from agent-behavior evaluations.
 
-Download the artifact from the workflow run in GitHub, extract it, and run from the extracted package root:
+## Releases and previews
 
-```bash
-sh install.sh --local --skip-config
-```
+Plugin release versions remain independent of CLI versions. `compatibility.json` selects the 8.10 bridge policy and required native inspection schema. Publishing the bridge does **not** wait for 8.11; removing the bridge later requires a deliberate minimum-CLI/support decision.
 
-With GitHub CLI, for example:
-
-```bash
-gh run download <run-id> --name <artifact-name> --dir cyclecloud-mcp-artifact
-sh cyclecloud-mcp-artifact/install.sh --local --skip-config
-```
-
-The artifact is the installable package, not a source checkout: it includes the generated `bin/cyclecloud-mcp.mjs` and hidden `.github/plugin/marketplace.json`, but excludes development dependencies and source files. Keep `SOURCE_COMMIT.json` when sharing it so the build remains traceable.
-
-## Publish a release
-
-Prepare the version and changelog, review them through a normal PR, then **push a version tag**. The **Release** workflow builds and publishes the exact tagged commit. Stable tags must identify a commit on the default branch; SemVer prerelease tags such as `v0.2.0-rc.1` may identify a feature-branch commit.
+Prepare the version and changelog, review them through a normal PR, then **push a version tag**. The **Release** workflow builds and publishes the exact tagged commit. Stable tags must identify a commit on the default branch; SemVer prerelease tags such as `v0.2.0-rc.1` may identify a feature-branch commit. There is no release-preparation dispatch workflow or automatic release-branch cleanup.
 
 ### Repository settings
 
 Configure these rules in GitHub:
 
-- Protect the default branch with required PRs and the **Build, verify, and package** check. Require reviews as the maintainer team grows; GitHub enforces that policy when merging.
+- Protect the default branch with required PRs and the **Verify and package source** check. Require reviews as the maintainer team grows; GitHub enforces that policy when merging.
 - Restrict creation of `v*` tags to release maintainers. Use a separate tag ruleset to block tag updates and deletions, without granting those maintainers a bypass of that rule.
-- Enable [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases) to lock published tags and assets. The workflow uploads all assets to a draft before publishing, so it works with immutability enabled.
+- Enable [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases) to lock published tags and assets. The publishing helper delegates draft creation, asset upload and publication to GitHub CLI, so all assets are staged before the release becomes immutable.
 
-The workflow authenticates with the built-in `GITHUB_TOKEN`. Only the publishing job requests `contents: write`; other jobs are read-only.
+The workflow authenticates with the built-in `GITHUB_TOKEN`. Only the publishing job requests `contents: write`; other jobs are read-only. Before operating on a fork, determine its actual provider rather than assuming GitHub tooling applies. A remote repository rename/publication is a separate confirmed operation, not a local package-generation side effect.
 
 ### Stable release
 
 1. Start from the main branch:
 
-    ```bash
+    ```sh
     git checkout main
     npm run release:prepare -- 0.3.0
     ```
 
-    Preparation fetches `origin` and its tags, creates and switches to `release/prepare-0.3.0` at your current commit, updates all four manifest/lockfile documents, and drafts `## [0.3.0]` in the changelog. It returns with the changes uncommitted, ready for editing. An existing version entry is preserved.
+    Preparation fetches `origin` and its tags, creates and switches to `release/prepare-0.3.0` at the current commit, updates all four manifest/lockfile documents, and drafts `## [0.3.0]` in the changelog. It leaves changes uncommitted for review; an existing version entry is preserved.
 
-2. Review and edit `CHANGELOG.md` and any other release changes. Commit the reviewed files, push the preparation branch, open a PR, and merge after the required checks/reviews. For manual testing, use the Development build artifact and the [README verification steps](../README.md#2-verify-the-setup).
+2. Review and edit `CHANGELOG.md` and the intended source/version changes. Commit the reviewed files, push the preparation branch, and merge a normal PR after required checks/reviews. Use a development artifact or persistent source directory for manual validation.
 3. Check out the intended PR merge commit and tag it:
 
-    ```bash
+    ```sh
     git fetch origin
     git switch --detach <merged-commit-sha>
     npm run release:tag -- 0.3.0 --push
     ```
 
-    The tag command requires a clean checkout, checks versions and notes, confirms stable commits belong to the origin default branch, and runs `npm run verify`. New tags are annotated and identify the checked-out commit, not a later default-branch tip. Existing annotated or lightweight tags are reused unchanged only when they identify that same commit. Omit `--push` to create only a local tag; add it when ready to publish. Only the selected tag is pushed.
+    Tagging requires a clean checkout, validates versions/notes and stable-branch ancestry, and runs `npm run verify`. New tags are annotated and identify the checked-out commit, not a later default-branch tip. Existing annotated or lightweight tags are reused unchanged only when they identify that same commit. Omit `--push` for a local tag; add it when ready to publish. Only the selected tag is pushed.
 
-4. Watch **Actions → Release** through publication and public installation verification. **Do not pre-create a release in the GitHub UI**: the workflow creates it with the verified assets and committed notes.
+4. Watch **Actions → Release** through publication and public source verification. **Do not pre-create a release in the GitHub UI**: the workflow creates it with verified assets and committed notes.
 
 GitHub loads `.github/workflows/release.yml` from the tagged commit. Push one release tag at a time and wait for its workflow to finish. Tags pushed by another workflow using `GITHUB_TOKEN` do not normally trigger a new workflow; see [GitHub's token-trigger rules](https://docs.github.com/en/actions/how-tos/writing-workflows/choosing-when-your-workflow-runs/triggering-a-workflow).
 
@@ -119,155 +186,56 @@ GitHub loads `.github/workflows/release.yml` from the tagged commit. Push one re
 
 Use the same process with an unused prerelease version, without merging to the default branch:
 
-```bash
+```sh
 npm run release:prepare -- 0.3.0-rc.1
-# Review and edit the notes and source on release/prepare-0.3.0-rc.1.
+# Review and edit notes and source on release/prepare-0.3.0-rc.1.
 # Commit all reviewed changes, then:
 npm run release:tag -- 0.3.0-rc.1 --push
 ```
 
-This publishes a **real GitHub prerelease**, not a dry run. Prereleases never update latest stable. A tag fixes the source commit even if the feature branch advances. Use a new prerelease version for a changed build. For testing without publication, use the Development build artifacts or local packaging instead.
+This publishes a **real GitHub prerelease**, not a dry run. Prereleases never update latest stable. A tag fixes the source commit even if the feature branch advances. Use a new prerelease version for a changed build; never move a published tag. For testing without publication, use development artifacts or local packaging.
+
+To use that exact preview, verify/extract its versioned source archive into a persistent directory and register that local path. Repository marketplace registration follows the repository's default source, not the preview tag or downloaded archive; publishing a branch preview does not update the default source.
 
 ### What runs automatically
 
-- **Build (read-only):** validate the tag/event commit, stable-branch ancestry, committed manifest versions, and changelog entry; run the full verification suite; package the verified bundle; check checksums and archive installation.
-- **Publish (write access, no dependency installation):** confirm the existing remote tag still identifies the built commit, upload the three assets and committed notes into a draft, then publish. Existing releases/drafts are refused; tags and assets are never overwritten. Prereleases are explicitly excluded from latest; GitHub selects latest for stable releases.
-- **Post-release (read-only):** test anonymous curl installation, installed version/commit metadata, both runtime copies, private configuration defaults, and MCP initialization/read-only tools. If this release is latest stable, test `latest/download/install.sh` too.
+- **Build (read-only):** validate the tag/event commit, stable-branch ancestry, clean committed checkout, manifest versions and changelog entry; run the full verification suite; package source and check archive integrity/layout.
+- **Publish (write access, no dependency installation):** confirm the existing remote tag still identifies the built commit, upload both assets and committed notes into a draft, then publish. Existing releases/drafts are refused; tags/assets are never overwritten. Prereleases use `--prerelease --latest=false`; GitHub selects latest for stable releases.
+- **Post-release (read-only):** download anonymously, check checksums/tag/full-SHA metadata and the extracted source package, then exercise bounded launcher smoke. If this release is latest stable, verify its latest checksum download as well. This does not validate native Copilot/VS Code installation.
 
-Publication is serialized across versions. The post-release harness uses a fake Copilot CLI for registration, but real curl, tar, packaged installer, filesystem copies, and MCP runtime. It needs no personal Copilot login or real CycleCloud credentials and sends no CycleCloud requests. It does not prove VS Code UI discovery or live CycleCloud access. Public downloads use no `GH_TOKEN`; a private repository would need a different distribution design.
+Publication is serialized across versions. Tests use isolated fixtures/local HTTP without real CycleCloud credentials; public verification passes no GitHub token to downloads. A private repository needs a different download/authentication design. The workflow does not create/move tags or delete source branches.
 
 ### Changelog and assets
 
-Changelog notes are drafted and reviewed during release preparation. `release:prepare` adds a `## [<version>]` entry using non-merge commit subjects, oldest first, since the nearest reachable SemVer `v*` tag through the current `HEAD`. Prerelease tags count as releases; with no release tags, the draft uses all committed history. Preparation fetches tags from `origin`; use a full-history checkout because shallow clones are rejected for drafting.
+`release:prepare` drafts notes from non-merge commit subjects, oldest first, since the nearest reachable SemVer `v*` tag through `HEAD`. Prerelease tags count; without release tags it uses all committed history. Preparation fetches tags from `origin`; use a full-history checkout because shallow clones are rejected for drafting.
 
-Mechanical version/preparation subjects such as `chore: prepare v0.2.0`, `chore(release): 0.2.0`, and `Bump version to 0.2.0`, plus exact changelog/release-notes update subjects, are omitted. Improvements to release tooling remain in the draft. Review the generated bullets for relevance and wording before committing them. If no subjects remain, write the version's notes manually.
+Mechanical version/preparation subjects such as `chore: prepare v0.2.0`, `chore(release): 0.2.0`, and `Bump version to 0.2.0`, plus exact changelog/release-notes update subjects, are omitted. Release-tooling improvements remain. Review generated bullets for relevance and wording; if no subjects remain, write notes manually. Pending `Unreleased` notes can serve as a review checklist, but preparation drafts from committed history rather than promoting that section automatically.
 
-Existing version entries are validated and preserved verbatim, so rerunning preparation keeps your edits. To regenerate a draft, remove only that version's entry after saving any edits you want to retain. Entries must be nonempty and unique; a ` - YYYY-MM-DD` heading suffix is also accepted. Publication uses only the chosen version's committed entry. Versions follow SemVer without a build-metadata suffix.
+Existing version entries are validated and preserved verbatim. To regenerate a draft, first save any edits and remove only that version's entry. Entries must be nonempty and unique; an optional ` - YYYY-MM-DD` suffix is accepted. Publication uses only the chosen version's committed entry. Versions follow SemVer without build metadata.
 
 Each release contains:
 
-- `cyclecloud-mcp-<version>.tar.gz`: the complete plugin, built runtime, hidden marketplace metadata, and `SOURCE_COMMIT.json`.
-- `install.sh`: a curl bootstrap with the exact release URL embedded; even a download through `latest` then fetches assets from that fixed version.
-- `SHA256SUMS`: checksums for the archive and bootstrap (integrity checks, not signatures).
+- `cyclecloud-agent-plugin-<version>.tar.gz`: the complete source plugin, hidden marketplace metadata and `SOURCE_COMMIT.json`.
+- `SHA256SUMS`: integrity checks for the archive, not publisher signatures.
 
-GitHub Release assets do not expire with Actions retention. The one-day Actions artifact only transfers verified files between jobs. Local archives can include working-tree changes; published assets always use the pinned tag-event commit.
+Release assets do not expire with Actions retention; the one-day Actions artifact transfers verified files between jobs. Local archives may include working-tree changes; published assets use the pinned tag-event commit.
 
-For local verification, run `npm run verify`. It includes tag validation, isolated publication fixtures, and real curl/HTTP installation tests without remote writes. To build release assets locally, run `npm run package:release -- v0.2.0` after preparing that version. To recheck an existing public release independently:
+Local `npm run verify` includes tag validation, isolated publication fixtures and curl/local-HTTP source-archive tests, with no remote writes. To build assets without publication, run `npm run package:release -- v0.2.0` after preparing that version. To recheck an existing public release:
 
-```bash
+```sh
 npm run verify:release -- v0.2.0 <full-commit-sha>
 ```
 
-Append `--latest` only when it is the current latest stable release. Verification uses an isolated home, not your installed plugin or credentials.
+Append `--latest` only for the current latest stable. Verification uses isolated storage, not your installed plugin or credentials.
 
 ### Failure and retry behavior
 
-- **Preparation:** a new preparation branch requires a clean checkout and an unused version. If its branch already exists, inspect and switch to it before rerunning; the command does not reset branches or discard edits. Rerunning on the matching preparation branch preserves review edits, including uncommitted changes. Fix fetch/authentication failures before retrying. If a file write fails after branch creation, the branch and files remain for inspection and repair.
-- **Local tagging:** version/notes mismatches, unmerged stable commits, dirty checkouts, or failed verification stop tagging. Existing tags are reused only when they identify the selected commit; conflicting tags are never moved. If a push fails, the local tag remains: fix the cause and rerun `npm run release:tag -- <version> --push`. A matching tag already on origin is left unchanged and does not trigger another workflow run.
-- **Validation/build failed:** no release was created. For transient failures, use **Re-run failed jobs** on the original run. If the tagged source needs changes, commit a fix and use a new version/tag; do not move the old tag.
-- **Publication failed:** inspect GitHub first. An upload failure can leave an unpublished draft; the workflow deliberately refuses to overwrite it. After inspecting it, either finish that draft manually with the verified assets, or delete only the incomplete draft (keep its tag) and rerun the failed publishing job. If the transfer artifact has expired, rebuild by rerunning the original workflow. If publication actually succeeded despite a connection error, verify the existing release instead of trying to publish it again.
-- **Post-release check failed:** the release is already public, not rolled back. Rerun the failed verification job for transient download failures. For a package defect, release a new version; never replace published assets or move its tag.
+- **Preparation:** a new preparation branch requires a clean checkout and an unused version. Existing branches are not reset; inspect and switch to the matching preparation branch to resume. Rerunning there preserves review edits, including uncommitted changes. Resolve fetch/authentication failures before retrying. If writes fail after branch creation, retain the branch/files for inspection and repair.
+- **Local tagging:** mismatched versions/notes, unmerged stable commits, dirty checkouts or failed verification stop tagging. Existing tags are reused only for the selected commit; conflicting tags are never moved. If a push fails, the local tag remains: fix the cause and retry `npm run release:tag -- <version> --push`. A matching tag already on origin is neither changed nor pushed again.
+- **Validation/build failed:** no release was created. Rerun the original failed jobs for transient failures. If the tagged source needs changes, commit a fix and use a new version/tag; do not move the old tag.
+- **Publication failed:** inspect GitHub first. An upload failure may leave a draft that automation refuses to overwrite. After inspection, either finish that draft manually using verified assets, or explicitly delete only the incomplete draft (keep the tag) and rerun publishing. If transfer artifacts expired, rerun the original workflow. If publication actually succeeded, verify the existing release instead of publishing again.
+- **Post-release check failed:** the release is already public, not rolled back. Rerun verification for transient failures; package defects require a new version, not replacement assets or a moved tag.
 
-Install and update using the release bootstrap or extracted package.
+## Local plugin removal
 
-## Application authoring skill
-
-See [the authoring guide](application-authoring.md) for the new skill skeleton, local checker, and manual demo checklist. Skill changes require a **full local package installation**, not `npm run deploy`, which copies only the MCP bundle. Adding skill files also requires updating the explicit file lists in `scripts/package-local.mjs`, `install.sh`, and the packaging test in `tests/local-install.test.ts`.
-
-## Reset installation state
-
-Reset the installation when you need to test installation and credential setup from scratch, verify cleanup and reinstallation behavior, or rule out stale installed files, plugin registrations, or filesystem caches while debugging. For routine code changes, rerun `npm run install:local` instead of resetting.
-
-### Choose your test environment
-
-- **Normal development or debugging:** use your regular VS Code profile. You do not need a disposable profile to reset and reinstall the plugin.
-- **First-install testing:** use an empty disposable profile to test discovery, enablement, and access choices without your regular profile's saved settings. Resetting the installed plugin alone does not clear all of VS Code's remembered state. Do not create or open the disposable profile until after applying the reset, or the profile can discover the existing shared plugin before it is removed.
-
-Profiles isolate VS Code settings and private plugin state, **not the installed plugin or its processes**. They share the same home directory and `~/.copilot` installation and credentials, so resetting from a test profile also affects the installation used by your regular profile. Switching profiles is not a workaround for a running-process reset refusal; follow the shutdown steps below regardless of which profile you choose.
-
-### Reset and reinstall
-
-The utility requires **Python 3.9+** and Copilot CLI on Linux, macOS, or WSL; do not use sudo. **Applying the reset deletes the plugin's stored credentials**, so be ready to configure them again during installation.
-
-1. Stop standalone Copilot CLI sessions using this plugin and **fully quit VS Code and VS Code Insiders**, including the disposable-profile window if you created one.
-2. Open a **standalone terminal** (a standalone WSL terminal for a WSL checkout, not VS Code's integrated terminal) and change to this checkout.
-3. Preview the reset and review the listed paths:
-
-    ```bash
-    npm run reset:dev
-    ```
-
-4. Apply the reset **before reopening VS Code**:
-
-    ```bash
-    npm run reset:dev:apply
-    ```
-
-    This is shorthand for `npm run reset:dev -- --apply`. Avoid editing the affected configuration files during reset. Rerunning is safe when the installation is already absent.
-
-The utility discovers standard stable/Insiders profiles, including the Windows desktop profile from WSL. For a custom VS Code user-data directory, append `-- --vscode-data-dir /path/to/user-data` to **both** npm commands above; repeat the flag for additional directories.
-
-If the reset reports `Stop the installed CycleCloud MCP process before --apply`, ensure the owning agent/editor has exited. VS Code's MCP picker can show `cyclecloud` as **Stopped** while a Copilot headless agent still owns a running MCP subprocess. The guard checks for installed or cached MCP processes, not whether VS Code is open, but fully quitting the editor is the reliable way to stop editor-owned instances. The reset never kills processes itself.
-
-For first-install testing, prepare the disposable profile now, while the shared plugin installation is absent:
-
-1. Open VS Code and choose **File → New Window with Profile → New Profile…**.
-2. Create an empty profile named `CycleCloud MCP Test`, without copying settings or extensions from an existing profile, and open a window with it.
-3. Install or enable GitHub Copilot in that profile if needed, then open this repository in the same Linux, macOS, or WSL environment.
-4. Fully quit VS Code and VS Code Insiders again before reinstalling.
-
-Keep VS Code closed while reinstalling so an agent cannot launch the server before installation is complete. Choose one reinstall path:
-
-- Current local checkout:
-
-    ```bash
-    npm run install:local
-    ```
-
-- Published release: download, verify, and extract the chosen [release archive](../README.md#1-install-and-configure), then run:
-
-    ```bash
-    sh /path/to/extracted/cyclecloud-mcp/install.sh
-    ```
-
-Then reopen VS Code with your chosen profile and this repository. Verify that `cyclecloud-mcp` is enabled in **Agent Plugins: Installed**, start a new agent session, and follow the [quick-start verification steps](../README.md#2-verify-the-setup).
-
-When first-install testing is complete, switch back to your normal profile and remove `CycleCloud MCP Test` using VS Code's profile management UI. Removing the profile does not undo changes to the shared plugin installation.
-
-### Scope and limitations
-
-The reset unregisters this plugin and marketplace, deletes the Copilot plugin data directory (including credentials), installed and managed packages, `~/.local/share/cyclecloud-mcp/`, and known filesystem plugin caches. It also removes matching user-level MCP/plugin registrations and clears this plugin's explicit enablement flags in JSON settings.
-
-The checkout, build artifacts, unrelated plugins/settings, and shared logs/session history are preserved. The reset does not open or modify VS Code's `state.vscdb`: remembered plugin enablement, marketplace trust, and tool metadata in that database remain, so reinstalling in an existing profile may retain previous choices. This is why first-install testing uses a disposable profile in addition to the installation reset.
-
-Custom Copilot homes, unrecognized installations, and targeted JSONC configuration require manual cleanup; the script stops rather than rewriting comments or guessing. Workspace-specific registrations outside the standard user configuration files are not removed. This is an installation reset, not secure erasure or revocation of the CycleCloud account's password.
-
-The developer utility is excluded from the `package:local` artifact and is never invoked by the normal installer. Its isolated cleanup and database-preservation tests run with `npm run test:reset` and as part of `npm run verify`.
-
-## Bundle-only deployment
-
-Use [local installation](#install-a-local-or-unpublished-build) for full plugin changes, including manifests. The **bundle-only** deployment commands below target an existing default copy-based installation; they do not target a live local marketplace installation.
-
-To test only server-bundle changes through that copy-based installation, run from this checkout:
-
-```bash
-npm run deploy
-```
-
-This rebuilds the bundle and replaces `~/.copilot/installed-plugins/cyclecloud-mcp/cyclecloud-mcp/bin/cyclecloud-mcp.mjs`. The plugin must already be installed at that default path. Its original bundle is saved alongside it as `cyclecloud-mcp.mjs.before-local-test`; repeated deploys preserve that original backup. Credentials, plugin registration, and enablement settings are unchanged. Nothing is committed, pushed, or published.
-
-Reload VS Code and start a fresh Copilot session after each deploy. Then ask the tool to exercise your change.
-
-To undo the deployment:
-
-```bash
-npm run restore
-```
-
-Restore replaces the installed bundle with the original and removes the used backup; it does not require a local build. Restart the session/server again afterward. Restore before installing a new package so a later restore cannot roll that update back. These commands swap only the server bundle, not plugin manifests or other packaged files.
-
-## Further reading
-
-- [Design and architecture](cyclecloud-mcp-design.md)
-- [Configuration and security](configuration.md)
-- [Troubleshooting and local installation](troubleshooting.md)
+Use the host's native plugin uninstall and marketplace removal commands, as shown in the README. Remove or disable VS Code source registrations separately. CLI credentials belong to the CLI and are not removed with the plugin. For isolated testing, use a disposable host configuration and a persistent source directory rather than resetting a normal installation.
