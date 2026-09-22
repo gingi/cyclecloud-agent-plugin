@@ -21,6 +21,7 @@ import {
     expect,
     test,
 } from "vitest";
+import { setFixtureVersion } from "./helpers/release.js";
 
 const execute = promisify(execFile);
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -50,15 +51,7 @@ beforeAll(async () => {
     );
     // Prepare a different version and build it, so a hardcoded runtime version cannot pass.
     tag = "v9.8.7-rc.1";
-    await cp(
-        join(root, ".prettierrc.json"),
-        join(workspace, ".prettierrc.json"),
-    );
-    await execute(
-        process.execPath,
-        [join(root, "scripts/prepare-release.mjs"), tag.slice(1)],
-        { cwd: workspace },
-    );
+    await setFixtureVersion(workspace, tag.slice(1));
     await cp(join(root, "src"), join(workspace, "src"), { recursive: true });
     await mkdir(join(workspace, "scripts"));
     await cp(
