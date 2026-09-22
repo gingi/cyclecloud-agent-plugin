@@ -1,12 +1,12 @@
 {
     "name": "cyclecloud-mcp",
     "owner": { "name": "Azure CycleCloud" },
-    "metadata": { "description": "Azure CycleCloud proof-of-concept plugins.", "version": "0.1.0" },
+    "metadata": { "description": "Azure CycleCloud proof-of-concept plugins.", "version": "0.2.0" },
     "plugins": [
         {
             "name": "cyclecloud-mcp",
             "description": "Inspect Azure CycleCloud with optional bounded lifecycle actions.",
-            "version": "0.1.0",
+            "version": "0.2.0",
             "repository": "https://github.com/gingi/cyclecloud-mcp",
             "source": "./"
         }
