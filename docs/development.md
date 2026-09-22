@@ -91,25 +91,27 @@ The workflow authenticates with the built-in `GITHUB_TOKEN`. Only the publishing
 
 ### Stable release
 
-1. Fetch release tags and prepare on your working branch:
+1. Start from the main branch:
 
     ```bash
-    git fetch origin --tags
-    npm run release:prepare -- 0.2.0
+    git checkout main
+    npm run release:prepare -- 0.3.0
     ```
 
-    Preparation updates all four manifest/lockfile documents and adds a `## [0.2.0]` changelog draft from commit subjects. An existing entry is preserved. It does not commit, tag, or publish anything.
+    Preparation fetches `origin` and its tags, creates and switches to `release/prepare-0.3.0` at your current commit, updates all four manifest/lockfile documents, and drafts `## [0.3.0]` in the changelog. It returns with the changes uncommitted, ready for editing. An existing version entry is preserved.
 
-2. Review and edit the draft in `CHANGELOG.md`, then run `npm run verify`. Commit the version and changelog changes, open a PR, and merge after the required checks/reviews. For manual testing, use the Development build artifact and the [README verification steps](../README.md#2-verify-the-setup).
-3. Fetch the merged commit and push an annotated tag at that exact SHA:
+2. Review and edit `CHANGELOG.md` and any other release changes. Commit the reviewed files, push the preparation branch, open a PR, and merge after the required checks/reviews. For manual testing, use the Development build artifact and the [README verification steps](../README.md#2-verify-the-setup).
+3. Check out the intended PR merge commit and tag it:
 
     ```bash
     git fetch origin
-    git tag -a v0.2.0 <merged-commit-sha> -m 'Release v0.2.0'
-    git push origin v0.2.0
+    git switch --detach <merged-commit-sha>
+    npm run release:tag -- 0.3.0 --push
     ```
 
-4. Watch **Actions → Release** through publication and public installation verification. Push the tag, **do not pre-create a release in the GitHub UI**: the workflow creates it with the verified assets and committed notes.
+    The tag command requires a clean checkout, checks versions and notes, confirms stable commits belong to the origin default branch, and runs `npm run verify`. New tags are annotated and identify the checked-out commit, not a later default-branch tip. Existing annotated or lightweight tags are reused unchanged only when they identify that same commit. Omit `--push` to create only a local tag; add it when ready to publish. Only the selected tag is pushed.
+
+4. Watch **Actions → Release** through publication and public installation verification. **Do not pre-create a release in the GitHub UI**: the workflow creates it with the verified assets and committed notes.
 
 GitHub loads `.github/workflows/release.yml` from the tagged commit. Push one release tag at a time and wait for its workflow to finish. Tags pushed by another workflow using `GITHUB_TOKEN` do not normally trigger a new workflow; see [GitHub's token-trigger rules](https://docs.github.com/en/actions/how-tos/writing-workflows/choosing-when-your-workflow-runs/triggering-a-workflow).
 
@@ -118,13 +120,10 @@ GitHub loads `.github/workflows/release.yml` from the tagged commit. Push one re
 Use the same process with an unused prerelease version, without merging to the default branch:
 
 ```bash
-git fetch origin --tags
-npm run release:prepare -- 0.2.0-rc.1
-# Review and edit the generated notes in CHANGELOG.md, then:
-npm run verify
-# Commit all intended source, version, and changelog changes, then:
-git tag -a v0.2.0-rc.1 HEAD -m 'Preview v0.2.0-rc.1'
-git push origin v0.2.0-rc.1
+npm run release:prepare -- 0.3.0-rc.1
+# Review and edit the notes and source on release/prepare-0.3.0-rc.1.
+# Commit all reviewed changes, then:
+npm run release:tag -- 0.3.0-rc.1 --push
 ```
 
 This publishes a **real GitHub prerelease**, not a dry run. Prereleases never update latest stable. A tag fixes the source commit even if the feature branch advances. Use a new prerelease version for a changed build. For testing without publication, use the Development build artifacts or local packaging instead.
@@ -139,7 +138,7 @@ Publication is serialized across versions. The post-release harness uses a fake 
 
 ### Changelog and assets
 
-Changelog notes are drafted and reviewed during release preparation. `release:prepare` adds a `## [<version>]` entry using non-merge commit subjects, oldest first, since the nearest reachable SemVer `v*` tag through the current `HEAD`. Prerelease tags count as releases; with no release tags, the draft uses all committed history. Fetch tags before preparing and use a full-history checkout; shallow clones are rejected for drafting.
+Changelog notes are drafted and reviewed during release preparation. `release:prepare` adds a `## [<version>]` entry using non-merge commit subjects, oldest first, since the nearest reachable SemVer `v*` tag through the current `HEAD`. Prerelease tags count as releases; with no release tags, the draft uses all committed history. Preparation fetches tags from `origin`; use a full-history checkout because shallow clones are rejected for drafting.
 
 Mechanical version/preparation subjects such as `chore: prepare v0.2.0`, `chore(release): 0.2.0`, and `Bump version to 0.2.0`, plus exact changelog/release-notes update subjects, are omitted. Improvements to release tooling remain in the draft. Review the generated bullets for relevance and wording before committing them. If no subjects remain, write the version's notes manually.
 
@@ -163,6 +162,8 @@ Append `--latest` only when it is the current latest stable release. Verificatio
 
 ### Failure and retry behavior
 
+- **Preparation:** a new preparation branch requires a clean checkout and an unused version. If its branch already exists, inspect and switch to it before rerunning; the command does not reset branches or discard edits. Rerunning on the matching preparation branch preserves review edits, including uncommitted changes. Fix fetch/authentication failures before retrying. If a file write fails after branch creation, the branch and files remain for inspection and repair.
+- **Local tagging:** version/notes mismatches, unmerged stable commits, dirty checkouts, or failed verification stop tagging. Existing tags are reused only when they identify the selected commit; conflicting tags are never moved. If a push fails, the local tag remains: fix the cause and rerun `npm run release:tag -- <version> --push`. A matching tag already on origin is left unchanged and does not trigger another workflow run.
 - **Validation/build failed:** no release was created. For transient failures, use **Re-run failed jobs** on the original run. If the tagged source needs changes, commit a fix and use a new version/tag; do not move the old tag.
 - **Publication failed:** inspect GitHub first. An upload failure can leave an unpublished draft; the workflow deliberately refuses to overwrite it. After inspecting it, either finish that draft manually with the verified assets, or delete only the incomplete draft (keep its tag) and rerun the failed publishing job. If the transfer artifact has expired, rebuild by rerunning the original workflow. If publication actually succeeded despite a connection error, verify the existing release instead of trying to publish it again.
 - **Post-release check failed:** the release is already public, not rolled back. Rerun the failed verification job for transient download failures. For a package defect, release a new version; never replace published assets or move its tag.

@@ -1,6 +1,6 @@
 {
     "name": "cyclecloud-mcp",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Inspect Azure CycleCloud with optional bounded lifecycle actions.",
     "keywords": ["azure-cyclecloud", "hpc", "mcp"],
     "mcpServers": { "cyclecloud": { "type": "stdio", "command": "node", "args": ["${PLUGIN_ROOT}/bin/cyclecloud-mcp.mjs"] } }
