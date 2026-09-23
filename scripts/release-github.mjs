@@ -7,9 +7,10 @@ export function releaseRepository() {
     return repository;
 }
 
-export function githubApi(route, { paginate = false, method, body } = {}) {
+export function githubApi(route, { paginate = false, method, body, jq } = {}) {
     const args = ["api", route];
     if (paginate) args.push("--paginate", "--slurp");
+    if (jq) args.push("--jq", jq);
     if (method) args.push("--method", method);
     if (body !== undefined) args.push("--input", "-");
     const result = JSON.parse(

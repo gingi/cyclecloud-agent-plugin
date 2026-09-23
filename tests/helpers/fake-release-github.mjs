@@ -68,6 +68,15 @@ if (args[0] === "release") {
         state.stableRefs = [result];
         writeFileSync(process.env.FAKE_RELEASE_STATE, JSON.stringify(state));
     } else throw new Error(`Unexpected GitHub API route: ${route}`);
+    if (state.largeResponse === route)
+        result = { ...result, files: [{ patch: "x".repeat(2 * 1024 * 1024) }] };
+    if (args.includes("--jq")) {
+        const query = args[args.indexOf("--jq") + 1];
+        if (query === "{sha: .sha}") result = { sha: result?.sha };
+        else if (query === "{status: .status}")
+            result = { status: result?.status };
+        else throw new Error(`Unexpected GitHub API query: ${query}`);
+    }
     process.stdout.write(
         JSON.stringify(args.includes("--slurp") ? [result] : result),
     );
