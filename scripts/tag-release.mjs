@@ -44,22 +44,16 @@ try {
             `Tag ${tag} already identifies a different commit; refusing to move it`,
         );
     if (!version.includes("-")) {
-        const defaultRef = git("ls-remote", "--symref", "origin", "HEAD")
-            .split("\n")
-            .map((line) => /^ref: refs\/heads\/(\S+)\tHEAD$/.exec(line))
-            .find(Boolean)?.[1];
-        if (!defaultRef)
-            throw new Error("Cannot determine origin's default branch");
         try {
             git(
                 "merge-base",
                 "--is-ancestor",
                 head,
-                `refs/remotes/origin/${defaultRef}`,
+                "refs/remotes/origin/main",
             );
         } catch {
             throw new Error(
-                "Stable release commit must be merged into origin's default branch before tagging",
+                "Stable release commit must be merged into origin/main before tagging",
             );
         }
     }

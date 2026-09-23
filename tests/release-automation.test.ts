@@ -80,6 +80,48 @@ async function publish(
 }
 
 describe("Source release workflow guards", () => {
+    test("Promotes only verified stable releases in a separate least-privilege job", async () => {
+        const release = await readFile(
+            join(root, ".github/workflows/release.yml"),
+            "utf8",
+        );
+        const promote = release.split("\n    promote:\n")[1];
+        expect(promote).toBeDefined();
+        expect(promote).toContain("needs: [build, publish, post-release]");
+        expect(promote).toContain(
+            "if: ${{ needs.build.outputs.prerelease == 'false' }}",
+        );
+        expect(promote).not.toContain("always()");
+        expect(promote).toContain("permissions:\n            contents: write");
+        expect(promote).toContain("GH_TOKEN: ${{ github.token }}");
+        expect(promote).toContain("GH_REPO: ${{ github.repository }}");
+        expect(promote).toContain(
+            "RELEASE_TAG: ${{ needs.build.outputs.tag }}",
+        );
+        expect(promote).toContain(
+            "RELEASE_COMMIT: ${{ needs.build.outputs.commit }}",
+        );
+        expect(promote).toContain("ref: ${{ needs.build.outputs.commit }}");
+        expect(promote).toContain("persist-credentials: false");
+        expect(promote).toContain('node-version: "22"');
+        expect(promote).toContain(
+            'node scripts/promote-stable.mjs "$RELEASE_TAG" "$RELEASE_COMMIT"',
+        );
+        expect(promote).not.toMatch(/npm (ci|install)|publish-release/);
+        expect(release).toContain(
+            "concurrency:\n    group: release\n    cancel-in-progress: false",
+        );
+        expect(release.split("jobs:")[0]).toContain(
+            "permissions:\n    contents: read",
+        );
+        const pkg: unknown = JSON.parse(
+            await readFile(join(root, "package.json"), "utf8"),
+        );
+        expect(pkg).toMatchObject({
+            scripts: { "release:promote": "node scripts/promote-stable.mjs" },
+        });
+    });
+
     test("preserves tag-triggered publication and source-only verification", async () => {
         const workflow = (name: string) =>
             readFile(join(root, ".github/workflows", name), "utf8");

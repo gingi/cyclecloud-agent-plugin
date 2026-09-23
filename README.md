@@ -43,7 +43,7 @@ For **VS Code**:
 
 Start a new agent session after installation. VS Code installation is separate from Copilot CLI registration; see [host discovery troubleshooting](docs/troubleshooting.md#host-discovery) if the skills do not appear.
 
-Repository installation follows the repository's default branch. For an exact release, preview, or local development build, see [source installation options](docs/development.md#install-a-local-or-unpublished-build).
+Repository installation follows the default branch, `stable`, which points to the exact stable release commit that passed publication and public source verification. `main` remains the development branch; prereleases do not advance `stable`. For an exact release, preview, or local development build, see [source installation options](docs/development.md#install-a-local-or-unpublished-build).
 
 ### 3. Check compatibility and inspect a cluster
 
@@ -104,5 +104,7 @@ copilot plugin marketplace remove cyclecloud
 Remove or disable the corresponding VS Code source separately through its UI/settings. Plugin removal leaves your CLI configuration and credentials intact; credential deletion or revocation is a separate decision.
 
 ## For contributors
+
+Explicitly check out and update `main` for development (`git fetch origin`, `git switch main`, `git pull --ff-only origin main`). Create feature branches from `main` and target PRs with `gh pr create --base main`, because the repository default is `stable`. Do not commit directly to `stable`.
 
 See [development and verification](docs/development.md), [architecture](docs/agent-plugin-design.md), and [release history](CHANGELOG.md).
