@@ -119,7 +119,24 @@ describe("Tag release source", () => {
         expect((await run()).status).toBe(0);
     });
 
-    test("Allows an older stable commit on the default branch", async () => {
+    test.each([false, true])(
+        "Accepts a newer main release when stable is default (annotated=%s)",
+        async (annotated) => {
+            git("update-ref", "refs/remotes/origin/stable", commit);
+            event.repository = {
+                full_name: "example/plugin",
+                default_branch: "stable",
+            };
+            git("commit", "--allow-empty", "-m", "New main release");
+            commit = git("rev-parse", "HEAD");
+            git("update-ref", "refs/remotes/origin/main", commit);
+            selectTag("v0.1.0", annotated);
+            const result = await run();
+            expect(result.status, result.stderr).toBe(0);
+        },
+    );
+
+    test("Allows an older stable commit on main", async () => {
         selectTag("v0.1.0");
         git("commit", "--allow-empty", "-m", "Later main commit");
         git("update-ref", "refs/remotes/origin/main", "HEAD");
@@ -143,11 +160,16 @@ describe("Tag release source", () => {
         );
     });
 
-    test("Rejects a stable release off the default branch", async () => {
-        git("checkout", "-b", "feature");
+    test("Rejects a stable release off main even when on the default branch", async () => {
+        git("checkout", "-b", "stable");
         git("commit", "--allow-empty", "-m", "Unmerged work");
+        git("update-ref", "refs/remotes/origin/stable", "HEAD");
+        event.repository = {
+            full_name: "example/plugin",
+            default_branch: "stable",
+        };
         selectTag("v0.1.0");
-        await expectFailure("default branch");
+        await expectFailure("main");
     });
 
     test.each([

@@ -81,6 +81,7 @@ describe("Release preparation", () => {
         ).toBe("");
         expect(git("tag", "--list", "v0.2.0")).toBe("");
         expect(result.stdout).toContain(branch);
+        expect(result.stdout).toContain("merge a PR into main");
     });
 
     test("Updates versions while preserving existing notes", async () => {

@@ -20,16 +20,13 @@ try {
         await readFile(process.env.GITHUB_EVENT_PATH, "utf8"),
     );
     const ref = process.env.GITHUB_REF;
-    const defaultBranch = event.repository?.default_branch;
     if (
         process.env.GITHUB_EVENT_NAME !== "push" ||
         !ref?.startsWith("refs/tags/") ||
         event.ref !== ref ||
         event.deleted !== false ||
         event.forced === true ||
-        event.repository?.full_name !== process.env.GITHUB_REPOSITORY ||
-        typeof defaultBranch !== "string" ||
-        !defaultBranch
+        event.repository?.full_name !== process.env.GITHUB_REPOSITORY
     )
         throw new Error(
             "Release requires a non-deletion, non-forced tag push in this repository",
@@ -56,11 +53,11 @@ try {
                 "merge-base",
                 "--is-ancestor",
                 commit,
-                `refs/remotes/origin/${defaultBranch}`,
+                "refs/remotes/origin/main",
             );
         } catch {
             throw new Error(
-                "Stable release commit must belong to the fetched default branch",
+                "Stable release commit must belong to fetched origin/main",
             );
         }
     }

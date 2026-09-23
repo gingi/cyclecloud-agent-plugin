@@ -156,3 +156,30 @@ jobs:
                   if [[ "$VERIFICATION_STATUS" != success ]]; then
                       printf '\nThe release is already published. Inspect the failure and rerun failed jobs; do not move the tag or overwrite assets.\n' >> "$GITHUB_STEP_SUMMARY"
                   fi
+
+    promote:
+        name: Promote stable
+        needs: [build, publish, post-release]
+        if: ${{ needs.build.outputs.prerelease == 'false' }}
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+        env:
+            GH_TOKEN: ${{ github.token }}
+            GH_REPO: ${{ github.repository }}
+            RELEASE_TAG: ${{ needs.build.outputs.tag }}
+            RELEASE_COMMIT: ${{ needs.build.outputs.commit }}
+        steps:
+            - name: Check out the verified promotion helper
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ needs.build.outputs.commit }}
+                  persist-credentials: false
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "22"
+
+            - name: Promote the verified stable release
+              run: node scripts/promote-stable.mjs "$RELEASE_TAG" "$RELEASE_COMMIT"
