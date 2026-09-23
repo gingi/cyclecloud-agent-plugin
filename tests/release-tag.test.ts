@@ -101,25 +101,40 @@ describe("Post-review release tag", () => {
         expect(git("rev-parse", "v0.1.0^{commit}")).toBe(selected);
     });
 
-    test("Discovers an origin default branch other than main", () => {
-        git("checkout", "-b", "trunk");
-        repository.commit("feat: trunk work");
-        git("push", "origin", "trunk");
+    test("Accepts a newer main release when stable is the default branch", () => {
+        git("push", "origin", "HEAD:refs/heads/stable");
         git(
             "--git-dir",
             repository.remote,
             "symbolic-ref",
             "HEAD",
-            "refs/heads/trunk",
+            "refs/heads/stable",
         );
+        const head = repository.commit("feat: new main release");
+        git("push", "origin", "main");
         const result = tag();
         expect(result.status, result.stderr).toBe(0);
+        expect(git("rev-parse", "v0.1.0^{commit}")).toBe(head);
+    });
+
+    test("Rejects a stable release off main even when on the default branch", async () => {
+        git("checkout", "-b", "stable");
+        repository.commit("feat: off-main work");
+        git("push", "origin", "stable");
+        git(
+            "--git-dir",
+            repository.remote,
+            "symbolic-ref",
+            "HEAD",
+            "refs/heads/stable",
+        );
+        await expectNoTag("main");
     });
 
     test("Rejects a stable release until its commit is merged", async () => {
         git("checkout", "-b", "release/prepare-0.1.0");
         repository.commit("chore: prepare v0.1.0");
-        await expectNoTag("default branch");
+        await expectNoTag("main");
         expect(await readFile(log, "utf8").catch(() => "")).toBe("");
     });
 

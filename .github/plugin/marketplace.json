@@ -1,12 +1,12 @@
 {
     "name": "cyclecloud",
     "owner": { "name": "Azure CycleCloud" },
-    "metadata": { "description": "Azure CycleCloud Agent Plugin", "version": "0.3.0" },
+    "metadata": { "description": "Azure CycleCloud Agent Plugin", "version": "0.4.0" },
     "plugins": [
         {
             "name": "cyclecloud",
             "description": "Azure CycleCloud Agent Plugin: read-only inspection and application authoring.",
-            "version": "0.3.0",
+            "version": "0.4.0",
             "repository": "https://github.com/gingi/cyclecloud-agent-plugin",
             "source": "./"
         }

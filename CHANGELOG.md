@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.4.0]
+
+- Clarifies how to install the plugin without Git checkout (#15)
+- Promotes verified releases to stable (#16, #17, #18)
+
 ## [0.3.0]
 
 - Replace MCP runtime with an agent plugin backed by the `cyclecloud` CLI (#12)

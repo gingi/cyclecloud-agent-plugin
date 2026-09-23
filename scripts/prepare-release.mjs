@@ -84,7 +84,7 @@ if (
         for (const [file, contents] of updates)
             await writeFile(join(root, file), contents);
         process.stdout.write(
-            `Prepared ${version} on ${branch}; ${changelog === undefined ? "preserved existing release notes" : "drafted release notes from commit subjects"}.\nReview and edit CHANGELOG.md and any other changes. ${version.includes("-") ? "Commit the reviewed changes" : "Commit the reviewed changes, merge a PR, and check out its merged commit"}, then run npm run release:tag -- ${version} (add --push to publish the tag). Nothing has been committed or published.\n`,
+            `Prepared ${version} on ${branch}; ${changelog === undefined ? "preserved existing release notes" : "drafted release notes from commit subjects"}.\nReview and edit CHANGELOG.md and any other changes. ${version.includes("-") ? "Commit the reviewed changes" : "Commit the reviewed changes, merge a PR into main, and check out its merged commit"}, then run npm run release:tag -- ${version} (add --push to publish the tag). Nothing has been committed or published.\n`,
         );
     } catch (error) {
         process.stderr.write(`${error.message}\n`);

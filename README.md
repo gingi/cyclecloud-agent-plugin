@@ -24,37 +24,39 @@ cyclecloud --version
 
 If needed, install the CLI from your trusted CycleCloud instance's **Download CLI Tools** link, then run `cyclecloud initialize` in an interactive terminal. Never paste passwords or tokens into chat. See [configuration](docs/configuration.md) for PATH/WSL differences, authentication, private CAs, and selecting an existing configuration file.
 
-### 2. Install the plugin from local source
+### 2. Install the plugin
 
-Use a reviewed source checkout containing the `cyclecloud` plugin or an extracted source package in a **persistent directory**. The planned repository distribution, `gingi/cyclecloud-agent-plugin`, is not available until the repository rename and this version are published; use local source for now.
+Install from the canonical repository, [gingi/cyclecloud-agent-plugin](https://github.com/gingi/cyclecloud-agent-plugin). No local source checkout, build, or `npm install` is needed.
 
-For **Copilot CLI**, replace the example path with your source directory:
+For **Copilot CLI**:
 
 ```sh
-copilot plugin marketplace add /absolute/path/to/cyclecloud-agent-plugin
+copilot plugin marketplace add gingi/cyclecloud-agent-plugin
 copilot plugin install cyclecloud@cyclecloud
 ```
 
-Keep the source directory in place while using the plugin. A local marketplace can read that directory directly. No build or `npm install` is needed.
+For **VS Code**:
 
-For **VS Code**, enable Agent Plugins and register the same persistent directory in settings:
+1. Enable Agent Plugins by setting `"chat.plugins.enabled": true` in settings.
+2. Run **Chat: Install Plugin From Source** from the Command Palette.
+3. Enter `https://github.com/gingi/cyclecloud-agent-plugin` and approve installation if prompted.
 
-```json
-{
-    "chat.plugins.enabled": true,
-    "chat.pluginLocations": {
-        "/absolute/path/to/cyclecloud-agent-plugin": true
-    }
-}
-```
+Start a new agent session after installation. VS Code installation is separate from Copilot CLI registration; see [host discovery troubleshooting](docs/troubleshooting.md#host-discovery) if the skills do not appear.
 
-Merge these settings with existing entries, using a path visible to the VS Code environment executing agent commands. Start a new agent session after installation. VS Code enablement is separate from Copilot CLI registration; see [host discovery troubleshooting](docs/troubleshooting.md#host-discovery) if the skills do not appear.
-
-For exact releases and previews, use the selected archive rather than repository registration. See [source installation options](docs/development.md#install-a-local-or-unpublished-build).
+Repository installation can include unreleased changes. For an exact release, preview, or local development build, see [source installation options](docs/development.md#install-a-local-or-unpublished-build).
 
 ### 3. Check compatibility and inspect a cluster
 
-From your source directory:
+In an agent session, ask:
+
+- “Check my CycleCloud CLI compatibility and list my CycleCloud clusters.”
+- “Show capacity and issues for cluster `demo`.”
+- “Get application authoring context for `demo`, targeting `scheduler` and `hpc`.”
+- “Prepare a cluster-init application project using the configured cluster environment.”
+
+Replace `demo` with your cluster's name. Review terminal tool-call approvals. For setup or request failures, use the [troubleshooting guide](docs/troubleshooting.md).
+
+For optional manual diagnostics from a source checkout:
 
 ```sh
 sh scripts/cyclecloud-inspect capabilities
@@ -63,20 +65,11 @@ sh scripts/cyclecloud-inspect clusters --schema-version 1
 
 The first command checks local CLI compatibility without contacting CycleCloud. A successful response contains `result.cliVersion`, `result.inspectionContracts`, and `result.backend`. The second command contacts your configured instance and returns cluster names under `result.clusters`; an empty list means no clusters were returned. Failures contain an `error` object with a code and guidance instead of `result`.
 
-To select another CLI installation:
+To select another CLI installation for a manual check:
 
 ```sh
 CYCLECLOUD_CLI="/absolute/path/to/cyclecloud" sh scripts/cyclecloud-inspect capabilities
 ```
-
-In an agent session, ask:
-
-- “List my CycleCloud clusters.”
-- “Show capacity and issues for cluster `demo`.”
-- “Get application authoring context for `demo`, targeting `scheduler` and `hpc`.”
-- “Prepare a cluster-init application project using the configured cluster environment.”
-
-Replace `demo` with your cluster's name. Review terminal tool-call approvals. For setup or request failures, use the [troubleshooting guide](docs/troubleshooting.md).
 
 ## What inspection provides
 
@@ -99,7 +92,7 @@ Start with the [application authoring guide](docs/application-authoring.md) for 
 
 ## Update or remove
 
-For a local marketplace, update the reviewed source in its persistent location and refresh the host. For repository installations, use the host's native plugin update mechanism. Recheck compatibility after changing the CLI or plugin, and preserve any deliberate disabled state.
+Use the host's native plugin update mechanism for repository installations. If you installed a local development build instead, update the reviewed source in its persistent location and refresh the host. Recheck compatibility after changing the CLI or plugin, and preserve any deliberate disabled state.
 
 To remove a marketplace installation from Copilot CLI:
 
