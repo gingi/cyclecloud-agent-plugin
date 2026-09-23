@@ -83,7 +83,7 @@ Prepare the version and changelog, review them through a normal PR, then **push 
 
 Configure these rules in GitHub:
 
-- Protect the default branch with required PRs and the **Build, verify, and package** check. Require reviews as the maintainer team grows; GitHub enforces that policy when merging.
+- Protect the default branch with required PRs and the **Verify and package source** check. Require reviews as the maintainer team grows; GitHub enforces that policy when merging.
 - Restrict creation of `v*` tags to release maintainers. Use a separate tag ruleset to block tag updates and deletions, without granting those maintainers a bypass of that rule.
 - Enable [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases) to lock published tags and assets. The workflow uploads all assets to a draft before publishing, so it works with immutability enabled.
 
