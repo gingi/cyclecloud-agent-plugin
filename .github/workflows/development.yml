@@ -20,7 +20,7 @@ permissions:
 
 jobs:
     build-verify-package:
-        name: Build, verify, and package
+        name: Verify and package source
         runs-on: ubuntu-latest
         steps:
             - name: Check out source
