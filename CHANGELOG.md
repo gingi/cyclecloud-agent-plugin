@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.3.0]
+
+- Replace MCP runtime with an agent plugin backed by the `cyclecloud` CLI (#12)
+
 ## [0.2.0]
 
 First public release.
