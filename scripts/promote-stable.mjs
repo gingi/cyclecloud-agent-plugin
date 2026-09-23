@@ -11,6 +11,41 @@ function stableCommit(ref) {
     }
 }
 
+function taggedCommit(base, tag) {
+    // Filter in gh before buffering: full commit diffs can exceed 1 MiB.
+    return githubApi(
+        `${base}/commits/${encodeURIComponent(`refs/tags/${tag}`)}`,
+        {
+            jq: "{sha: .sha, tree: .commit.tree.sha}",
+        },
+    );
+}
+
+function stableSource(base, current) {
+    const snapshot = githubApi(`${base}/git/commits/${current}`);
+    if (snapshot?.sha !== current || typeof snapshot.message !== "string")
+        throw new Error("Invalid stable commit metadata");
+    const source = snapshot.message.match(
+        /^Release (v[^\n]+)\n\nSource-Commit: ([a-f0-9]{40})\n?$/,
+    );
+    // Accept an existing tag/main commit as the starting point, without rewriting it.
+    if (!source) return current;
+    const [, tag, commit] = source;
+    if (versionFromTag(tag).includes("-"))
+        throw new Error("Invalid prerelease in stable commit metadata");
+    const tagged = taggedCommit(base, tag);
+    if (
+        tagged?.sha !== commit ||
+        requireSha(tagged.tree) !== snapshot.tree?.sha ||
+        !Array.isArray(snapshot.parents) ||
+        snapshot.parents.length > 1
+    )
+        throw new Error(
+            "Invalid stable release commit: does not match its source tag",
+        );
+    return commit;
+}
+
 function promote() {
     if (process.argv.length !== 4)
         throw new Error(
@@ -21,15 +56,12 @@ function promote() {
         throw new Error("Cannot promote a prerelease to stable");
     requireSha(commit);
     const base = `repos/${releaseRepository()}`;
-    // Filter in gh before buffering: full commit/compare diffs can exceed 1 MiB.
-    const target = githubApi(
-        `${base}/commits/${encodeURIComponent(`refs/tags/${tag}`)}`,
-        { jq: "{sha: .sha}" },
-    );
+    const target = taggedCommit(base, tag);
     if (target?.sha !== commit)
         throw new Error(
             `Tag ${tag} points to a different commit; refusing to promote`,
         );
+    const tree = requireSha(target.tree);
     const release = githubApi(
         `${base}/releases/tags/${encodeURIComponent(tag)}`,
     );
@@ -59,42 +91,62 @@ function promote() {
     if (!Array.isArray(matches)) throw new Error("Invalid stable ref lookup");
     const refs = matches.filter((ref) => ref?.ref === "refs/heads/stable");
     if (refs.length > 1) throw new Error("Ambiguous stable ref lookup");
-    let updated;
-    if (refs.length === 0) {
-        updated = githubApi(`${base}/git/refs`, {
-            method: "POST",
-            body: { ref: "refs/heads/stable", sha: commit },
-        });
-    } else {
-        const current = stableCommit(refs[0]);
-        if (current === commit) {
+    const current = refs.length ? stableCommit(refs[0]) : undefined;
+    if (current) {
+        const source = stableSource(base, current);
+        if (source === commit) {
             process.stdout.write(
-                `Stable already points to ${tag} at ${commit}; unchanged.\n`,
+                `Stable already includes ${tag} at ${current}; unchanged.\n`,
             );
             return;
         }
+        // Compare main's source commits, not stable's independent release history.
         // GitHub's commits list can be truncated; status describes the full comparison.
-        const status = githubApi(`${base}/compare/${current}...${commit}`, {
+        const status = githubApi(`${base}/compare/${source}...${commit}`, {
             jq: "{status: .status}",
         })?.status;
         if (status === "behind" || status === "identical") {
             process.stdout.write(
-                `Stable already includes ${tag} at ${commit}; unchanged.\n`,
+                `Stable already includes ${tag} at ${current}; unchanged.\n`,
             );
             return;
         }
         if (status !== "ahead")
-            throw new Error("Cannot fast-forward stable to this release");
-        updated = githubApi(`${base}/git/refs/heads/stable`, {
-            method: "PATCH",
-            body: { sha: commit, force: false },
-        });
+            throw new Error("Stable source history diverges from this release");
     }
-    if (stableCommit(updated) !== commit)
+    const message = `Release ${tag}\n\nSource-Commit: ${commit}`;
+    const parents = current ? [current] : [];
+    const created = githubApi(`${base}/git/commits`, {
+        method: "POST",
+        body: { message, tree, parents },
+    });
+    const sha = requireSha(created?.sha);
+    if (
+        created.message !== message ||
+        created.tree?.sha !== tree ||
+        !Array.isArray(created.parents) ||
+        created.parents.length !== parents.length ||
+        created.parents.some((parent, index) => parent?.sha !== parents[index])
+    )
+        throw new Error("GitHub did not confirm the requested release commit");
+    // This advances only stable's own history. A concurrent promotion makes this
+    // commit a sibling, so force:false rejects it rather than losing a release.
+    const updated = current
+        ? githubApi(`${base}/git/refs/heads/stable`, {
+              method: "PATCH",
+              body: { sha, force: false },
+          })
+        : githubApi(`${base}/git/refs`, {
+              method: "POST",
+              body: { ref: "refs/heads/stable", sha },
+          });
+    if (stableCommit(updated) !== sha)
         throw new Error(
             "GitHub did not confirm stable at the requested commit",
         );
-    process.stdout.write(`Promoted stable to ${tag} at ${commit}.\n`);
+    process.stdout.write(
+        `Promoted stable to ${tag} at ${sha} (source ${commit}).\n`,
+    );
 }
 
 try {
