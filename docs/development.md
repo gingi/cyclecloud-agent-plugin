@@ -13,7 +13,7 @@ git pull --ff-only origin main
 git switch -c <feature-branch>
 ```
 
-Create contributor and release-preparation PRs with `gh pr create --base main`. Never commit directly to `stable`; only promote an exact verified release commit.
+Create contributor and release-preparation PRs with `gh pr create --base main`. Never commit development changes directly to `stable`; promotion creates one release-only commit containing the exact verified release tree.
 
 Use a supported Node development version from `package.json` and Python 3.9+ for the complete development suite (the inspection source targets Python 3.8+). Install development dependencies and verify:
 
@@ -135,7 +135,7 @@ copilot plugin install cyclecloud@cyclecloud
 
 For VS Code, the equivalent repository path uses **Chat: Install Plugin From Source** with the reviewed repository URL.
 
-Repository registration follows the repository's default source on `main`, not a release or preview archive. The separate `stable` branch points to the exact published stable tag commit that passed public verification. To follow that release channel, explicitly select `stable` in a persistent source checkout and register its local path. For an exact release, feature-branch preview, or offline installation, verify and extract the selected source archive into a persistent directory and register that local path. Publishing a preview does not update `stable`.
+Repository registration follows the repository's default source on `main`, not a release or preview archive. The separate `stable` branch contains release-only commits whose file trees match the published stable tags that passed public verification. Each new commit is titled `Release vX.Y.Z`, has the previous `stable` tip as its sole parent, and records the tagged source SHA in a `Source-Commit` trailer. Its SHA differs from the tag's SHA; development commits are not merged into its history. To follow that release channel, explicitly select `stable` in a persistent source checkout and register its local path. For an exact release, feature-branch preview, or offline installation, verify and extract the selected source archive into a persistent directory and register that local path. Publishing a preview does not update `stable`.
 
 ### Isolated host checks
 
@@ -155,14 +155,14 @@ Extract artifacts to a persistent directory for host registration. A source pack
 
 Plugin release versions remain independent of CLI versions. `compatibility.json` selects the 8.10 bridge policy and required native inspection schema. Publishing the bridge does **not** wait for 8.11; removing the bridge later requires a deliberate minimum-CLI/support decision.
 
-Prepare the version and changelog, review them through a normal PR into `main`, then **push a version tag**. The **Release** workflow builds and publishes the exact tagged commit, verifies public downloads, then promotes `stable` to that commit. Stable tags must identify a commit on `main`, regardless of the repository default; SemVer prerelease tags such as `v0.2.0-rc.1` may identify a feature-branch commit and never promote `stable`. There is no release-preparation dispatch workflow or automatic release-branch cleanup.
+Prepare the version and changelog, review them through a normal PR into `main`, then **push a version tag**. The **Release** workflow builds and publishes the exact tagged commit, verifies public downloads, then squashes its snapshot into a new `Release vX.Y.Z` commit on `stable`. Stable tags must identify a commit on `main`, regardless of the repository default; SemVer prerelease tags such as `v0.2.0-rc.1` may identify a feature-branch commit and never promote `stable`. There is no release-preparation dispatch workflow or automatic release-branch cleanup.
 
 ### Repository settings
 
 Configure these rules in GitHub:
 
 - Protect **`refs/heads/main` explicitly**, not a dynamic default-branch target, with required PRs and the **Verify and package source** check. Require reviews as the maintainer team grows; GitHub enforces that policy when merging.
-- Protect `refs/heads/stable` against deletion and non-fast-forward updates. Do not apply a PR gate to `stable`: promotion must advance it directly to an already-reviewed release commit, without a merge commit. Ensure the promotion token can create/fast-forward that ref without bypassing deletion or non-fast-forward protection.
+- Protect `refs/heads/stable` against deletion and non-fast-forward updates. Do not apply a PR gate to `stable`: promotion creates a single-parent release commit directly from an already-reviewed source tree. Ensure the promotion token can create commits and advance the ref without bypassing deletion or non-fast-forward protection. The ref advances along `stable`'s own release history, never directly to `main` or the tag commit.
 - Restrict creation of `v*` tags to release maintainers. Use a separate tag ruleset to block tag updates and deletions, without granting those maintainers a bypass of that rule.
 - Enable [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases) to lock published tags and assets. The publishing helper delegates draft creation, asset upload and publication to GitHub CLI, so all assets are staged before the release becomes immutable.
 
@@ -217,7 +217,7 @@ To use that exact preview, verify/extract its versioned source archive into a pe
 - **Publish (write access, no dependency installation):** confirm the existing remote tag still identifies the built commit, upload both assets and committed notes into a draft, then publish. Existing releases/drafts are refused; tags/assets are never overwritten. Prereleases use `--prerelease --latest=false`; GitHub selects latest for stable releases.
 - **Post-release (read-only):** download anonymously, check checksums/tag/full-SHA metadata and the extracted source package, then exercise bounded launcher smoke. If this release is latest stable, verify its latest checksum download as well. This does not validate native Copilot/VS Code installation.
 
-- **Promote (write access, no dependency installation):** only after build, publication, and public verification all succeed for a nonprerelease, recheck the remote tag's peeled SHA, published stable release metadata, and ancestry against a snapshot of `main`. Create `stable` if absent or fast-forward it to the exact tag commit with `force: false`. An equal/newer `stable` is a successful no-op; divergence or API errors fail closed. Compare status is authoritative even when GitHub truncates the returned commit list.
+- **Promote (write access, no dependency installation):** only after build, publication, and public verification all succeed for a nonprerelease, recheck the remote tag's peeled SHA, published stable release metadata, and ancestry against a snapshot of `main`. Create a commit titled `Release vX.Y.Z` using the tag's exact tree, the current `stable` tip as its sole parent, and a `Source-Commit: <tagged-sha>` trailer. If `stable` is absent, create a parentless release commit. Update the ref with `force: false`; never import `main`'s commit history. For subsequent promotions, validate the existing release commit against its source tag and compare source SHAs to detect an equal/newer release (a successful no-op) or divergent history (an error). Existing tag/main commits are accepted as a migration starting point without rewriting them. Compare status is authoritative even when GitHub truncates the returned commit list; API errors fail closed.
 
 Publication and promotion are serialized across versions. Tests use isolated fixtures/local HTTP without real CycleCloud credentials; public verification passes no GitHub token to downloads. A private repository needs a different download/authentication design. The workflow does not create/move tags or delete source branches.
 
@@ -244,23 +244,20 @@ npm run verify:release -- v0.2.0 <full-commit-sha>
 
 Append `--latest` only for the current latest stable. Verification uses isolated storage, not your installed plugin or credentials. `verify-release.mjs` delegates to `verify-package.mjs`, which compares full source bytes against its own checkout; verifying a historic release from changed `main` is invalid.
 
-### Stable-channel migration
+### Manual stable promotion
 
-This code change does not create `stable`, change the repository default, or configure protection. Perform those operational steps separately after review:
+Workflow reruns use the workflow and helper from the tagged commit, not updated tooling from `main`. To promote an existing release with a reviewed helper:
 
-1. Retain the existing `v0.2.0` and `v0.3.0` tags and ordinary ancestry. Initial `stable` should point exactly to `v0.3.0`, whose history already includes `v0.2.0`; do not rewrite tags, reset history, or manufacture a stable-only merge.
-2. Record successful public verification of `v0.3.0` at its full peeled commit SHA. Run `npm ci --ignore-scripts` and `npm run verify:release -- v0.3.0 <full-v0.3.0-commit-sha>` from a separate exact **`v0.3.0` checkout, using that release's source and verification harness**, not the modified `main` checkout. Include `--latest` only if it remains latest stable.
-3. Old release workflow reruns use the old tagged workflow; they cannot acquire the new promotion job. After the preceding verification succeeds, invoke the reviewed promotion helper from the updated tooling checkout with that same tag and full SHA:
+1. From a clean checkout of the exact tag, run `npm ci --ignore-scripts` and `npm run verify:release -- <tag> <full-tagged-commit-sha>`. Record successful verification for that tag/SHA. Include `--latest` only for the current latest stable release.
+2. From the reviewed tooling checkout, run:
 
     ```sh
-    GH_REPO=gingi/cyclecloud-agent-plugin npm run release:promote -- v0.3.0 <full-v0.3.0-commit-sha>
+    GH_REPO=gingi/cyclecloud-agent-plugin npm run release:promote -- <tag> <full-tagged-commit-sha>
     ```
 
-    This is an authorized remote write requiring a token with repository contents write access. The helper checks identity, release metadata, and ancestry but **does not independently run public verification**; manual invocations require recorded successful verification evidence for the same SHA. It only creates/advances `stable`, never tags, releases, assets, or settings.
+    This is a remote write requiring authorization and a token with repository contents write access. The helper checks identity, release metadata, and ancestry but **does not independently run public verification**. It creates a release commit and creates/advances `stable`; it never changes tags, releases, assets, repository settings, or existing history. Configure branch protections separately as described in [Repository settings](#repository-settings).
 
-4. Configure the explicit `main` and `stable` protections above. Keep `main` as the repository default for contributor PRs, ordinary repository installations, and manual Development dispatches; `stable` remains a separate release channel.
-
-The source and docs visible on initial `stable` remain exactly as shipped in `v0.3.0`, including their older guidance, until the next release. Never merge standalone docs/tooling changes into `stable` to update them; release through `main` and promote the verified tag instead.
+An existing `stable` tip on `main` is a supported starting point: promotion preserves its inherited history and adds release-only commits. Removing that inherited history requires a separately authorized rewrite. Changes to source, docs, or tooling must reach `stable` through a verified release from `main`, not standalone commits.
 
 ### Failure and retry behavior
 
