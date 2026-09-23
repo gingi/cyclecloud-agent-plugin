@@ -4,7 +4,7 @@ The plugin is source-only. Node is development tooling and powers the small auth
 
 ## Setup and verification
 
-`main` remains the development branch; `stable` is the repository default and installation channel. Explicitly select and update `main` rather than relying on the clone or PR default:
+`main` is the repository default and development branch; `stable` is the separate verified release channel. Start development from an up-to-date `main` checkout:
 
 ```sh
 git fetch origin
@@ -126,7 +126,7 @@ To test a specific branch/SHA, select that reviewed source in a separate checkou
 
 ### Repository distribution
 
-Repository installation from `gingi/cyclecloud-agent-plugin` follows the `stable` default branch:
+Repository installation from `gingi/cyclecloud-agent-plugin` follows the `main` default branch, which can include unreleased changes:
 
 ```sh
 copilot plugin marketplace add gingi/cyclecloud-agent-plugin
@@ -135,7 +135,7 @@ copilot plugin install cyclecloud@cyclecloud
 
 For VS Code, the equivalent repository path uses **Chat: Install Plugin From Source** with the reviewed repository URL.
 
-Repository registration follows the repository's default source, not a release or preview archive. The default is `stable`, pointing to the exact published stable tag commit that passed public verification; `main` continues independently with development. For an exact release, feature-branch preview, or offline installation, verify and extract the selected source archive into a persistent directory and register that local path. Publishing a preview does not update `stable`.
+Repository registration follows the repository's default source on `main`, not a release or preview archive. The separate `stable` branch points to the exact published stable tag commit that passed public verification. To follow that release channel, explicitly select `stable` in a persistent source checkout and register its local path. For an exact release, feature-branch preview, or offline installation, verify and extract the selected source archive into a persistent directory and register that local path. Publishing a preview does not update `stable`.
 
 ### Isolated host checks
 
@@ -147,7 +147,7 @@ Record results in [verification status](#verification-status), separately from m
 
 ### Development workflow artifacts
 
-For a manual **Development build** dispatch, explicitly select **main** in the branch selector (or use `gh workflow run development.yml --ref main`); the repository default is `stable`. The workflow already runs on all branches and verifies and packages the selected source. Artifacts use `cyclecloud-agent-plugin-package-<ref>-<source-sha>` naming. `SOURCE_COMMIT.json` records source SHA, checkout SHA, ref, event and run metadata; a PR's source SHA and synthetic merge checkout SHA may differ. Keep the file when sharing a package.
+For a manual **Development build** dispatch, use the default **main** branch (or `gh workflow run development.yml --ref main`), or select another branch to verify that source. The workflow already runs on all branches and verifies and packages the selected source. Artifacts use `cyclecloud-agent-plugin-package-<ref>-<source-sha>` naming. `SOURCE_COMMIT.json` records source SHA, checkout SHA, ref, event and run metadata; a PR's source SHA and synthetic merge checkout SHA may differ. Keep the file when sharing a package.
 
 Extract artifacts to a persistent directory for host registration. A source package does not need a compiled `bin` directory. Host discovery tests and structured-helper smoke tests are separate from agent-behavior evaluations.
 
@@ -258,7 +258,7 @@ This code change does not create `stable`, change the repository default, or con
 
     This is an authorized remote write requiring a token with repository contents write access. The helper checks identity, release metadata, and ancestry but **does not independently run public verification**; manual invocations require recorded successful verification evidence for the same SHA. It only creates/advances `stable`, never tags, releases, assets, or settings.
 
-4. Configure the explicit `main` and `stable` protections above, then separately change the default branch to `stable`. Confirm contributor PR bases and manual Development dispatches still select `main`.
+4. Configure the explicit `main` and `stable` protections above. Keep `main` as the repository default for contributor PRs, ordinary repository installations, and manual Development dispatches; `stable` remains a separate release channel.
 
 The source and docs visible on initial `stable` remain exactly as shipped in `v0.3.0`, including their older guidance, until the next release. Never merge standalone docs/tooling changes into `stable` to update them; release through `main` and promote the verified tag instead.
 
