@@ -21,8 +21,10 @@ function promote() {
         throw new Error("Cannot promote a prerelease to stable");
     requireSha(commit);
     const base = `repos/${releaseRepository()}`;
+    // Filter in gh before buffering: full commit/compare diffs can exceed 1 MiB.
     const target = githubApi(
         `${base}/commits/${encodeURIComponent(`refs/tags/${tag}`)}`,
+        { jq: "{sha: .sha}" },
     );
     if (target?.sha !== commit)
         throw new Error(
@@ -42,10 +44,13 @@ function promote() {
             `Expected an exact published stable release for ${tag}`,
         );
     const main = requireSha(
-        githubApi(`${base}/commits/${encodeURIComponent("refs/heads/main")}`)
-            ?.sha,
+        githubApi(`${base}/commits/${encodeURIComponent("refs/heads/main")}`, {
+            jq: "{sha: .sha}",
+        })?.sha,
     );
-    const onMain = githubApi(`${base}/compare/${commit}...${main}`)?.status;
+    const onMain = githubApi(`${base}/compare/${commit}...${main}`, {
+        jq: "{status: .status}",
+    })?.status;
     if (onMain !== "ahead" && onMain !== "identical")
         throw new Error("Stable release commit must belong to main");
 
@@ -69,9 +74,9 @@ function promote() {
             return;
         }
         // GitHub's commits list can be truncated; status describes the full comparison.
-        const status = githubApi(
-            `${base}/compare/${current}...${commit}`,
-        )?.status;
+        const status = githubApi(`${base}/compare/${current}...${commit}`, {
+            jq: "{status: .status}",
+        })?.status;
         if (status === "behind" || status === "identical") {
             process.stdout.write(
                 `Stable already includes ${tag} at ${commit}; unchanged.\n`,

@@ -104,10 +104,25 @@ describe("Stable release promotion", () => {
         const { result, calls, writes } = await promote();
         expect(result.status, result.stderr).toBe(0);
         expect(calls.slice(0, 5).map((call) => call.args)).toEqual([
-            ["api", `${base}/commits/refs%2Ftags%2Fv0.3.0`],
+            [
+                "api",
+                `${base}/commits/refs%2Ftags%2Fv0.3.0`,
+                "--jq",
+                "{sha: .sha}",
+            ],
             ["api", `${base}/releases/tags/v0.3.0`],
-            ["api", `${base}/commits/refs%2Fheads%2Fmain`],
-            ["api", `${base}/compare/${commit}...${main}`],
+            [
+                "api",
+                `${base}/commits/refs%2Fheads%2Fmain`,
+                "--jq",
+                "{sha: .sha}",
+            ],
+            [
+                "api",
+                `${base}/compare/${commit}...${main}`,
+                "--jq",
+                "{status: .status}",
+            ],
             ["api", lookup],
         ]);
         expect(writes).toHaveLength(1);
@@ -198,6 +213,23 @@ describe("Stable release promotion", () => {
         });
         expect(result.status, result.stderr).toBe(0);
     });
+
+    test.each([
+        `${base}/commits/refs%2Ftags%2Fv0.3.0`,
+        `${base}/commits/refs%2Fheads%2Fmain`,
+        `${base}/compare/${commit}...${main}`,
+        `${base}/compare/${previous}...${commit}`,
+    ])(
+        "Handles oversized commit/diff responses from %s",
+        async (largeResponse) => {
+            const { result, writes } = await promote({
+                stableRefs: [stableRef()],
+                largeResponse,
+            });
+            expect(result.status, result.stderr).toBe(0);
+            expect(writes).toHaveLength(1);
+        },
+    );
 
     test("Uses top-level compare status even when the commit list is truncated", async () => {
         const commits = Array.from({ length: 250 }, () => ({
