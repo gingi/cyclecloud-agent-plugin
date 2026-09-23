@@ -11,7 +11,7 @@
 | Scheduler      | Partition, account if required, task layout, supported MPI launcher                      |
 | Test           | Small case, expected result, bounded resources and wall time                             |
 
-The current MCP does not establish all these facts. Document the source of each fact; distinguish confirmed values from assumptions.
+CLI inspection does not establish all these facts. Document the source of each fact; distinguish confirmed values from assumptions.
 
 ## Discover facts before asking questions
 
@@ -39,13 +39,13 @@ Example response after discovery (substitute actual evidence): “The selected t
 
 ## Context and attachment handoff
 
-Start `get_cluster_application_context` in its default overview view; select targets before requesting details. For one target at a time, use `view="details"` and `section="environment"` for platform/Slurm settings, `section="storage"` for mounts/volumes, or `section="attachments"` for specs/parameters/shared uses. Overview intentionally omits these detail collections and does not read parameter values. Do not read every target or section simply because more data exists. Values describe configuration, not runtime verification.
+Use the installed plugin's `scripts/cyclecloud-inspect` launcher. Start `application-context NAME --schema-version 1 --view overview`; select targets before requesting details. For one `--target-name` at a time, use `--view details` and `--section environment` for platform/Slurm settings, `--section storage` for mounts/volumes, or `--section attachments` for specs/parameters/shared uses. Read `result.context` in the schema-1 envelope. Overview intentionally omits these detail collections and does not read parameter values. Do not read every target or section simply because more data exists. Values describe configuration, not runtime verification.
 
 Collections include `offset`, `nextOffset`, `total`, `returned`, and `truncated`. Pages also have byte limits, so `returned` may be less than the requested limit. Follow the particular collection's `nextOffset` as `offset`, keeping its target/section and limits; sibling collections share the offset and can overlap. Stop when the needed evidence is complete, not when the whole cluster has been exhausted. Re-read before changes because pages are not a snapshot.
 
 Fill `ATTACHMENT.md` with actual target-to-parameter mappings, current spec identities to preserve, and project/version/locker selections. Parameter `usedBy.items` lists include unselected definitions in the queried cluster, but not all child clusters of a root parameter scope. If a list is truncated or a mapping is unavailable, require inspection before recommending an edit. Shared or inherited scheduler parameters are not proof of a single installer node.
 
-Give the operator concrete upload and attachment steps without executing them. Parameter labels can guide the edit form; a template-managed cluster needs a diff against its authoritative source, not reconstruction from partial MCP data. Re-read after attachment. Any start/terminate handoff requires separate approval, workload safety, storage checks, and observation of completion. Never equate accepted lifecycle requests with completed configuration or successful installation.
+Give the operator concrete upload and attachment steps without executing them. Parameter labels can guide the edit form; a template-managed cluster needs a diff against its authoritative source, not reconstruction from partial inspection data. Re-read after attachment. Any start/terminate handoff requires separate approval, workload safety, storage checks, and observation of completion. Never equate accepted lifecycle requests with completed configuration or successful installation.
 
 ## What remains to implement
 

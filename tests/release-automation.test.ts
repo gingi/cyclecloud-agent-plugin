@@ -40,8 +40,7 @@ async function publish(
     await mkdir(bin);
     await mkdir(assets);
     for (const name of [
-        `cyclecloud-mcp-${tag.slice(1)}.tar.gz`,
-        "install.sh",
+        `cyclecloud-agent-plugin-${tag.slice(1)}.tar.gz`,
         "SHA256SUMS",
     ])
         await writeFile(join(assets, name), "Verified asset");
@@ -80,6 +79,45 @@ async function publish(
     };
 }
 
+describe("Source release workflow guards", () => {
+    test("preserves tag-triggered publication and source-only verification", async () => {
+        const workflow = (name: string) =>
+            readFile(join(root, ".github/workflows", name), "utf8");
+        const [release, development] = await Promise.all([
+            workflow("release.yml"),
+            workflow("development.yml"),
+        ]);
+        expect(release).toContain('tags: ["v*"]');
+        expect(release).toContain("ref: ${{ github.sha }}");
+        expect(release).toContain("fetch-depth: 0");
+        expect(release).toContain("node scripts/release-context.mjs");
+        expect(release).toContain(
+            'node scripts/publish-release.mjs "$RELEASE_TAG" "$RELEASE_COMMIT" release-assets',
+        );
+        expect(release).toContain("needs.build.outputs.prerelease == 'false'");
+        expect(release).not.toContain("cleanup-release-branch.mjs");
+        expect(release).not.toContain("workflow_call");
+        expect(release).not.toContain("--clobber");
+        expect(release).toContain(
+            "cyclecloud-agent-plugin-${RELEASE_TAG#v}.tar.gz",
+        );
+        expect(release).toContain(
+            "native Copilot/VS Code installation was not validated",
+        );
+        expect(release).toContain("env -u GH_TOKEN npm run verify:release");
+        expect(development).toContain("include-hidden-files: true");
+        expect(development).toContain("path: dist/cyclecloud-agent-plugin");
+        await expect(workflow("prepare-release.yml")).rejects.toHaveProperty(
+            "code",
+            "ENOENT",
+        );
+        await expect(workflow("publish-release.yml")).rejects.toHaveProperty(
+            "code",
+            "ENOENT",
+        );
+    });
+});
+
 describe("Release publication", () => {
     test("Delegates draft staging and publication of all assets to GitHub CLI", async () => {
         const { result, calls, assets } = await publish();
@@ -94,8 +132,7 @@ describe("Release publication", () => {
             "release",
             "create",
             "v0.1.0",
-            join(assets, "cyclecloud-mcp-0.1.0.tar.gz"),
-            join(assets, "install.sh"),
+            join(assets, "cyclecloud-agent-plugin-0.1.0.tar.gz"),
             join(assets, "SHA256SUMS"),
             "--verify-tag",
             "--title",

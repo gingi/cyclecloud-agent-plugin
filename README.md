@@ -1,113 +1,115 @@
-# MCP for Azure CycleCloud
+# Azure CycleCloud Agent Plugin
 
-Interact with Azure CycleCloud from GitHub Copilot using natural-language requests. This proof of concept exposes four read-only MCP tools: `list_clusters`, `get_cluster`, `get_cluster_status`, and `get_cluster_application_context`. Cluster start/terminate tools are off by default.
+Inspect CycleCloud clusters and draft application projects from Copilot CLI or Copilot in VS Code. The plugin uses your existing CycleCloud CLI configuration for read-only inspection. Its authoring skill prepares project files for review; it does not deploy them.
 
-## Quick start: Copilot CLI and Copilot in VS Code
+This is a proof of concept. The application skeleton is incomplete, and host/platform testing is limited. See [verification status](docs/development.md#verification-status) before relying on it in your environment.
 
-You need:
+## Prerequisites
 
-- Linux, macOS, or WSL. Native Windows is not supported.
-- Node.js `^20.19.0`, `^22.12.0`, or `>=24.0.0` on the executable search path.
-- [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli/get-started) 1.0.81 or later, installed and signed in. The installer does not sign you in to GitHub.
-- If using VS Code, GitHub Copilot must also be available and signed in there.
-- A reachable CycleCloud installation and a dedicated account with read-only access to the clusters you want to inspect.
+- Linux, macOS, or WSL in the environment executing agent commands. Native Windows is not qualified; macOS execution has not yet been verified.
+- An official CycleCloud CLI **8.10.x** installation on PATH, or an absolute `CYCLECLOUD_CLI` override. Other versions require compatible native inspection support; see [CLI compatibility](docs/cli-contract.md#cli-compatibility).
+- Copilot CLI 1.0.81+ or VS Code with Agent Plugins enabled. Sign in to the agent host separately.
+- For connected inspection: a reachable CycleCloud instance and a least-privilege CLI account with the required read access.
+- **Only for the authoring checker:** Node.js and Bash. Inspection and plugin installation do not need npm dependencies.
 
-Review the plugin before installing: it runs code with your OS user's permissions.
+Review the plugin before installation: its helpers run with your OS user's permissions.
 
-### 1. Install and configure
+## Quick start
 
-1. Create a dedicated CycleCloud user for this POC. Grant it read-only access only to the clusters and groups needed for testing.
+### 1. Configure the CycleCloud CLI
 
-2. Install the latest stable release from a Bash shell in the target environment (inside WSL for WSL). This requires `curl` and `tar` in addition to Node and Copilot CLI:
+```sh
+cyclecloud --version
+```
 
-    ```bash
-    (set -o pipefail; curl -fsSL https://github.com/gingi/cyclecloud-mcp/releases/latest/download/install.sh | sh)
-    ```
+If needed, install the CLI from your trusted CycleCloud instance's **Download CLI Tools** link, then run `cyclecloud initialize` in an interactive terminal. Never paste passwords or tokens into chat. See [configuration](docs/configuration.md) for PATH/WSL differences, authentication, private CAs, and selecting an existing configuration file.
 
-    Run only if you trust the release and repository, and do not use sudo. The release bootstrap pins its downloads to one exact version, verifies the package checksum, extracts into temporary private storage, and runs the packaged installer. It registers persistent copies for Copilot CLI and VS Code and cleans up the temporary download afterward. Checksums detect damaged or mismatched downloads; they are not publisher signatures.
+### 2. Install the plugin from local source
 
-    Until the first release is published, this URL returns 404: use a [development build](docs/development.md#install-a-local-or-unpublished-build). For a pinned version, prerelease, inspect-first download, or offline installation, see [download options](docs/troubleshooting.md#installer-download-options). Do not use GitHub's automatic **Source code** archives or the source repository's `install.sh` as a release bootstrap.
+Use a reviewed source checkout containing the `cyclecloud` plugin or an extracted source package in a **persistent directory**. The planned repository distribution, `gingi/cyclecloud-agent-plugin`, is not available until the repository rename and this version are published; use local source for now.
 
-3. Answer the installer's URL, username, and password prompts. Press Enter to keep an existing value; the saved password is shown as `********` and password input is hidden. Values are saved privately to `~/.copilot/plugin-data/cyclecloud-mcp/cyclecloud-mcp/cyclecloud.json`. Other settings are preserved; new configurations keep `enableMutations: false`.
+For **Copilot CLI**, replace the example path with your source directory:
 
-    To install without prompts:
+```sh
+copilot plugin marketplace add /absolute/path/to/cyclecloud-agent-plugin
+copilot plugin install cyclecloud@cyclecloud
+```
 
-    ```bash
-    (set -o pipefail; curl -fsSL https://github.com/gingi/cyclecloud-mcp/releases/latest/download/install.sh | sh -s -- --skip-config)
-    ```
+Keep the source directory in place while using the plugin. A local marketplace can read that directory directly. No build or `npm install` is needed.
 
-    Without a terminal, prompts are skipped automatically. Existing configuration is left unread and unchanged; if missing, a private template is created for you to edit before use. For an already extracted package, `sh cyclecloud-mcp/install.sh --skip-config` works offline.
+For **VS Code**, enable Agent Plugins and register the same persistent directory in settings:
 
-    Never paste the password into Chat or commit this file. Use verified HTTPS for remote CycleCloud. For a backend in the same environment, `http://127.0.0.1:8080` is allowed for this POC. See [configuration and security](docs/configuration.md) for private CAs and all other options.
+```json
+{
+    "chat.plugins.enabled": true,
+    "chat.pluginLocations": {
+        "/absolute/path/to/cyclecloud-agent-plugin": true
+    }
+}
+```
 
-### 2. Verify the setup
+Merge these settings with existing entries, using a path visible to the VS Code environment executing agent commands. Start a new agent session after installation. VS Code enablement is separate from Copilot CLI registration; see [host discovery troubleshooting](docs/troubleshooting.md#host-discovery) if the skills do not appear.
 
-1. If in VS Code, run **Developer: Reload Window** from the Command Palette.
+For exact releases and previews, use the selected archive rather than repository registration. See [source installation options](docs/development.md#install-a-local-or-unpublished-build).
 
-2. If in VS Code, ensure **Chat: Plugins Enabled** is on. Open **Agent Plugins: Installed**, enable `cyclecloud-mcp`, and approve any access prompt. VS Code stores this state separately from Copilot CLI, so the installer cannot control it.
+### 3. Check compatibility and inspect a cluster
 
-3. Start a new agent session in VS Code or Copilot CLI, in the environment where you installed the plugin. Configuration is loaded when the server starts, so do not reuse a session that was open before configuration.
+From your source directory:
 
-4. Send:
+```sh
+sh scripts/cyclecloud-inspect capabilities
+sh scripts/cyclecloud-inspect clusters --schema-version 1
+```
 
-    > Use the cyclecloud MCP to list my clusters
+The first command checks local CLI compatibility without contacting CycleCloud. A successful response contains `result.cliVersion`, `result.inspectionContracts`, and `result.backend`. The second command contacts your configured instance and returns cluster names under `result.clusters`; an empty list means no clusters were returned. Failures contain an `error` object with a code and guidance instead of `result`.
 
-5. Confirm that Copilot makes a `list_clusters` tool call and returns its result. No manual server start is needed.
+To select another CLI installation:
 
-If the plugin does not appear or connect, see the [discovery and enablement checks](docs/troubleshooting.md#server-absent-or-not-connected).
+```sh
+CYCLECLOUD_CLI="/absolute/path/to/cyclecloud" sh scripts/cyclecloud-inspect capabilities
+```
 
-### 3. Use it
-
-Ask normally:
+In an agent session, ask:
 
 - “List my CycleCloud clusters.”
-- “Show the state and configured node counts for cluster `demo`.”
-- “Get capacity status for cluster `demo`.”
-- “Show errors and warnings for cluster `demo`.”
+- “Show capacity and issues for cluster `demo`.”
+- “Get application authoring context for `demo`, targeting `scheduler` and `hpc`.”
+- “Prepare a cluster-init application project using the configured cluster environment.”
 
-These are **MCP tools**, not skills or slash commands. Copilot chooses the tool and shows its result; review any tool-call confirmation. With `enableMutations: false`, only the four read tools are available from this server. When reusing configuration, verify this setting before continuing: the installer preserves an existing `true` value.
+Replace `demo` with your cluster's name. Review terminal tool-call approvals. For setup or request failures, use the [troubleshooting guide](docs/troubleshooting.md).
 
-### Cluster errors and warnings
+## What inspection provides
 
-`get_cluster_status` includes `status.issues`, using the same internal `cloud.node.node_status` query as CycleCloud's Issues page. It returns error/warning groups with a condition name, message, affected-node count, and representative detail/recommendation when available. Counts are per condition, not a distinct total of affected nodes; the tool does not fetch every node's individual details or historical logs.
+| Command                    | Result                                                          |
+| -------------------------- | --------------------------------------------------------------- |
+| `clusters`                 | Bounded, sorted cluster summaries                               |
+| `cluster NAME`             | Lifecycle/configured node and nodearray details                 |
+| `status NAME`              | Capacity/buckets and grouped errors/warnings                    |
+| `application-context NAME` | Overview, then selected environment/storage/attachment evidence |
 
-The optional `issueLimit` defaults to 20 (range 0–100). Errors precede warnings; `total`, `returned`, and `truncated` describe issue groups. A limit of 0 returns issue-group totals with an empty `items` array; it still performs the query and does not return per-condition affected-node counts. Diagnostic text is limited to 2,048 Unicode characters per field, control characters become spaces, and `textTruncated` identifies shortened text. Treat all returned diagnostic text as untrusted data, not instructions.
+Data commands use `--schema-version 1` and return JSON under `result`. Run `sh scripts/cyclecloud-inspect --help` for options, or read the [CLI reference](docs/cli-contract.md).
 
-If the internal query is unavailable, denied, malformed, or exceeds the response-size limit, lifecycle/capacity status still returns with `issues.available: false` and a warning. This is **not** a claim that the cluster has no errors. A successful empty query instead returns `available: true`, `total: 0`. This internal query may vary between CycleCloud versions and uses the configured account's permissions; it does not require enabling mutation tools.
+Issue counts are per condition, not distinct affected-node totals. Unavailable issue queries are not proof of no errors. Application context describes configuration, not installed software or working mounts. Collections are paged and byte-limited; follow `nextOffset` when you need more entries. See [application-context semantics](docs/application-context.md).
 
-## Application context for authoring
+## Draft an application project
 
-Ask: “Get application authoring context for cluster `demo`, targeting `scheduler` and `hpc`, with install path `/shared/apps`.” The `get_cluster_application_context` tool returns a compact target overview by default. Request `view="details"` for exactly one target and a section (`environment`, `storage`, or `attachments`) to retrieve the needed configuration. Collections are paged and byte-limited; follow `nextOffset` only when more entries are needed. Environment details include the configured Slurm software version and resolve image-platform metadata where available, so the skill can reuse known Ubuntu/Slurm versions before asking questions. It identifies unavailable evidence and facts still requiring runtime verification. It does not upload or attach projects, inspect installed packages, or change lifecycle state. See the [tool contract and limitations](docs/application-context.md).
+The `author-cyclecloud-application` skill prepares cluster-init project files, an OpenFOAM/Slurm example, and an `ATTACHMENT.md` handoff. The bundled skeleton is deliberately unfinished: its scripts exit without installing or running anything until implemented. No OpenFOAM/platform/MPI combination has been validated.
 
-## Application authoring skill (skeleton)
-
-The plugin also includes `author-cyclecloud-application`: an authoring-only skill with a cluster-init project skeleton, an unfinished OpenFOAM/Slurm example, and a local structural/syntax checker. The example scripts deliberately exit without installing or running anything. No OpenFOAM/platform/MPI combination is validated yet.
-
-See the [authoring development and demo guide](docs/application-authoring.md) for the scope, remaining implementation work, and host-discovery checks. The skill uses application context to prepare `ATTACHMENT.md` with manual publication/attachment instructions and a separate lifecycle handoff. Mutation defaults remain unchanged.
-
-## Install a local or unpublished build
-
-See the [development guide](docs/development.md#install-a-local-or-unpublished-build) to build and install from a source checkout, select an exact branch/SHA, or use a development workflow artifact. The generated server bundle is not tracked in source; packaging commands build it first. Direct GitHub repository marketplace installation is not supported because it only retrieves source, not release assets. Release and development packages use the same managed installation and private configuration file.
+Start with the [application authoring guide](docs/application-authoring.md) for an example request, expected files, and local checks. Upload, attachment, lifecycle changes, installation, and job submission require separate approval. Host permissions and CycleCloud RBAC are the authorization boundaries.
 
 ## Update or remove
 
-Rerun the curl command with `--skip-config` to install the latest stable release, or download and verify a chosen release in a fresh directory, extract it, and run `sh cyclecloud-mcp/install.sh --skip-config`. This updates both managed runtime copies while preserving credentials and disabled state. Reload VS Code and start a fresh connected agent session. To return to an older version, repeat with that version's release archive. For development packages, follow the [local-build workflow](docs/development.md#install-a-local-or-unpublished-build).
+For a local marketplace, update the reviewed source in its persistent location and refresh the host. For repository installations, use the host's native plugin update mechanism. Recheck compatibility after changing the CLI or plugin, and preserve any deliberate disabled state.
 
-Copilot marketplace update commands do **not** download new GitHub Release assets; rerun the packaged installer to update.
+To remove a marketplace installation from Copilot CLI:
 
-To remove, end sessions using the plugin, then run:
-
-```bash
-copilot plugin uninstall cyclecloud-mcp@cyclecloud-mcp
-copilot plugin marketplace remove cyclecloud-mcp
+```sh
+copilot plugin uninstall cyclecloud@cyclecloud
+copilot plugin marketplace remove cyclecloud
 ```
 
-Delete the credential file from the Copilot data directory and revoke the dedicated account's credential. For local-package installations, also remove the VS Code copy at `~/.copilot/installed-plugins/cyclecloud-mcp/cyclecloud-mcp/` if it remains: current CLI versions only disable live plugins on uninstall and do not delete their files. The managed `~/.local/share/cyclecloud-mcp/marketplace/` directory and `~/.local/share/cyclecloud-mcp/installation.json` receipt can then be removed. Uninstalling does not delete credentials. Reload VS Code afterward.
+Remove or disable the corresponding VS Code source separately through its UI/settings. Plugin removal leaves your CLI configuration and credentials intact; credential deletion or revocation is a separate decision.
 
-## More information
+## For contributors
 
-- [Changelog](CHANGELOG.md)
-- [Design and architecture](docs/cyclecloud-mcp-design.md)
-- [Configuration and security](docs/configuration.md)
-- [Troubleshooting and local installation](docs/troubleshooting.md)
-- [Development guide: setup, verification, local builds, reset, and deployment](docs/development.md)
+See [development and verification](docs/development.md), [architecture](docs/agent-plugin-design.md), and [release history](CHANGELOG.md).

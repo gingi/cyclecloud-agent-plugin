@@ -1,82 +1,71 @@
-# Configuration and security reference
+# Configuration and guided setup
 
-Start with the [Copilot quick start](../README.md#quick-start-copilot-in-vs-code). This page is the reference for configuration options and security behavior.
+The plugin uses your **existing CycleCloud CLI configuration and credentials**. Configure and sign in through the CLI in an interactive terminal; inspection reuses that configuration without prompting for credentials.
 
-## Configuration file
+## Find the executable
 
-The server defaults to `~/.copilot/plugin-data/cyclecloud-mcp/cyclecloud-mcp/cyclecloud.json` for both remote-marketplace and local-package installations. It does not require host-injected plugin variables. An explicit `PLUGIN_DATA` environment variable overrides the directory for custom launches; an invalid explicit value fails rather than falling back. The path in a `configuration_missing` event is authoritative.
+The launcher uses:
 
-The file is a closed JSON object:
+1. `CYCLECLOUD_CLI`, if set to an absolute executable path.
+2. Otherwise, `cyclecloud` on the agent process's `PATH`.
 
-```json
-{
-    "url": "https://cyclecloud.example.com",
-    "username": "cyclecloud-poc",
-    "password": "replace-outside-the-agent-conversation",
-    "verifyTls": true,
-    "allowInsecureHttp": false,
-    "enableMutations": false,
-    "requestTimeoutMs": 30000,
-    "actionTimeoutMs": 60000,
-    "debug": false
-}
+It does not scan the filesystem, source shell startup files, interpret aliases, or execute the override as a shell command. An invalid explicit override fails instead of silently choosing another installation.
+
+```sh
+CYCLECLOUD_CLI="/absolute/path/to/cyclecloud" \
+  sh "<installed-plugin-root>/scripts/cyclecloud-inspect" capabilities
 ```
 
-Unknown properties and invalid combinations fail startup. Credential strings are printable US-ASCII; usernames cannot contain `:`. Restart the server or create a fresh Copilot session after editing the file.
+Set the override in the environment that runs the agent. A terminal, VS Code, WSL, remote workspace and container can have different PATHs. Reload/restart the host after changing its environment. A Windows `cyclecloud.exe` visible from WSL is not a supported Linux CLI installation.
 
-Optional `caCertPath` is an absolute path to additional PEM CA certificates. The file must be regular, owned by the current user or root, not group/world writable, no larger than 1 MiB, and opened without following its final symlink component. These certificates extend Node's bundled roots for this client only; ambient `NODE_EXTRA_CA_CERTS` is not copied into this trust set. The CycleCloud certificate still needs a SAN matching the configured hostname.
+Inspection runs in the Python environment supplied by the selected CLI. Use an official embedded or virtualenv CLI installation, not a shell alias, custom wrapper, or the separate CycleCloud API SDK. You do not need to select or install another Python interpreter. See [compatibility troubleshooting](troubleshooting.md#cli-discovery-and-compatibility) if the launcher rejects the installation.
 
-## Credentials and permissions
+## Keep setup states separate
 
-`cyclecloud.json` contains a reusable plaintext password. It is not encrypted storage or a secret manager. The server requires the file to:
+| State                                 | Next step                                                                                             |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| CLI missing                           | Offer an explicit path or opt-in installation help                                                    |
+| Unsupported CLI/version/layout/schema | Explain the supported official installation and upgrade options                                       |
+| Compatible CLI, missing configuration | User runs `cyclecloud initialize` in an interactive terminal                                          |
+| Silent authentication cannot succeed  | User signs in again through the CLI outside chat                                                      |
+| Permission or network failure         | Check account scope, connectivity, proxy/CA and the intended instance; do not reinstall automatically |
 
-- Be a regular file, not a symlink.
-- Be owned by the effective OS user.
-- Have mode exactly `0600` or `0400`.
+Capabilities checks are offline. Successful capabilities do not establish a login, reachable server or read permissions.
 
-Use a dedicated CycleCloud POC account, not an administrator account or the account reused by your CycleCloud CLI. Grant only the role and group scope needed for the demonstration; begin with read-only access. Separate accounts per operator preserve attribution and independent revocation.
+## Assisted installation is opt-in
 
-Place the credential directory on a local filesystem outside the plugin root and outside backup, synchronization, profile-export, or shared-mount scopes. Keep it private, for example with mode `0700`. Reuse the same configuration across hosts rather than creating a second credential file.
+If the CLI is absent, ask whether it is already installed elsewhere before offering installation. **Do not download or install automatically.**
 
-The runtime derives its plugin root from its own module location, ignoring any injected `PLUGIN_ROOT`. The resolved root and credential directory must exist, be distinct, and neither may contain the other. The server does not intentionally write beneath the plugin root.
+The official CLI is available through **Download CLI Tools** on the CycleCloud instance's About page, or:
 
-These checks do not protect against another process, extension, terminal tool, or agent running as the same OS user. The password and Basic authorization value also exist in Node memory while the server runs. CycleCloud authentication, RBAC, and group scope are the actual authorization boundary.
+```text
+https://<trusted-cyclecloud-host>/static/tools/cyclecloud-cli.zip
+```
 
-## Transport policy
+A guided installation should:
 
-TLS verification is enabled by default.
+1. Obtain the intended instance URL if unknown. Never ask for a password/token in chat.
+2. Download only from the explicitly selected trusted host over verified HTTPS. Do not disable certificate verification to make a download work.
+3. Inspect the archive and installer, explain its destination and permission requirements, and obtain approval before executing it. Prefer a supported user-local installation; do not invoke sudo automatically.
+4. Recheck the installed CLI's version/layout and inspection capabilities. A host-provided package may still be too old.
+5. Have the user run `cyclecloud initialize` in their terminal and enter credentials there. Do not put credentials in command arguments, generated scripts, logs or chat.
 
-| URL and options                                              | Result                          |
-| ------------------------------------------------------------ | ------------------------------- |
-| HTTPS, `verifyTls: true`, optional valid `caCertPath`        | Allowed and verified            |
-| HTTPS to `127.0.0.0/8` or `::1`, explicit `verifyTls: false` | Allowed only for local POC use  |
-| HTTP to `127.0.0.0/8` or `::1`, default flags                | Allowed for local POC use       |
-| Remote HTTP with `allowInsecureHttp: true`                   | Explicitly allowed but insecure |
-| Any other combination                                        | Rejected                        |
+See the [official installation guide](https://learn.microsoft.com/en-us/azure/cyclecloud/how-to/install-cyclecloud-cli?view=cyclecloud-8). The plugin is not a package manager: it does not silently upgrade dependencies or replace an existing CLI.
 
-For transport overrides, only IP literals in `127.0.0.0/8` and `::1` count as loopback; `localhost` does not. Every HTTP connection, including loopback, transmits reusable Basic credentials without TLS. Prefer verified HTTPS. Redirects are never followed, so credentials are not forwarded to another target.
+## Account and configuration selection
 
-## Optional lifecycle tools
+Use a dedicated least-privilege account scoped to the clusters needed for inspection. A CLI already configured with administrator credentials remains an administrator credential source; installing this plugin does not downgrade it.
 
-`enableMutations` defaults to `false`. In this mode, `start_cluster` and `terminate_cluster` are absent from discovery and cannot be called through this server. Enabling them requires editing the credential/configuration file outside Chat and restarting the server.
+By default the CLI's current configuration applies. Pass `--config /absolute/path/to/config.ini` to the inspection command when selecting another existing configuration. Do not read credential files into the conversation. Normal silent token refresh and CLI cache persistence may occur; browser/device-code login and credential prompts do not occur during inspection.
 
-When enabled:
+Supported authentication configurations are Basic, public-client silent sign-in, confidential-client, and managed identity. Unknown configurations fail explicitly. Live identity-provider integration has not been verified; see [verification status](development.md#verification-status) and validate the method required by your environment before production use.
 
-- The server emits a `mutations_enabled` startup warning.
-- Only one lifecycle action runs at a time.
-- Tool descriptions ask the agent to read status and present the exact target and recursive behavior first.
-- Lifecycle requests are never retried automatically.
-- An ambiguous response or unrecognized timeout, network failure, or cancellation at or after dispatch returns `outcome: "unknown"`; inspect cluster status before retrying.
-- Only an accepted HTTP 2xx action receives one best-effort status read.
+## Transport and permissions
 
-Tool descriptions and MCP hints are advisory. Use lifecycle tools only if the chosen client/session shows a per-call confirmation with the exact tool and arguments, with mutation auto-approval disabled. The read-only setup verification does not establish that a session is suitable for mutation testing. This POC does not create a durable audit log.
+The bridge honors the CLI's configured transport/certificate settings and supported proxy/CA environment. It does not silently weaken verification. **An already-insecure CLI configuration remains insecure**: use verified HTTPS for remote CycleCloud, and configure the appropriate trusted CA outside chat. Identity-provider sessions are separate from the CycleCloud session and do not inherit CycleCloud credentials or an insecure certificate override.
 
-For an intentionally enabled demonstration, a suitable prompt is: “Check `demo` and then ask me before starting it non-recursively.”
+Responses, errors and processes are bounded; redirects and automatic inspection retries are not used. Diagnostic text is untrusted data. Configuration evidence is not proof that software is installed, a mount is writable or a job can run.
 
-For missing configuration, startup errors, and client setup, see [troubleshooting](troubleshooting.md).
+The launcher exposes only read operations. Skills are guidance, not authorization. Host command approvals and CycleCloud RBAC are the actual controls; do not broadly auto-approve `cyclecloud *`. Upload, attachment, start/terminate, software installation and job submission are separate workflows requiring explicit approval.
 
-## Endpoint stability and POC limits
-
-The status tool uses the public `GET /clusters/{name}/status?nodes=false` API. Cluster listing/detail and lifecycle actions use CLI-backed `/cloud/api/*` and `/cloud/actions/*` endpoints that are not in the public OpenAPI contract and may change between CycleCloud releases.
-
-The server makes direct CycleCloud HTTP requests and returns bounded normalized data. OS-backed credentials, token authentication, exhaustive filesystem hardening, durable auditing, broad compatibility CI, and public marketplace publication remain follow-up work if the POC warrants production investment.
+Your CLI retains ownership of its configuration and credentials when the plugin is installed or removed. Delete or revoke credentials separately if needed.

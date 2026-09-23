@@ -1,79 +1,67 @@
-# Application authoring POC
+# Author a CycleCloud application project
 
-## What this branch provides
+Use `author-cyclecloud-application` to draft cluster-init project files and a companion Slurm job in your workspace. When you name a cluster, the skill uses its configured environment and attachment mappings to guide the draft.
 
-A skeleton for the next plugin capability, not a working application installer:
+**This is an authoring starting point, not a deployable recipe.** The bundled OpenFOAM/Slurm skeleton is deliberately incomplete, and no application/OS/MPI combination has been validated. Upload, attachment, rollout, installation, and job submission are separate actions requiring approval.
 
-- `skills/author-cyclecloud-application/SKILL.md`: an authoring-only workflow.
-- `references/authoring.md`: environment questions, project responsibilities, and documentation links.
-- `assets/project/`: project metadata, install/runtime spec stubs, a Slurm job stub, a README, and `ATTACHMENT.md` with explicit TODOs and manual publication/attachment/rollout steps.
-- `scripts/validate-project.mjs`: dependency-free Node utility for the fixed skeleton's required files, TODO markers, and Bash syntax. It never executes project scripts.
-- Packaging and isolated tests for copying, updating, and using the assets outside the checkout.
+## Start a draft
 
-The skill lives in the plugin's standard root `skills/<name>/SKILL.md` layout. It uses existing MCP reads where available and the host's ordinary file tools for authoring. The read-only `get_cluster_application_context` tool supplies target-specific evidence and attachment mappings; see [its contract](application-context.md). There are no new deployment operations or credentials.
+[Install the plugin](../README.md#quick-start), open the workspace where you want the project, and start an agent session. For example:
 
-## Local checks
+> Use the author-cyclecloud-application skill to prepare an OpenFOAM cluster-init project and a Slurm example in the current workspace, targeting /shared/apps on the cluster nodes. Use cluster `demo` as the configured environment. Create local project files only; do not access or create /shared/apps on this host, upload, deploy, run installers, or submit jobs. Tell me what information is missing.
 
-From the repository root:
+Replace `demo` with your cluster's name. `/shared/apps` is the installation prefix on cluster nodes, not the local project directory. Choose a separate workspace directory for the generated files; existing files should be inspected and preserved before changes are proposed.
 
-```bash
-node skills/author-cyclecloud-application/scripts/validate-project.mjs \
-  skills/author-cyclecloud-application/assets/project
+The skill first discovers cluster targets, then requests only the relevant environment, storage, and attachment details. It should reuse configured OS and Slurm versions, ask about missing or conflicting facts, and ask you to choose the OpenFOAM distribution/release and other application-specific requirements. Configuration does not prove that software is installed or storage is ready.
+
+If you do not have a reachable cluster, ask for **offline authoring**. The draft should explicitly mark unknown environment facts and attachment mappings rather than invent them. See [configuration](configuration.md) for CLI setup and [application context](application-context.md) for the evidence available from a cluster.
+
+## What you receive
+
+The project follows the bundled skeleton's layout:
+
+| File                                               | Purpose                                                                                                             |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `project.ini`                                      | Cluster-init project metadata.                                                                                      |
+| `specs/install/cluster-init/scripts/10-install.sh` | Installation script to adapt for the chosen software and designated writer.                                         |
+| `specs/runtime/cluster-init/scripts/10-runtime.sh` | Node-local runtime preparation.                                                                                     |
+| `examples/openfoam.sbatch`                         | Slurm job example to complete with a real case and success criteria.                                                |
+| `README.md`                                        | Environment assumptions, usage, and verification instructions.                                                      |
+| `ATTACHMENT.md`                                    | Publication, target/spec mappings, preservation of existing specs, shared scope, rollout, and verification handoff. |
+
+Review the files before any consequential action. Unresolved choices remain `TODO(...)` markers, and script guards must remain until the scripts implement their documented behavior. Removing placeholders alone does not make the application safe or runnable.
+
+For shared-storage installation, identify a single writer and a readiness protocol. Compute nodes may still need local libraries and compatible MPI. A spec update does not by itself configure existing running nodes.
+
+## Check the authored project
+
+The bundled checker requires Node.js and Bash. Replace both paths with the installed plugin location and the authored project directory:
+
+```sh
+node "<plugin-root>/skills/author-cyclecloud-application/scripts/validate-project.mjs" \
+  "<local-project-directory>"
 ```
 
-**Expected exit: 1**, because this is an unfinished scaffold. Exit 0 means only that the fixed structural/TODO/syntax checks passed; exit 2 means incorrect invocation. Node and Bash are required. Missing Bash or syntax-check timeout is a failure, never a silent pass. The checker reads only the listed skeleton files; it is not a validator for arbitrary CycleCloud projects.
+It checks the fixed skeleton's required files, unresolved TODO markers, and Bash syntax. It never executes project scripts and is not a general validator for arbitrary CycleCloud projects.
 
-```bash
-npx vitest run tests/application-skill.test.ts tests/local-install.test.ts
-npm run verify
-```
+| Exit code | Meaning                                                             |
+| --------- | ------------------------------------------------------------------- |
+| 0         | Structural, TODO, and shell-syntax checks passed.                   |
+| 1         | The project is incomplete, a check failed, or Bash was unavailable. |
+| 2         | The checker was invoked incorrectly.                                |
 
-These are structural and executable-utility tests, not agent-behavior evaluations or live OpenFOAM tests.
+The untouched skeleton is expected to exit **1**. A passing check does not establish installation success, MPI compatibility, or Slurm execution.
 
-## Manual plugin demo
+## Review the deployment handoff
 
-1. Build/install this branch with `npm run install:local`. This changes the local installed plugin; it does not publish the branch. Do not use bundle-only deployment for skill changes.
-2. Reload VS Code and start a fresh Copilot session as described in the main README.
-3. Use a separate empty workspace. Ask:
+Before publication or cluster changes, review `ATTACHMENT.md` for:
 
-    > Use the author-cyclecloud-application skill to prepare an OpenFOAM cluster-init project under /shared/apps and a Slurm example. Create local files only; do not upload, deploy, run installers, or submit jobs. Tell me what information is missing.
+- The intended instance, cluster, locker, project version, and selected targets.
+- Actual attachment parameter names and existing specs that must be preserved.
+- Shared or inherited parameter uses, HA targets, and incomplete or truncated evidence.
+- A separately approved rollout, including job readiness and storage survival.
+- Installation logs and serial/parallel workload checks with explicit success criteria.
 
-4. Confirm the host loads this skill, resolves its bundled assets from the installed package, and writes only to the chosen workspace. Check it does not claim a successful installation.
-5. If a cluster is named, confirm the agent starts with the compact `get_cluster_application_context` overview, chooses relevant targets, then requests one target/section at a time with `view="details"`. It should not exhaustively fetch the cluster. Follow needed collection cursors to preserve existing specs and inspect `usedBy`/HA scope before completing `ATTACHMENT.md`; leave incomplete evidence explicit. Check it does not invent runtime OS, mount health, MPI, Slurm accounts, or missing parameter mappings.
-6. Confirm the agent reads the relevant environment sections and summarizes `platform.release` and `scheduler.version` before asking version questions. Known configured Ubuntu/Slurm versions should be reused, not reconfirmed merely because runtime checks remain. OpenFOAM distribution/release is still a choice. Missing or materially conflicting metadata should produce a specific question, not a blanket version questionnaire.
-7. Run the checker against the authored directory. Record failures and limits honestly; unresolved drafts should fail.
+Keep stages distinct: **authored**, **locally checked**, **published**, **attached**, **rolled out**, **installed**, and **workload-verified**. Inspection and local checks do not complete later stages.
 
-Repeat host-discovery checks in Copilot CLI and VS Code before claiming support. Installation tests use a fake CLI and do not establish real-host skill discovery or agent compliance. Do not automatically run a paid/model-backed evaluation or a live installation as part of the unit suite.
-
-## Discussion/evaluation cases
-
-| Scenario                                | Expected behavior                                                  |
-| --------------------------------------- | ------------------------------------------------------------------ |
-| Named reachable cluster                 | Gather available evidence; clarify missing environment facts.      |
-| No MCP connection                       | Offer offline authoring with explicit unknowns.                    |
-| Ambiguous OpenFOAM distribution/version | Ask rather than silently choose incompatible software.             |
-| Existing workspace files                | Inspect and preserve unrelated work.                               |
-| Shared installer                        | Designate one writer; do not race installers across compute nodes. |
-| Incomplete scaffold or malformed shell  | Report local check failures.                                       |
-| Authoring-only request                  | No upload, deployment, installer execution, or job submission.     |
-
-### Version-discovery evaluation cases
-
-- **Complete context:** image metadata declares Ubuntu 22.04 and `scheduler.version` is present. Expect a sourced baseline summary and only unanswered application/build choices, not repeated Ubuntu/Slurm questions.
-- **Mixed targets:** scheduler and compute images differ. Expect per-target facts and a question only if selecting a compatible installation/build strategy requires a decision.
-- **Unknown custom image:** no matching image-package metadata. Expect the unresolved OS release to be called out; no image-name guessing.
-- **Denied or conflicting metadata:** preserve available Slurm/configuration facts and ask about the specific missing platform fact.
-- **Project/software version distinction:** a Slurm project revision differs from `scheduler.version`. Expect the software version to come from scheduler configuration, never from the project revision.
-
-These cases still require live host evaluation; text assertions and fixture tests do not establish agent compliance.
-
-## Next implementation steps
-
-- Select and document one OpenFOAM release, OS/architecture, and MPI stack.
-- Implement the installer and runtime preparation with pinned sources, checksums, versioned staging, readiness, and recovery behavior.
-- Replace the Slurm stub with a small real case and explicit success criteria.
-- Add metadata/permission and application-specific checks as needed; do not equate syntax validation with runtime compatibility.
-- Evaluate the skill in both hosts, including offline and existing-file cases, and record observations rather than assuming compliance from instruction text.
-- With separate authorization and an appropriate test cluster, verify installation and serial/parallel execution.
-
-Locker publication, spec attachment, existing-node rollout, and job submission remain separate future workflows. Keep product operation semantics in CycleCloud (eventually `cyclecloud-ops`), not solely in skill prose.
+For testing or extending the skill, see [authoring evaluation](development.md#application-authoring-evaluation) and the [authoring roadmap](agent-plugin-design.md#application-authoring-evolution). Current environment coverage is recorded under [verification status](development.md#verification-status).

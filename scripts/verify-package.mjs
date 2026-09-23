@@ -1,8 +1,4 @@
-// Proves that a packaged directory (the local `dist/cyclecloud-mcp/` output,
-// or a directory extracted from a downloaded CI artifact) has the expected
-// installable layout and can actually be installed with
-// `install.sh --skip-config`, using the same fake Copilot CLI as the
-// installer test suite. Usage: node scripts/verify-package.mjs [package-directory]
+// Verify the source artifact and installed-relative launcher, not a host installation.
 import { spawnSync } from "node:child_process";
 import {
     lstat,
@@ -12,144 +8,204 @@ import {
     readdir,
     rm,
     symlink,
-    writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+    checkOutputDirectory,
+    executableFile,
+    packageName,
+    requireRegularPath,
+    sourceFiles,
+} from "./package-layout.mjs";
+import { versionFromTag } from "./release-version.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const packageDirectory = resolve(
-    process.cwd(),
-    process.argv[2] ?? "dist/cyclecloud-mcp",
-);
-const expectedFiles = [
-    "plugin.json",
-    "bin/cyclecloud-mcp.mjs",
-    "cyclecloud.example.json",
-    "LICENSE",
-    "install.sh",
-    ".github/plugin/marketplace.json",
-];
-
-async function requirePackageLayout() {
-    const entries = (
-        await readdir(packageDirectory, {
-            recursive: true,
-            withFileTypes: true,
-        })
-    ).filter((entry) => entry.isFile());
-    const names = new Set(
-        entries.map((entry) =>
-            join(entry.parentPath, entry.name).slice(
-                packageDirectory.length + 1,
-            ),
+export async function verifyPackage(
+    packageDirectory,
+    { sourceRoot = root } = {},
+) {
+    packageDirectory = resolve(packageDirectory);
+    await checkOutputDirectory(packageDirectory);
+    const expected = await sourceFiles(sourceRoot);
+    const names = [];
+    for (const entry of await readdir(packageDirectory, {
+        recursive: true,
+        withFileTypes: true,
+    })) {
+        const name = join(entry.parentPath, entry.name).slice(
+            packageDirectory.length + 1,
+        );
+        if (entry.isFile()) names.push(name);
+        else if (!expected.some((file) => file.startsWith(`${name}/`)))
+            throw new Error(`Unexpected package directory: ${name}`);
+    }
+    if (
+        JSON.stringify(
+            names.filter((name) => name !== "SOURCE_COMMIT.json").sort(),
+        ) !== JSON.stringify(expected)
+    )
+        throw new Error(
+            "Source package layout differs from the explicit allowlist (missing or unexpected files)",
+        );
+    for (const name of expected) {
+        await requireRegularPath(packageDirectory, name);
+        const mode = (await lstat(join(packageDirectory, name))).mode;
+        if (executableFile(name) && !(mode & 0o111))
+            throw new Error(`Package script is not executable: ${name}`);
+        // Manifest versions vary by release; their complete schemas are checked below.
+        if (["plugin.json", ".github/plugin/marketplace.json"].includes(name))
+            continue;
+        if (
+            !(await readFile(join(packageDirectory, name))).equals(
+                await readFile(join(sourceRoot, name)),
+            )
+        )
+            throw new Error(
+                `Package content differs from reviewed source: ${name}`,
+            );
+    }
+    const json = async (name) =>
+        JSON.parse(await readFile(join(packageDirectory, name), "utf8"));
+    const plugin = await json("plugin.json");
+    const catalog = await json(".github/plugin/marketplace.json");
+    versionFromTag(`v${plugin.version}`);
+    const expectedPlugin = JSON.parse(
+        await readFile(join(sourceRoot, "plugin.json"), "utf8"),
+    );
+    const expectedCatalog = JSON.parse(
+        await readFile(
+            join(sourceRoot, ".github/plugin/marketplace.json"),
+            "utf8",
         ),
     );
-    const missing = expectedFiles.filter((file) => !names.has(file));
-    if (missing.length > 0) {
+    expectedPlugin.version = plugin.version;
+    expectedCatalog.metadata.version = plugin.version;
+    expectedCatalog.plugins[0].version = plugin.version;
+    if (
+        plugin.name !== "cyclecloud" ||
+        "mcpServers" in plugin ||
+        !equalJson(plugin, expectedPlugin) ||
+        !equalJson(catalog, expectedCatalog)
+    )
         throw new Error(
-            `Package at ${packageDirectory} is missing expected files: ${missing.join(", ")}`,
+            "Source package plugin/marketplace identity or schema is invalid",
         );
-    }
-}
-
-export async function createHarness() {
-    const home = await mktempHome();
-    const bin = join(home, "commands");
-    await mkdir(bin, { recursive: true });
-    await symlink(process.execPath, join(bin, "node"));
-    await symlink("/usr/bin/uname", join(bin, "uname"));
-    await symlink("/usr/bin/dirname", join(bin, "dirname"));
-    const fakeCopilot = join(root, "tests/helpers/fake-copilot.mjs");
-    await writeFile(
-        join(bin, "copilot"),
-        `#!/bin/sh\nexec '${process.execPath}' '${fakeCopilot}' "$@"\n`,
-        { mode: 0o700 },
-    );
-    const statePath = join(home, "state.json");
-    const callsPath = join(home, "calls.jsonl");
-    await writeFile(
-        statePath,
-        JSON.stringify({
-            plugins: [],
-            marketplaces: [],
-            flatPluginJson: true,
-            liveLocal: true,
-        }),
-    );
-    await writeFile(callsPath, "");
-    return {
-        home,
-        env: {
-            HOME: home,
-            PATH: bin,
-            FAKE_COPILOT_STATE: statePath,
-            FAKE_COPILOT_CALLS: callsPath,
-            FAKE_COPILOT_TEMPLATE: join(root, "cyclecloud.example.json"),
-        },
-    };
-}
-
-async function mktempHome() {
-    return mkdtemp(join(tmpdir(), "cyclecloud-mcp-verify-package-"));
-}
-
-async function requireFile(path) {
-    const info = await lstat(path);
-    if (!info.isFile()) throw new Error(`Not a regular file: ${path}`);
-}
-
-async function main() {
-    await requirePackageLayout();
-    const { home, env } = await createHarness();
-    try {
-        const result = spawnSync(
-            "/bin/sh",
-            [join(packageDirectory, "install.sh"), "--skip-config"],
-            { cwd: home, env, encoding: "utf8", timeout: 30_000 },
-        );
-        if (result.status !== 0) {
-            process.stderr.write(result.stdout ?? "");
-            process.stderr.write(result.stderr ?? "");
+    const compatibility = await json("compatibility.json");
+    if (
+        compatibility.compatibility?.schemaVersion !== 1 ||
+        compatibility.native?.schemaVersion !== 1 ||
+        !Array.isArray(compatibility.native?.commands) ||
+        !Array.isArray(compatibility.compatibility?.cliFamily)
+    )
+        throw new Error("Invalid compatibility metadata");
+    if (names.includes("SOURCE_COMMIT.json")) {
+        const metadata = await json("SOURCE_COMMIT.json");
+        const fields = new Set([
+            "repository",
+            "version",
+            "sourceCommit",
+            "checkoutCommit",
+            "sourceRef",
+            "workflowRef",
+            "eventName",
+            "runId",
+            "runAttempt",
+            "builtAt",
+            "note",
+        ]);
+        if (
+            !metadata ||
+            Array.isArray(metadata) ||
+            Object.entries(metadata).some(
+                ([key, value]) => !fields.has(key) || typeof value !== "string",
+            )
+        )
+            throw new Error("Unexpected source commit metadata fields");
+        for (const field of ["sourceCommit", "checkoutCommit"])
+            if (!/^[a-f0-9]{40}$/.test(metadata[field] ?? ""))
+                throw new Error(`Invalid source commit metadata: ${field}`);
+        if (
+            metadata.version !== undefined &&
+            metadata.version !== plugin.version
+        )
             throw new Error(
-                `install.sh --skip-config exited with status ${result.status}`,
+                "Source metadata version differs from plugin version",
             );
-        }
-        const managed = join(home, ".local/share/cyclecloud-mcp/marketplace");
-        const visible = join(
-            home,
-            ".copilot/installed-plugins/cyclecloud-mcp/cyclecloud-mcp",
+    }
+    await smokeLauncher(packageDirectory);
+    return plugin;
+}
+
+function equalJson(actual, expected) {
+    if (
+        actual === null ||
+        expected === null ||
+        typeof actual !== "object" ||
+        typeof expected !== "object"
+    )
+        return actual === expected;
+    if (Array.isArray(actual) !== Array.isArray(expected)) return false;
+    const keys = Object.keys(actual).sort();
+    return (
+        JSON.stringify(keys) === JSON.stringify(Object.keys(expected).sort()) &&
+        keys.every((key) => equalJson(actual[key], expected[key]))
+    );
+}
+
+async function smokeLauncher(directory) {
+    const home = await mkdtemp(join(tmpdir(), "cyclecloud-source-verify-"));
+    try {
+        const bin = join(home, "commands");
+        await mkdir(bin);
+        for (const name of ["uname", "dirname", "basename", "readlink"])
+            await symlink(`/usr/bin/${name}`, join(bin, name));
+        const env = { HOME: home, PATH: bin };
+        const launcher = join(directory, "scripts/cyclecloud-inspect");
+        const help = spawnSync("/bin/sh", [launcher, "--help"], {
+            cwd: home,
+            env,
+            encoding: "utf8",
+            timeout: 5_000,
+        });
+        if (
+            help.status !== 0 ||
+            !help.stdout.includes("Usage: cyclecloud-inspect")
+        )
+            throw new Error("Source launcher --help smoke failed");
+        const missing = spawnSync("/bin/sh", [launcher, "capabilities"], {
+            cwd: home,
+            env,
+            encoding: "utf8",
+            timeout: 5_000,
+        });
+        if (
+            missing.status !== 1 ||
+            JSON.parse(missing.stdout).error?.code !== "missing_cli"
+        )
+            throw new Error("Source launcher missing-CLI smoke failed");
+        const python = spawnSync(
+            "python3",
+            [
+                "-I",
+                "-B",
+                "-c",
+                "import sys; sys.path.insert(0, sys.argv[1]); import cyclecloud_agent_inspect.command, cyclecloud_agent_inspect.body_reader",
+                join(directory, "python"),
+            ],
+            {
+                cwd: home,
+                env: { HOME: home, PATH: process.env.PATH ?? "/usr/bin:/bin" },
+                encoding: "utf8",
+                timeout: 10_000,
+            },
         );
-        for (const file of expectedFiles) {
-            await requireFile(join(managed, file));
-            await requireFile(join(visible, file));
-            const [packaged, installedManaged, installedVisible] =
-                await Promise.all([
-                    readFile(join(packageDirectory, file)),
-                    readFile(join(managed, file)),
-                    readFile(join(visible, file)),
-                ]);
-            if (
-                !packaged.equals(installedManaged) ||
-                !packaged.equals(installedVisible)
-            ) {
-                throw new Error(
-                    `Installed copy does not match packaged file: ${file}`,
-                );
-            }
-        }
-        const config = join(
-            home,
-            ".copilot/plugin-data/cyclecloud-mcp/cyclecloud-mcp/cyclecloud.json",
-        );
-        await requireFile(config);
+        if (python.error?.code !== "ENOENT" && python.status !== 0)
+            throw new Error(`Portable core import failed: ${python.stderr}`);
     } finally {
         await rm(home, { recursive: true, force: true });
     }
-    process.stdout.write(
-        `Verified installable layout and default --skip-config installation for ${packageDirectory}\n`,
-    );
 }
 
 if (
@@ -157,7 +213,11 @@ if (
     resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
     try {
-        await main();
+        const directory = resolve(process.argv[2] ?? `dist/${packageName}`);
+        await verifyPackage(directory);
+        process.stdout.write(
+            `Verified source package layout, contents, identity, and isolated launcher smoke: ${directory}\nNo native host installation was performed or validated.\n`,
+        );
     } catch (error) {
         process.stderr.write(`${error.message}\n`);
         process.exitCode = 1;

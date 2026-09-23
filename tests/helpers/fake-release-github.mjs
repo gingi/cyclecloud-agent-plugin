@@ -16,7 +16,8 @@ if (args.includes(state.fail)) {
 if (args[0] === "release") {
     if (args[1] !== "create")
         throw new Error(`Unexpected release command: ${args}`);
-    for (const file of args.slice(3, 6)) readFileSync(file);
+    for (const file of args.slice(3, args.indexOf("--verify-tag")))
+        readFileSync(file);
 } else if (args[0] === "api") {
     const route = args[1];
     let result;

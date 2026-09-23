@@ -1,5 +1,25 @@
-import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+
+export async function copySourceFixture(root: string, directory: string) {
+    for (const file of [
+        "package.json",
+        "package-lock.json",
+        "plugin.json",
+        "compatibility.json",
+        ".github/plugin/marketplace.json",
+        "README.md",
+        "CHANGELOG.md",
+        "LICENSE",
+        "skills",
+        "python",
+        "docs",
+        "scripts",
+    ]) {
+        await mkdir(dirname(join(directory, file)), { recursive: true });
+        await cp(join(root, file), join(directory, file), { recursive: true });
+    }
+}
 
 interface Versioned {
     version: string;
