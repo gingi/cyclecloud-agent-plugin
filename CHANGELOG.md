@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.4.1]
+
+- fix: create two-parent stable release merges
+
 ## [0.4.0]
 
 - Clarifies how to install the plugin without Git checkout (#15)
