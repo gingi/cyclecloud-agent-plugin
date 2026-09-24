@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { releaseRepository } from "./helpers/release-repository.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const commit = "a".repeat(40);
@@ -122,7 +123,7 @@ describe("Stable release promotion", () => {
         { stableRefs: [], parents: [], method: "POST", route: "git/refs" },
         {
             stableRefs: [stableRef()],
-            parents: [previous],
+            parents: [previous, commit],
             method: "PATCH",
             route: "git/refs/heads/stable",
         },
@@ -207,7 +208,7 @@ describe("Stable release promotion", () => {
         },
     );
 
-    test("Builds a chain of release commits without importing main parents", async () => {
+    test("Chains release first parents and records tagged source second parents", async () => {
         const first = await promote();
         expect(first.result.status, first.result.stderr).toBe(0);
         const { sha: firstSha } = JSON.parse(
@@ -233,14 +234,96 @@ describe("Stable release promotion", () => {
         expect(JSON.parse(second.writes[0]?.input ?? "null")).toEqual({
             message: `Release v0.4.0\n\nSource-Commit: ${next}`,
             tree: nextTree,
-            parents: [firstSha],
+            parents: [firstSha, next],
         });
         const again = await promote({}, ["v0.4.0", next]);
         expect(again.result.status, again.result.stderr).toBe(0);
         expect(again.writes).toEqual([]);
     });
 
-    test("Preserves an existing main commit as the first release commit's sole parent", async () => {
+    test.each([[{ sha: main }], [{ sha: main }, { sha: previousSource }]])(
+        "Promotes from an existing release with parents %j",
+        async (...parents) => {
+            const { result, writes } = await promote({
+                stableRefs: [stableRef()],
+                gitCommits: { [previous]: { ...previousSnapshot, parents } },
+            });
+            expect(result.status, result.stderr).toBe(0);
+            expect(JSON.parse(writes[0]?.input ?? "null")).toMatchObject({
+                parents: [previous, commit],
+            });
+        },
+    );
+
+    test("Produces a Git merge edge with a release-only first-parent log", async () => {
+        const repository = await releaseRepository();
+        try {
+            const { git } = repository;
+            const initialSource = git("rev-parse", "HEAD");
+            const initialTree = git("rev-parse", "HEAD^{tree}");
+            const initialMessage = `Release v0.2.0\n\nSource-Commit: ${initialSource}`;
+            const initialRelease = git(
+                "commit-tree",
+                initialTree,
+                "-m",
+                initialMessage,
+            );
+            repository.commit("Intermediate development change");
+            await writeFile(
+                join(repository.checkout, "feature.txt"),
+                "Released feature\n",
+            );
+            const source = repository.commit("Prepare the next release");
+            const sourceTree = git("rev-parse", "HEAD^{tree}");
+            const { result, writes } = await promote(
+                {
+                    commit: source,
+                    main: source,
+                    tree: sourceTree,
+                    mainComparison: { status: "identical" },
+                    stableRefs: [stableRef(initialRelease)],
+                    tagCommits: {
+                        "v0.2.0": { sha: initialSource, tree: initialTree },
+                    },
+                    gitCommits: {
+                        [initialRelease]: {
+                            sha: initialRelease,
+                            message: initialMessage,
+                            tree: { sha: initialTree },
+                            parents: [],
+                        },
+                    },
+                },
+                ["v0.3.0", source],
+            );
+            expect(result.status, result.stderr).toBe(0);
+            const body = JSON.parse(writes[0]?.input ?? "null") as {
+                message: string;
+                tree: string;
+                parents: string[];
+            };
+            const merged = git(
+                "commit-tree",
+                body.tree,
+                ...body.parents.flatMap((parent) => ["-p", parent]),
+                "-m",
+                body.message,
+            );
+            expect(git("show", "-s", "--format=%P", merged)).toBe(
+                `${initialRelease} ${source}`,
+            );
+            expect(git("rev-parse", `${merged}^{tree}`)).toBe(sourceTree);
+            expect(
+                git("log", "--first-parent", "--format=%s", merged).split("\n"),
+            ).toEqual(["Release v0.3.0", "Release v0.2.0"]);
+            expect(git("rev-list", "--merges", merged)).toBe(merged);
+            expect(git("merge-base", "--is-ancestor", source, merged)).toBe("");
+        } finally {
+            await rm(repository.directory, { recursive: true, force: true });
+        }
+    });
+
+    test("Preserves an existing main commit as the release merge's first parent", async () => {
         const { result, calls, writes } = await promote({
             stableRefs: [stableRef()],
             gitCommits: {
@@ -252,7 +335,7 @@ describe("Stable release promotion", () => {
         });
         expect(result.status, result.stderr).toBe(0);
         expect(JSON.parse(writes[0]?.input ?? "null")).toMatchObject({
-            parents: [previous],
+            parents: [previous, commit],
         });
         expect(
             calls.some(
@@ -465,7 +548,11 @@ describe("Stable release promotion", () => {
         { ...previousSnapshot, tree: { sha: tree } },
         {
             ...previousSnapshot,
-            parents: [{ sha: commit }, { sha: previousSource }],
+            parents: [{ sha: previousSource }, { sha: commit }],
+        },
+        {
+            ...previousSnapshot,
+            parents: [{ sha: main }, { sha: commit }, { sha: previousSource }],
         },
         {
             ...previousSnapshot,
@@ -523,7 +610,7 @@ describe("Stable release promotion", () => {
                         sha: main,
                         message: `Release v0.4.0\n\nSource-Commit: ${newerSource}`,
                         tree: { sha: tree },
-                        parents: [{ sha: previous }],
+                        parents: [{ sha: previous }, { sha: newerSource }],
                     },
                 },
                 tagCommits: {
@@ -567,6 +654,29 @@ describe("Stable release promotion", () => {
             const { result, writes } = await promote({ commitResponse });
             expect(result.status).not.toBe(0);
             expect(result.stderr).toMatch(/SHA|release commit/);
+            expect(writes).toHaveLength(1);
+        },
+    );
+
+    test.each([
+        [commit, previous],
+        [previous],
+        [previous, main],
+        [previous, commit, main],
+    ])(
+        "Rejects merge creation with incorrect parent order or count %j",
+        async (...parents) => {
+            const { result, writes } = await promote({
+                stableRefs: [stableRef()],
+                commitResponse: {
+                    sha: main,
+                    message: `Release v0.3.0\n\nSource-Commit: ${commit}`,
+                    tree: { sha: tree },
+                    parents: parents.map((sha) => ({ sha })),
+                },
+            });
+            expect(result.status).not.toBe(0);
+            expect(result.stderr).toContain("release commit");
             expect(writes).toHaveLength(1);
         },
     );

@@ -38,7 +38,8 @@ function stableSource(base, current) {
         tagged?.sha !== commit ||
         requireSha(tagged.tree) !== snapshot.tree?.sha ||
         !Array.isArray(snapshot.parents) ||
-        snapshot.parents.length > 1
+        snapshot.parents.length > 2 ||
+        (snapshot.parents.length === 2 && snapshot.parents[1]?.sha !== commit)
     )
         throw new Error(
             "Invalid stable release commit: does not match its source tag",
@@ -100,7 +101,7 @@ function promote() {
             );
             return;
         }
-        // Compare main's source commits, not stable's independent release history.
+        // Order releases by their tagged source commits.
         // GitHub's commits list can be truncated; status describes the full comparison.
         const status = githubApi(`${base}/compare/${source}...${commit}`, {
             jq: "{status: .status}",
@@ -115,7 +116,7 @@ function promote() {
             throw new Error("Stable source history diverges from this release");
     }
     const message = `Release ${tag}\n\nSource-Commit: ${commit}`;
-    const parents = current ? [current] : [];
+    const parents = current ? [current, commit] : [];
     const created = githubApi(`${base}/git/commits`, {
         method: "POST",
         body: { message, tree, parents },
@@ -129,8 +130,8 @@ function promote() {
         created.parents.some((parent, index) => parent?.sha !== parents[index])
     )
         throw new Error("GitHub did not confirm the requested release commit");
-    // This advances only stable's own history. A concurrent promotion makes this
-    // commit a sibling, so force:false rejects it rather than losing a release.
+    // Stable's first parent preserves the release sequence; its second links main.
+    // A concurrent promotion creates a sibling, which force:false rejects.
     const updated = current
         ? githubApi(`${base}/git/refs/heads/stable`, {
               method: "PATCH",
