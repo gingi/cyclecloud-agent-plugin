@@ -1,5 +1,4 @@
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
-import { createHash } from "node:crypto";
 
 const state = JSON.parse(readFileSync(process.env.FAKE_RELEASE_STATE, "utf8"));
 const args = process.argv.slice(2);
@@ -30,17 +29,6 @@ if (args[0] === "release") {
             sha: tagged?.sha ?? state.commit,
             commit: { tree: { sha: tagged?.tree ?? state.tree } },
         };
-    } else if (route.endsWith("/git/commits")) {
-        const body = JSON.parse(input);
-        result = state.commitResponse ?? {
-            sha: createHash("sha1").update(input).digest("hex"),
-            message: body.message,
-            tree: { sha: body.tree },
-            parents: body.parents.map((sha) => ({ sha })),
-        };
-        state.gitCommits ??= {};
-        state.gitCommits[result.sha] = result;
-        writeFileSync(process.env.FAKE_RELEASE_STATE, JSON.stringify(state));
     } else if (route.includes("/git/commits/")) {
         result = state.gitCommits?.[route.split("/git/commits/")[1]];
         if (!result) throw new Error(`Unknown commit: ${route}`);
@@ -49,8 +37,16 @@ if (args[0] === "release") {
     else if (route.includes("/releases/tags/")) result = state.release;
     else if (route.endsWith("/commits/refs%2Fheads%2Fmain"))
         result = { sha: state.main };
-    else if (route.endsWith(`/compare/${state.commit}...${state.main}`))
+    else if (
+        route.endsWith(
+            `/compare/${state.source ?? state.commit}...${state.main}`,
+        )
+    )
         result = state.mainComparison;
+    else if (
+        route.endsWith(`/compare/${state.previousSource}...${state.source}`)
+    )
+        result = state.sourceComparison;
     else if (route.includes("/compare/")) result = state.stableComparison;
     else if (route.endsWith("/git/matching-refs/heads/stable"))
         result = state.stableRefs;
@@ -62,7 +58,7 @@ if (args[0] === "release") {
         const body = JSON.parse(input);
         if (state.raceStable) {
             state.stableRefs = [state.raceStable];
-            state.stableComparison = { status: "behind" };
+            state.stableComparison = { status: "ahead" };
             delete state.raceStable;
             writeFileSync(
                 process.env.FAKE_RELEASE_STATE,

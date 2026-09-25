@@ -3,6 +3,11 @@ import { lstat, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { versionFromTag } from "./release-version.mjs";
+import {
+    checkSourceTree,
+    gitCommit,
+    releaseSource,
+} from "./release-commit.mjs";
 
 function sections(text) {
     const lines = text.replaceAll("\r\n", "\n").split("\n");
@@ -104,7 +109,7 @@ function commitSubjects(root) {
     const tags = git("tag", "--list", "--merged", head, "v*")
         .split("\n")
         .filter(isVersionTag);
-    const base = tags.length
+    let base = tags.length
         ? git(
               "describe",
               "--tags",
@@ -114,6 +119,32 @@ function commitSubjects(root) {
               head,
           )
         : undefined;
+    let distance = base
+        ? Number(git("rev-list", "--count", `${base}..${head}`))
+        : Infinity;
+    // Stable tags identify release commits outside main; their reviewed sources
+    // provide the changelog boundary without merging release history into main.
+    for (const tag of git("tag", "--list", "v*")
+        .split("\n")
+        .filter(isVersionTag)) {
+        if (tags.includes(tag) || versionFromTag(tag).includes("-")) continue;
+        let source;
+        try {
+            const snapshot = gitCommit(git, tag);
+            source = releaseSource(snapshot, tag);
+            checkSourceTree(snapshot, gitCommit(git, source));
+            git("merge-base", "--is-ancestor", source, head);
+        } catch {
+            continue;
+        }
+        const remaining = Number(
+            git("rev-list", "--count", `${source}..${head}`),
+        );
+        if (remaining < distance) {
+            base = source;
+            distance = remaining;
+        }
+    }
     return git(
         "log",
         "--reverse",

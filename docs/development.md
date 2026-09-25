@@ -13,7 +13,7 @@ git pull --ff-only origin main
 git switch -c <feature-branch>
 ```
 
-Create contributor and release-preparation PRs with `gh pr create --base main`. Never commit development changes directly to `stable`; promotion creates one release merge commit containing the exact verified release tree.
+Create contributor and release-preparation PRs with `gh pr create --base main`. Never commit development changes directly to `stable`; tagging prepares the release merge commit, and promotion advances `stable` to that exact verified tag.
 
 Use a supported Node development version from `package.json` and Python 3.9+ for the complete development suite (the inspection source targets Python 3.8+). Install development dependencies and verify:
 
@@ -135,7 +135,7 @@ copilot plugin install cyclecloud@cyclecloud
 
 For VS Code, the equivalent repository path uses **Chat: Install Plugin From Source** with the reviewed repository URL.
 
-Repository registration follows the repository's default source on `main`, not a release or preview archive. The separate `stable` branch records verified releases as commits titled `Release vX.Y.Z` whose file trees match the published tags. Each promotion onto an existing `stable` branch creates a merge commit with the previous `stable` tip as its first parent and the tagged source commit on `main` as its second parent. If `stable` is absent, the first release creates a parentless commit instead. A `Source-Commit` trailer records the tagged source SHA. The merge appears in Git graphs; `git log --first-parent stable` follows the release sequence, while the full ancestry also includes development commits through the second parents. To follow that release channel, explicitly select `stable` in a persistent source checkout and register its local path. For an exact release, feature-branch preview, or offline installation, verify and extract the selected source archive into a persistent directory and register that local path. Publishing a preview does not update `stable`.
+Repository registration follows the repository's default source on `main`, not a release or preview archive. The separate `stable` branch points to verified release commits titled `Release vX.Y.Z`, each carrying its version tag. The release commit is prepared before publication, with the previous `stable` tip as its first parent and the reviewed source commit on `main` as its second parent. If `stable` is absent, the first release is a parentless commit instead. Its tree exactly matches the reviewed source, whose SHA is recorded in a `Source-Commit` trailer. Public verification must succeed before `stable` advances to the tagged release commit. The merge appears in Git graphs; `git log --first-parent stable` follows the release sequence, while the full ancestry also includes development commits through the second parents. To follow that release channel, explicitly select `stable` in a persistent source checkout and register its local path. For an exact release, feature-branch preview, or offline installation, verify and extract the selected source archive into a persistent directory and register that local path. Publishing a preview does not update `stable`.
 
 ### Isolated host checks
 
@@ -155,14 +155,14 @@ Extract artifacts to a persistent directory for host registration. A source pack
 
 Plugin release versions remain independent of CLI versions. `compatibility.json` selects the 8.10 bridge policy and required native inspection schema. Publishing the bridge does **not** wait for 8.11; removing the bridge later requires a deliberate minimum-CLI/support decision.
 
-Prepare the version and changelog, review them through a normal PR into `main`, then **push a version tag**. The **Release** workflow builds and publishes the exact tagged commit, verifies public downloads, then merges the tagged source into `stable` with a new `Release vX.Y.Z` commit, never fast-forwarding `stable` directly to the source commit. Stable tags must identify a commit on `main`, regardless of the repository default; SemVer prerelease tags such as `v0.2.0-rc.1` may identify a feature-branch commit and never promote `stable`. There is no release-preparation dispatch workflow or automatic release-branch cleanup.
+Prepare the version and changelog, review them through a normal PR into `main`, then run **`release:tag` on the reviewed source**. For a stable version, the helper creates a `Release vX.Y.Z` commit from that source and tags the release commit, without moving `main` or `stable`. Pushing the tag starts the **Release** workflow: build and publish that exact commit, verify public downloads, then advance `stable` to the tag. Stable release commits must record a source on `main`, regardless of the repository default. SemVer prerelease tags such as `v0.2.0-rc.1` continue to identify their feature-branch source directly and never promote `stable`. There is no release-preparation dispatch workflow or automatic release-branch cleanup.
 
 ### Repository settings
 
 Configure these rules in GitHub:
 
 - Protect **`refs/heads/main` explicitly**, not a dynamic default-branch target, with required PRs and the **Verify and package source** check. Require reviews as the maintainer team grows; GitHub enforces that policy when merging.
-- Protect `refs/heads/stable` against deletion and non-fast-forward updates. Do not require linear history or a PR gate on `stable`: promotion creates a two-parent release merge from an already-reviewed source tree. Ensure the promotion token can create commits and advance the ref without bypassing deletion or non-fast-forward protection. Advancing the ref to this merge preserves the previous `stable` tip as its first parent; it never points `stable` directly at `main` or the tag commit.
+- Protect `refs/heads/stable` against deletion and non-fast-forward updates. Do not require linear history or a PR gate on `stable`: promotion advances it to an already-tagged, verified two-parent release merge. Ensure the promotion token can create/advance the ref without bypassing deletion or non-fast-forward protection. The merge preserves the previous `stable` tip as its first parent; the branch points to the release tag, not directly to its source on `main`.
 - Restrict creation of `v*` tags to release maintainers. Use a separate tag ruleset to block tag updates and deletions, without granting those maintainers a bypass of that rule.
 - Enable [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases) to lock published tags and assets. The publishing helper delegates draft creation, asset upload and publication to GitHub CLI, so all assets are staged before the release becomes immutable.
 
@@ -176,21 +176,21 @@ The workflow authenticates with the built-in `GITHUB_TOKEN`. Only the publishing
     git fetch origin
     git switch main
     git pull --ff-only origin main
-    npm run release:prepare -- 0.4.0
+    npm run release:prepare -- 0.4.2
     ```
 
-    Preparation fetches `origin` and its tags, creates and switches to `release/prepare-0.4.0` at the current commit, updates all four manifest/lockfile documents, and drafts `## [0.4.0]` in the changelog. It leaves changes uncommitted for review; an existing version entry is preserved.
+    Preparation fetches `origin` and its tags, creates and switches to `release/prepare-0.4.2` at the current commit, updates all four manifest/lockfile documents, and drafts `## [0.4.2]` in the changelog. It leaves changes uncommitted for review; an existing version entry is preserved.
 
 2. Review and edit `CHANGELOG.md` and the intended source/version changes. Commit the reviewed files, push the preparation branch, and create a PR with `gh pr create --base main`; merge it into `main` after required checks/reviews. Use a development artifact or persistent source directory for manual validation.
-3. Check out the intended PR merge commit and tag it:
+3. Check out the intended PR merge commit and prepare/tag its release commit:
 
     ```sh
     git fetch origin
     git switch --detach <merged-commit-sha>
-    npm run release:tag -- 0.4.0 --push
+    npm run release:tag -- 0.4.2 --push
     ```
 
-    Tagging requires a clean checkout, validates versions/notes and ancestry against fetched `origin/main`, and runs `npm run verify`. New tags are annotated and identify the checked-out commit, not a later `main` tip. Existing annotated or lightweight tags are reused unchanged only when they identify that same commit. Omit `--push` for a local tag; add it when ready to publish. Only the selected tag is pushed.
+    Tagging requires a clean checkout, validates versions/notes and the source's ancestry against fetched `origin/main`, and runs `npm run verify`. It then creates a release commit with the source's exact tree, the current remote `stable` tip as first parent, and the selected source as second parent. With no `stable`, it creates a parentless release commit. The new annotated tag identifies this release commit, not the checked-out preparation commit; the checkout and branches remain unchanged. Omit `--push` to prepare the tag locally. Retries reuse a matching annotated or lightweight release tag, preserving its commit and annotation; a changed `stable` base is rejected before pushing a pending tag. Only the selected tag is pushed.
 
 4. Watch **Actions → Release** through publication, public source verification, and the separate **Promote stable** job. **Do not pre-create a release in the GitHub UI**: the workflow creates it with verified assets and committed notes.
 
@@ -201,10 +201,10 @@ GitHub loads `.github/workflows/release.yml` from the tagged commit. Push one re
 Use the same process with an unused prerelease version, without merging to `main`:
 
 ```sh
-npm run release:prepare -- 0.4.0-rc.1
-# Review and edit notes and source on release/prepare-0.4.0-rc.1.
+npm run release:prepare -- 0.4.2-rc.1
+# Review and edit notes and source on release/prepare-0.4.2-rc.1.
 # Commit all reviewed changes, then:
-npm run release:tag -- 0.4.0-rc.1 --push
+npm run release:tag -- 0.4.2-rc.1 --push
 ```
 
 This publishes a **real GitHub prerelease**, not a dry run. Prereleases never update latest stable or the `stable` branch. A tag fixes the source commit even if the feature branch advances. Use a new prerelease version for a changed build; never move a published tag. For testing without publication, use development artifacts or local packaging.
@@ -213,17 +213,17 @@ To use that exact preview, verify/extract its versioned source archive into a pe
 
 ### What runs automatically
 
-- **Build (read-only):** validate the tag/event commit, stable-release ancestry against `main`, clean committed checkout, manifest versions and changelog entry; run the full verification suite; package source and check archive integrity/layout.
+- **Build (read-only):** validate the tag/event commit, clean committed checkout, manifest versions and changelog entry. For a stable release, validate its message, parent order, exact source tree, source ancestry against `main`, forward progress from the previous release, and unchanged `stable` base (or that it is already promoted). Run the full verification suite, package the tagged release commit, and check archive integrity/layout.
 - **Publish (write access, no dependency installation):** confirm the existing remote tag still identifies the built commit, upload both assets and committed notes into a draft, then publish. Existing releases/drafts are refused; tags/assets are never overwritten. Prereleases use `--prerelease --latest=false`; GitHub selects latest for stable releases.
 - **Post-release (read-only):** download anonymously, check checksums/tag/full-SHA metadata and the extracted source package, then exercise bounded launcher smoke. If this release is latest stable, verify its latest checksum download as well. This does not validate native Copilot/VS Code installation.
 
-- **Promote (write access, no dependency installation):** only after build, publication, and public verification all succeed for a nonprerelease, recheck the remote tag's peeled SHA, published stable release metadata, and ancestry against a snapshot of `main`. Create a merge commit titled `Release vX.Y.Z` using the tag's exact tree, the current `stable` tip as its first parent, the tagged source as its second parent, and a `Source-Commit: <tagged-sha>` trailer. If `stable` is absent, create a parentless release commit to start its first-parent release history. Update the ref with `force: false`. For subsequent promotions, validate the existing release commit against its source tag, including the source second parent when present, and compare source SHAs to detect an equal/newer release (a successful no-op) or divergent history (an error). Existing tag/main commits and single-parent release snapshots are supported starting points without rewriting them. Compare status is authoritative even when GitHub truncates the returned commit list; API errors fail closed.
+- **Promote (write access, no dependency installation):** only after build, publication, and public verification all succeed for a nonprerelease, recheck the remote tag's peeled SHA, published stable release metadata, release topology, source tree, and source ancestry against `main`. Advance `stable` to that exact tagged commit with `force: false`, or create the branch at a parentless tagged release if absent. Promotion creates no commits or tags. A tag already included in `stable` is a successful no-op; a different `stable` base or nonadvancing source fails closed. Compare status is authoritative even when GitHub truncates the returned commit list; API errors propagate.
 
 Publication and promotion are serialized across versions. Tests use isolated fixtures/local HTTP without real CycleCloud credentials; public verification passes no GitHub token to downloads. A private repository needs a different download/authentication design. The workflow does not create/move tags or delete source branches.
 
 ### Changelog and assets
 
-`release:prepare` drafts notes from non-merge commit subjects, oldest first, since the nearest reachable SemVer `v*` tag through `HEAD`. Prerelease tags count; without release tags it uses all committed history. Preparation fetches tags from `origin`; use a full-history checkout because shallow clones are rejected for drafting.
+`release:prepare` drafts notes from non-merge commit subjects, oldest first, since the nearest released source reachable from `HEAD`. Direct source tags and prerelease tags count; stable release-commit tags contribute their validated `Source-Commit` when its tree matches and its source is an ancestor of `HEAD`. This avoids repeating already-released changes even though the release commit itself is outside `main`. Without a reachable release boundary it uses all committed history. Preparation fetches tags from `origin`; use a full-history checkout because shallow clones are rejected for drafting.
 
 Mechanical version/preparation subjects such as `chore: prepare v0.2.0`, `chore(release): 0.2.0`, and `Bump version to 0.2.0`, plus exact changelog/release-notes update subjects, are omitted. Release-tooling improvements remain. Review generated bullets for relevance and wording; if no subjects remain, write notes manually. Pending `Unreleased` notes can serve as a review checklist, but preparation drafts from committed history rather than promoting that section automatically.
 
@@ -234,9 +234,9 @@ Each release contains:
 - `cyclecloud-agent-plugin-<version>.tar.gz`: the complete source plugin, hidden marketplace metadata and `SOURCE_COMMIT.json`.
 - `SHA256SUMS`: integrity checks for the archive, not publisher signatures.
 
-Release assets do not expire with Actions retention; the one-day Actions artifact transfers verified files between jobs. Local archives may include working-tree changes; published assets use the pinned tag-event commit.
+Release assets do not expire with Actions retention; the one-day Actions artifact transfers verified files between jobs. Local archives may include working-tree changes; published assets use the pinned tag-event commit. For stable releases, `SOURCE_COMMIT.json` records that tagged release commit in both `sourceCommit` and `checkoutCommit`; the reviewed `main` input is recorded separately in the commit's `Source-Commit` trailer.
 
-Local `npm run verify` includes tag validation, isolated publication/promotion fixtures and curl/local-HTTP source-archive tests, with no remote writes. To build assets without publication, run `npm run package:release -- v0.4.0` after preparing that version. To recheck an existing public release, use a separate checkout at that exact tag with its own verification dependencies and harness:
+Local `npm run verify` includes tag validation, isolated publication/promotion fixtures and curl/local-HTTP source-archive tests, with no remote writes. To build assets without publication, run `npm run package:release -- v0.4.2` after preparing that version. To recheck an existing public release, use a separate checkout at that exact tag with its own verification dependencies and harness:
 
 ```sh
 npm run verify:release -- v0.2.0 <full-commit-sha>
@@ -255,14 +255,14 @@ Workflow reruns use the workflow and helper from the tagged commit, not updated 
     GH_REPO=gingi/cyclecloud-agent-plugin npm run release:promote -- <tag> <full-tagged-commit-sha>
     ```
 
-    This is a remote write requiring authorization and a token with repository contents write access. The helper checks identity, release metadata, and ancestry but **does not independently run public verification**. It creates a release commit and creates/advances `stable`; it never changes tags, releases, assets, repository settings, or existing history. Configure branch protections separately as described in [Repository settings](#repository-settings).
+    This is a remote write requiring authorization and a token with repository contents write access. The helper checks identity, release metadata, and ancestry but **does not independently run public verification**. It creates/advances `stable` to the existing release tag; it never creates commits or changes tags, releases, assets, repository settings, or existing history. Configure branch protections separately as described in [Repository settings](#repository-settings).
 
-An existing `stable` tip on `main` or a single-parent release snapshot is a supported starting point: promotion preserves its inherited first-parent history and adds release merge commits. Repeating an already-promoted release is a no-op, not a conversion of its commit topology. Changing existing parent links or removing inherited first-parent history requires a separately authorized rewrite. Changes to source, docs, or tooling must reach `stable` through a verified release from `main`, not standalone commits.
+Existing source-tagged releases, including `v0.4.1`, remain unchanged. The next release commit may use the existing `stable` tip as its first parent, whether that tip is an ordinary `main` commit, a release snapshot, or a release merge. This helper requires new-style release-commit tags; historical source-tagged releases retain their tagged workflow/tooling. Do not move old tags or rewrite existing parent links to adopt the new process. Changes to source, docs, or tooling must reach `stable` through a verified release from `main`, not standalone commits.
 
 ### Failure and retry behavior
 
 - **Preparation:** a new preparation branch requires a clean checkout and an unused version. Existing branches are not reset; inspect and switch to the matching preparation branch to resume. Rerunning there preserves review edits, including uncommitted changes. Resolve fetch/authentication failures before retrying. If writes fail after branch creation, retain the branch/files for inspection and repair.
-- **Local tagging:** mismatched versions/notes, unmerged stable commits, dirty checkouts or failed verification stop tagging. Existing tags are reused only for the selected commit; conflicting tags are never moved. If a push fails, the local tag remains: fix the cause and retry `npm run release:tag -- <version> --push`. A matching tag already on origin is neither changed nor pushed again.
+- **Local tagging:** mismatched versions/notes, off-main stable-release sources, dirty checkouts, failed verification, or a source that does not advance the previous release stop tagging. Existing release tags are reused only for the same selected source and exact tree; conflicting tags are never moved. If a push fails, the local tag and release commit remain: fix the cause and retry `npm run release:tag -- <version> --push` from the same source checkout. If `stable` has advanced to a different base, prepare a new version rather than retargeting the pending tag. A matching tag already on origin is neither changed nor pushed again.
 - **Validation/build failed:** no release was created. Rerun the original failed jobs for transient failures. If the tagged source needs changes, commit a fix and use a new version/tag; do not move the old tag.
 - **Publication failed:** inspect GitHub first. An upload failure may leave a draft that automation refuses to overwrite. After inspection, either finish that draft manually using verified assets, or explicitly delete only the incomplete draft (keep the tag) and rerun publishing. If transfer artifacts expired, rerun the original workflow. If publication actually succeeded, verify the existing release instead of publishing again.
 - **Post-release check failed:** the release is already public, not rolled back, and `stable` is not promoted. Rerun failed jobs for transient failures; package defects require a new version, not replacement assets or a moved tag.

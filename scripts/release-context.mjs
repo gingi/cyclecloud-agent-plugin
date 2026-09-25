@@ -1,15 +1,12 @@
-import { execFileSync } from "node:child_process";
 import { appendFile, readFile } from "node:fs/promises";
 import { checkReleaseVersions, versionFromTag } from "./release-version.mjs";
 import { requireSha } from "./release-github.mjs";
 import { readReleaseNotes } from "./release-changelog.mjs";
 
-function git(...args) {
-    return execFileSync("git", args, {
-        encoding: "utf8",
-        timeout: 30_000,
-    }).trim();
-}
+import { refCommit, releaseGit } from "./release-git.mjs";
+import { checkStableParent, validateLocalRelease } from "./release-commit.mjs";
+
+const git = releaseGit(process.cwd());
 
 try {
     if (process.argv.length !== 2)
@@ -48,18 +45,18 @@ try {
     await checkReleaseVersions(process.cwd(), tag);
     await readReleaseNotes(process.cwd(), tag);
     if (!prerelease) {
-        try {
-            git(
-                "merge-base",
-                "--is-ancestor",
-                commit,
-                "refs/remotes/origin/main",
-            );
-        } catch {
-            throw new Error(
-                "Stable release commit must belong to fetched origin/main",
-            );
+        const { snapshot } = validateLocalRelease(git, commit, tag);
+        const stable = refCommit(git, "refs/remotes/origin/stable");
+        let alreadyPromoted = stable === commit;
+        if (stable && !alreadyPromoted) {
+            try {
+                git("merge-base", "--is-ancestor", commit, stable);
+                alreadyPromoted = true;
+            } catch {
+                // A new candidate must still be based on the current stable tip.
+            }
         }
+        if (!alreadyPromoted) checkStableParent(snapshot, stable);
     }
     await appendFile(
         process.env.GITHUB_OUTPUT,

@@ -124,6 +124,50 @@ describe("Release preparation", () => {
         },
     );
 
+    test.each([false, true])(
+        "Drafts since a release tag's main source (merge=%s)",
+        async (merge) => {
+            const previous = git("rev-parse", "HEAD");
+            git("tag", "v0.0.9");
+            const source = commit("feat: already shipped");
+            const release = git(
+                "commit-tree",
+                git("rev-parse", "HEAD^{tree}"),
+                ...(merge ? ["-p", previous, "-p", source] : []),
+                "-m",
+                `Release v0.1.0\n\nSource-Commit: ${source}`,
+            );
+            git("tag", "-a", "v0.1.0", "-m", "Published release", release);
+            git("push", "origin", "v0.1.0");
+            git("tag", "--delete", "v0.1.0");
+            commit("fix: new work after release");
+            const result = prepare();
+            expect(result.status, result.stderr).toBe(0);
+            const notes = await changelog();
+            expect(notes).toContain(
+                "## [0.2.0]\n\n- fix: new work after release",
+            );
+            expect(notes).not.toContain("already shipped");
+        },
+    );
+
+    test("Ignores release metadata whose snapshot differs from its source", async () => {
+        git("tag", "v0.0.9");
+        const source = commit("feat: not actually released");
+        await writeFile(join(workspace, "extra.txt"), "Different source tree");
+        commit("fix: still needs release notes");
+        const release = git(
+            "commit-tree",
+            git("rev-parse", "HEAD^{tree}"),
+            "-m",
+            `Release v0.1.0\n\nSource-Commit: ${source}`,
+        );
+        git("tag", "v0.1.0", release);
+        const result = prepare();
+        expect(result.status, result.stderr).toBe(0);
+        expect(await changelog()).toContain("feat: not actually released");
+    });
+
     test("Uses all subjects when no release tag exists", async () => {
         await writeFile(join(workspace, "CHANGELOG.md"), "# Changelog\n");
         commit("docs: update changelog");
