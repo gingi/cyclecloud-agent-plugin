@@ -34,7 +34,7 @@ jobs:
                   node-version: "22"
                   cache: npm
 
-            - name: Validate tag, source, versions, and changelog
+            - name: Validate release commit, source, versions, and changelog
               id: release
               run: node scripts/release-context.mjs
 
@@ -181,5 +181,5 @@ jobs:
               with:
                   node-version: "22"
 
-            - name: Promote the verified stable release
+            - name: Advance stable to the verified release tag
               run: node scripts/promote-stable.mjs "$RELEASE_TAG" "$RELEASE_COMMIT"

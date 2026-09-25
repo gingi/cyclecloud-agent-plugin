@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { releaseRepository } from "./helpers/release-repository.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const commit = "a".repeat(40);
@@ -12,7 +11,15 @@ const main = "b".repeat(40);
 const previous = "c".repeat(40);
 const tree = "d".repeat(40);
 const previousTree = "e".repeat(40);
-const previousSource = "f".repeat(40);
+const source = "f".repeat(40);
+const previousSource = "1".repeat(40);
+const newer = "2".repeat(40);
+const candidate = {
+    sha: commit,
+    message: `Release v0.3.0\n\nSource-Commit: ${source}`,
+    tree: { sha: tree },
+    parents: [{ sha: previous }, { sha: source }],
+};
 const previousSnapshot = {
     sha: previous,
     message: `Release v0.2.0\n\nSource-Commit: ${previousSource}`,
@@ -26,7 +33,6 @@ let workspace: string;
 function stableRef(sha = previous, ref = "refs/heads/stable") {
     return { ref, object: { type: "commit", sha } };
 }
-
 interface GitHubCall {
     args: string[];
     input?: string;
@@ -47,13 +53,21 @@ beforeEach(async () => {
             commit,
             main,
             tree,
-            tagCommits: {
-                "v0.2.0": { sha: previousSource, tree: previousTree },
-            },
+            source,
+            previousSource,
             gitCommits: {
+                [commit]: candidate,
+                [source]: {
+                    sha: source,
+                    tree: { sha: tree },
+                    message: "Prepare release",
+                },
                 [previous]: previousSnapshot,
-                [commit]: { sha: commit, message: "Prepare for release 0.3.0" },
-                [main]: { sha: main, message: "Prepare for a newer release" },
+                [previousSource]: {
+                    sha: previousSource,
+                    tree: { sha: previousTree },
+                    message: "Previous source",
+                },
             },
             release: {
                 tag_name: "v0.3.0",
@@ -62,12 +76,12 @@ beforeEach(async () => {
                 published_at: "2026-09-23T00:00:00Z",
             },
             mainComparison: { status: "ahead" },
-            stableComparison: { status: "ahead" },
-            stableRefs: [],
+            sourceComparison: { status: "ahead" },
+            stableComparison: { status: "diverged" },
+            stableRefs: [stableRef()],
         }),
     );
 });
-
 afterEach(async () => {
     await rm(workspace, { recursive: true, force: true });
 });
@@ -81,7 +95,17 @@ async function promote(
         string,
         unknown
     >;
-    await writeFile(statePath, JSON.stringify({ ...state, ...overrides }));
+    await writeFile(
+        statePath,
+        JSON.stringify({
+            ...state,
+            ...overrides,
+            gitCommits: {
+                ...(state.gitCommits as Record<string, unknown>),
+                ...(overrides.gitCommits as Record<string, unknown>),
+            },
+        }),
+    );
     const callsPath = join(workspace, "calls.jsonl");
     await writeFile(callsPath, "");
     const result = spawnSync(
@@ -107,7 +131,6 @@ async function promote(
     const writes = calls.filter((call) => call.args.includes("--method"));
     return { result, calls, writes };
 }
-
 async function expectRejected(
     overrides: Record<string, unknown>,
     message: string,
@@ -118,249 +141,97 @@ async function expectRejected(
     expect(writes).toEqual([]);
 }
 
-describe("Stable release promotion", () => {
-    test.each([
-        { stableRefs: [], parents: [], method: "POST", route: "git/refs" },
-        {
-            stableRefs: [stableRef()],
-            parents: [previous, commit],
-            method: "PATCH",
-            route: "git/refs/heads/stable",
-        },
-    ])(
-        "Creates a release-only commit before $method of stable",
-        async ({ stableRefs, parents, method, route }) => {
-            const { result, calls, writes } = await promote({ stableRefs });
+// Retry cases run up to three CLI processes, each bounded at 10 seconds.
+describe("Stable release promotion", { timeout: 35_000 }, () => {
+    test.each(["POST", "PATCH"])(
+        "Promotes the exact verified tag with %s and never creates a commit",
+        async (method) => {
+            const { result, calls, writes } = await promote(
+                method === "POST"
+                    ? {
+                          stableRefs: [],
+                          gitCommits: {
+                              [commit]: { ...candidate, parents: [] },
+                          },
+                      }
+                    : {},
+            );
             expect(result.status, result.stderr).toBe(0);
-            expect(calls.slice(0, 5).map((call) => call.args)).toEqual([
-                [
-                    "api",
-                    `${base}/commits/refs%2Ftags%2Fv0.3.0`,
-                    "--jq",
-                    "{sha: .sha, tree: .commit.tree.sha}",
-                ],
-                ["api", `${base}/releases/tags/v0.3.0`],
-                [
-                    "api",
-                    `${base}/commits/refs%2Fheads%2Fmain`,
-                    "--jq",
-                    "{sha: .sha}",
-                ],
-                [
-                    "api",
-                    `${base}/compare/${commit}...${main}`,
-                    "--jq",
-                    "{status: .status}",
-                ],
-                ["api", lookup],
-            ]);
-            expect(writes).toHaveLength(2);
+            expect(writes).toHaveLength(1);
             expect(writes[0]?.args).toEqual([
                 "api",
-                `${base}/git/commits`,
-                "--method",
-                "POST",
-                "--input",
-                "-",
-            ]);
-            expect(JSON.parse(writes[0]?.input ?? "null")).toEqual({
-                message: `Release v0.3.0\n\nSource-Commit: ${commit}`,
-                tree,
-                parents,
-            });
-            expect(writes[1]?.args).toEqual([
-                "api",
-                `${base}/${route}`,
+                `${base}/${method === "POST" ? "git/refs" : "git/refs/heads/stable"}`,
                 "--method",
                 method,
                 "--input",
                 "-",
             ]);
-            const update = JSON.parse(writes[1]?.input ?? "null") as {
-                sha: string;
-            };
-            expect(update.sha).toMatch(/^[a-f0-9]{40}$/);
-            expect(update.sha).not.toBe(commit);
-            expect(update).toEqual(
+            expect(JSON.parse(writes[0]?.input ?? "null")).toEqual(
                 method === "POST"
-                    ? { ref: "refs/heads/stable", sha: update.sha }
-                    : { sha: update.sha, force: false },
+                    ? { ref: "refs/heads/stable", sha: commit }
+                    : { sha: commit, force: false },
             );
-            expect(result.stdout).toContain(
-                `at ${update.sha} (source ${commit})`,
-            );
-            if (parents.length) {
-                expect(
-                    calls.some(
-                        (call) =>
-                            call.args[1] ===
-                            `${base}/compare/${previousSource}...${commit}`,
-                    ),
-                ).toBe(true);
-                expect(
-                    calls.some(
-                        (call) =>
-                            call.args[1] ===
-                            `${base}/compare/${previous}...${commit}`,
-                    ),
-                ).toBe(false);
-            }
+            expect(
+                calls.some(
+                    (call) =>
+                        call.args[1] === `${base}/compare/${source}...${main}`,
+                ),
+            ).toBe(true);
+            expect(
+                calls.some(
+                    (call) =>
+                        call.args[1] === `${base}/compare/${commit}...${main}`,
+                ),
+            ).toBe(false);
+            expect(result.stdout).toContain(`at ${commit} (source ${source})`);
+            const again = await promote();
+            expect(again.result.status, again.result.stderr).toBe(0);
+            expect(again.writes).toEqual([]);
         },
     );
 
-    test("Chains release first parents and records tagged source second parents", async () => {
-        const first = await promote();
-        expect(first.result.status, first.result.stderr).toBe(0);
-        const { sha: firstSha } = JSON.parse(
-            first.writes[1]?.input ?? "null",
-        ) as { sha: string };
-        const next = "1".repeat(40);
-        const nextTree = "2".repeat(40);
-        const second = await promote(
-            {
-                commit: next,
-                tree: nextTree,
-                tagCommits: { "v0.3.0": { sha: commit, tree } },
-                release: {
-                    tag_name: "v0.4.0",
-                    draft: false,
-                    prerelease: false,
-                    published_at: "2026-09-24T00:00:00Z",
-                },
-            },
-            ["v0.4.0", next],
-        );
-        expect(second.result.status, second.result.stderr).toBe(0);
-        expect(JSON.parse(second.writes[0]?.input ?? "null")).toEqual({
-            message: `Release v0.4.0\n\nSource-Commit: ${next}`,
-            tree: nextTree,
-            parents: [firstSha, next],
-        });
-        const again = await promote({}, ["v0.4.0", next]);
-        expect(again.result.status, again.result.stderr).toBe(0);
-        expect(again.writes).toEqual([]);
-    });
-
-    test.each([[{ sha: main }], [{ sha: main }, { sha: previousSource }]])(
-        "Promotes from an existing release with parents %j",
-        async (...parents) => {
-            const { result, writes } = await promote({
-                stableRefs: [stableRef()],
+    test.each([0, 1, 2])(
+        "Accepts the existing stable release with %s parents",
+        async (count) => {
+            const parents =
+                count === 0
+                    ? []
+                    : count === 1
+                      ? [{ sha: newer }]
+                      : [{ sha: newer }, { sha: previousSource }];
+            const { result } = await promote({
                 gitCommits: { [previous]: { ...previousSnapshot, parents } },
             });
             expect(result.status, result.stderr).toBe(0);
-            expect(JSON.parse(writes[0]?.input ?? "null")).toMatchObject({
-                parents: [previous, commit],
-            });
         },
     );
 
-    test("Produces a Git merge edge with a release-only first-parent log", async () => {
-        const repository = await releaseRepository();
-        try {
-            const { git } = repository;
-            const initialSource = git("rev-parse", "HEAD");
-            const initialTree = git("rev-parse", "HEAD^{tree}");
-            const initialMessage = `Release v0.2.0\n\nSource-Commit: ${initialSource}`;
-            const initialRelease = git(
-                "commit-tree",
-                initialTree,
-                "-m",
-                initialMessage,
-            );
-            repository.commit("Intermediate development change");
-            await writeFile(
-                join(repository.checkout, "feature.txt"),
-                "Released feature\n",
-            );
-            const source = repository.commit("Prepare the next release");
-            const sourceTree = git("rev-parse", "HEAD^{tree}");
-            const { result, writes } = await promote(
-                {
-                    commit: source,
-                    main: source,
-                    tree: sourceTree,
-                    mainComparison: { status: "identical" },
-                    stableRefs: [stableRef(initialRelease)],
-                    tagCommits: {
-                        "v0.2.0": { sha: initialSource, tree: initialTree },
-                    },
-                    gitCommits: {
-                        [initialRelease]: {
-                            sha: initialRelease,
-                            message: initialMessage,
-                            tree: { sha: initialTree },
-                            parents: [],
-                        },
-                    },
-                },
-                ["v0.3.0", source],
-            );
-            expect(result.status, result.stderr).toBe(0);
-            const body = JSON.parse(writes[0]?.input ?? "null") as {
-                message: string;
-                tree: string;
-                parents: string[];
-            };
-            const merged = git(
-                "commit-tree",
-                body.tree,
-                ...body.parents.flatMap((parent) => ["-p", parent]),
-                "-m",
-                body.message,
-            );
-            expect(git("show", "-s", "--format=%P", merged)).toBe(
-                `${initialRelease} ${source}`,
-            );
-            expect(git("rev-parse", `${merged}^{tree}`)).toBe(sourceTree);
-            expect(
-                git("log", "--first-parent", "--format=%s", merged).split("\n"),
-            ).toEqual(["Release v0.3.0", "Release v0.2.0"]);
-            expect(git("rev-list", "--merges", merged)).toBe(merged);
-            expect(git("merge-base", "--is-ancestor", source, merged)).toBe("");
-        } finally {
-            await rm(repository.directory, { recursive: true, force: true });
-        }
-    });
-
-    test("Preserves an existing main commit as the release merge's first parent", async () => {
-        const { result, calls, writes } = await promote({
-            stableRefs: [stableRef()],
+    test("Accepts an ordinary main source as the current stable base", async () => {
+        const { result } = await promote({
+            previousSource: previous,
             gitCommits: {
                 [previous]: {
-                    sha: previous,
-                    message: "Prepare for release 0.2.0",
+                    ...previousSnapshot,
+                    message: "Prepare previous release",
                 },
             },
         });
         expect(result.status, result.stderr).toBe(0);
-        expect(JSON.parse(writes[0]?.input ?? "null")).toMatchObject({
-            parents: [previous, commit],
-        });
-        expect(
-            calls.some(
-                (call) =>
-                    call.args[1] === `${base}/compare/${previous}...${commit}`,
-            ),
-        ).toBe(true);
     });
 
-    test("Does nothing when stable already points to the tagged source commit", async () => {
-        const { result, calls, writes } = await promote({
+    test("Does nothing when stable already points at the tagged release", async () => {
+        const { result, writes } = await promote({
             stableRefs: [stableRef(commit)],
         });
         expect(result.status, result.stderr).toBe(0);
         expect(writes).toEqual([]);
-        expect(
-            calls.filter((call) => call.args[1]?.includes("/compare/")),
-        ).toHaveLength(1);
     });
 
-    test.each(["behind", "identical"])(
-        "Does not roll back stable when source comparison is %s",
+    test.each(["ahead", "identical"])(
+        "Does not roll back stable when it includes the tagged commit (%s)",
         async (status) => {
             const { result, writes } = await promote({
-                stableRefs: [stableRef()],
+                stableRefs: [stableRef(newer)],
                 stableComparison: { status },
             });
             expect(result.status, result.stderr).toBe(0);
@@ -368,58 +239,95 @@ describe("Stable release promotion", () => {
         },
     );
 
-    test.each(["diverged", "unknown", undefined])(
-        "Fails closed on stable source comparison %s",
+    test.each(["behind", "diverged"])(
+        "Rejects a candidate based on a different stable tip (%s)",
         async (status) => {
             await expectRejected(
-                { stableRefs: [stableRef()], stableComparison: { status } },
-                "source history",
+                {
+                    stableRefs: [stableRef(newer)],
+                    stableComparison: { status },
+                },
+                "Stable changed",
             );
         },
     );
+    test.each(["unknown", undefined])(
+        "Fails closed on unknown stable ancestry %s",
+        async (status) => {
+            await expectRejected(
+                {
+                    stableRefs: [stableRef(newer)],
+                    stableComparison: { status },
+                },
+                "ancestry",
+            );
+        },
+    );
+    test("Does not recreate a missing stable branch from a merge with an existing base", async () => {
+        await expectRejected({ stableRefs: [] }, "Stable changed");
+    });
+    test("Does not replace an existing stable branch with a parentless candidate", async () => {
+        await expectRejected(
+            { gitCommits: { [commit]: { ...candidate, parents: [] } } },
+            "Stable changed",
+        );
+    });
 
     test.each(["behind", "diverged", "unknown", undefined])(
-        "Rejects off-main or unknown main comparison %s",
+        "Rejects source off main or unknown main comparison %s",
         async (status) => {
             await expectRejected({ mainComparison: { status } }, "main");
         },
     );
-
-    test("Accepts the main tip itself", async () => {
+    test("Accepts source at the main tip", async () => {
         const { result } = await promote({
-            main: commit,
+            main: source,
             mainComparison: { status: "identical" },
         });
         expect(result.status, result.stderr).toBe(0);
     });
-
-    test.each([
-        `${base}/commits/refs%2Ftags%2Fv0.3.0`,
-        `${base}/commits/refs%2Ftags%2Fv0.2.0`,
-        `${base}/commits/refs%2Fheads%2Fmain`,
-        `${base}/compare/${commit}...${main}`,
-        `${base}/compare/${previousSource}...${commit}`,
-    ])(
-        "Handles oversized commit/diff responses from %s",
-        async (largeResponse) => {
-            const { result, writes } = await promote({
-                stableRefs: [stableRef()],
-                largeResponse,
-            });
-            expect(result.status, result.stderr).toBe(0);
-            expect(writes).toHaveLength(2);
+    test.each(["behind", "diverged", "identical", "unknown", undefined])(
+        "Rejects a candidate that does not advance its previous source (%s)",
+        async (status) => {
+            await expectRejected(
+                { sourceComparison: { status } },
+                "does not advance",
+            );
         },
     );
 
-    test("Uses top-level compare status even when the commit list is truncated", async () => {
-        const commits = Array.from({ length: 250 }, () => ({ sha: tree }));
-        const { result, writes } = await promote({
-            stableRefs: [stableRef()],
-            mainComparison: { status: "ahead", total_commits: 400, commits },
-            stableComparison: { status: "ahead", total_commits: 400, commits },
+    test.each([
+        `${base}/commits/refs%2Ftags%2Fv0.3.0`,
+        `${base}/commits/refs%2Fheads%2Fmain`,
+        `${base}/compare/${source}...${main}`,
+        `${base}/compare/${previousSource}...${source}`,
+        `${base}/compare/${commit}...${newer}`,
+    ])(
+        "Filters oversized commit/diff responses from %s",
+        async (largeResponse) => {
+            const { result } = await promote({
+                largeResponse,
+                ...(largeResponse.endsWith(`...${newer}`)
+                    ? {
+                          stableRefs: [stableRef(newer)],
+                          stableComparison: { status: "ahead" },
+                      }
+                    : {}),
+            });
+            expect(result.status, result.stderr).toBe(0);
+        },
+    );
+    test("Uses comparison status even when the returned commit list is truncated", async () => {
+        const comparison = {
+            status: "ahead",
+            total_commits: 400,
+            commits: Array.from({ length: 250 }, () => ({ sha: tree })),
+        };
+        const { result } = await promote({
+            mainComparison: comparison,
+            sourceComparison: comparison,
         });
         expect(result.status, result.stderr).toBe(0);
-        expect(writes).toHaveLength(2);
     });
 
     test.each([
@@ -436,17 +344,77 @@ describe("Stable release promotion", () => {
         expect(result.stderr).toMatch(/Usage|SemVer|prerelease|SHA/);
         expect(calls).toEqual([]);
     });
-
-    test("Rejects a remote tag with a different peeled SHA", async () => {
+    test("Rejects a tag with a different peeled SHA", async () => {
         await expectRejected({ commit: previous }, "different commit");
     });
-
     test.each([null, "short", undefined])(
-        "Rejects invalid source tree %j",
+        "Rejects invalid tag tree %j",
         async (tree) => {
             await expectRejected({ tree }, "SHA");
         },
     );
+    test("Rejects a tag tree that differs from the release snapshot", async () => {
+        await expectRejected({ tree: previousTree }, "does not match the tag");
+    });
+
+    test.each([
+        { ...candidate, sha: source },
+        { ...candidate, message: "Prepare for release 0.3.0" },
+        { ...candidate, message: `Release v0.2.0\n\nSource-Commit: ${source}` },
+        { ...candidate, message: `Release v0.3.0\n\nSource-Commit: short` },
+        { ...candidate, parents: null },
+        { ...candidate, parents: [{}] },
+        { ...candidate, parents: [{ sha: previous }] },
+        { ...candidate, parents: [{ sha: source }, { sha: previous }] },
+        {
+            ...candidate,
+            parents: [{ sha: previous }, { sha: source }, { sha: newer }],
+        },
+    ])("Rejects invalid candidate metadata: %j", async (snapshot) => {
+        const { result, writes } = await promote({
+            gitCommits: { [commit]: snapshot },
+        });
+        expect(result.status).not.toBe(0);
+        expect(result.stderr).toMatch(/release commit|SHA/);
+        expect(writes).toEqual([]);
+    });
+    test("Rejects source tree that differs from the candidate", async () => {
+        await expectRejected(
+            {
+                gitCommits: {
+                    [source]: { sha: source, tree: { sha: previousTree } },
+                },
+            },
+            "tree must match",
+        );
+    });
+    test("Rejects invalid source commit confirmation", async () => {
+        await expectRejected(
+            {
+                gitCommits: {
+                    [source]: { sha: previousSource, tree: { sha: tree } },
+                },
+            },
+            "metadata",
+        );
+    });
+    test.each([
+        { ...previousSnapshot, tree: { sha: tree } },
+        {
+            ...previousSnapshot,
+            parents: [{ sha: previousSource }, { sha: newer }],
+        },
+        {
+            ...previousSnapshot,
+            message: `Release v0.2.0-rc.1\n\nSource-Commit: ${previousSource}`,
+        },
+    ])("Rejects invalid stable base provenance: %j", async (snapshot) => {
+        const { result, writes } = await promote({
+            gitCommits: { [previous]: snapshot },
+        });
+        expect(result.status).not.toBe(0);
+        expect(writes).toEqual([]);
+    });
 
     test.each([
         {
@@ -484,28 +452,35 @@ describe("Stable release promotion", () => {
 
     test.each([
         `${base}/commits/refs%2Ftags%2Fv0.3.0`,
-        `${base}/commits/refs%2Ftags%2Fv0.2.0`,
+        `${base}/git/commits/${commit}`,
+        `${base}/git/commits/${source}`,
+        `${base}/git/commits/${previous}`,
+        `${base}/git/commits/${previousSource}`,
         `${base}/releases/tags/v0.3.0`,
         `${base}/commits/refs%2Fheads%2Fmain`,
-        `${base}/compare/${commit}...${main}`,
+        `${base}/compare/${source}...${main}`,
+        `${base}/compare/${previousSource}...${source}`,
         lookup,
-        `${base}/git/commits/${previous}`,
-        `${base}/compare/${previousSource}...${commit}`,
     ])("Does not treat an API failure as a missing ref: %s", async (fail) => {
+        await expectRejected({ fail }, "Simulated GitHub failure");
+    });
+    test("Propagates stable ancestry lookup failure without writing", async () => {
         await expectRejected(
-            { fail, stableRefs: [stableRef()] },
+            {
+                stableRefs: [stableRef(newer)],
+                fail: `${base}/compare/${commit}...${newer}`,
+            },
             "Simulated GitHub failure",
         );
     });
-
     test("Ignores stable-extra when stable is missing", async () => {
         const { result, writes } = await promote({
             stableRefs: [stableRef(previous, "refs/heads/stable-extra")],
+            gitCommits: { [commit]: { ...candidate, parents: [] } },
         });
         expect(result.status, result.stderr).toBe(0);
-        expect(writes[1]?.args).toContain("POST");
+        expect(writes[0]?.args).toContain("POST");
     });
-
     test("Selects exact stable among prefix matches", async () => {
         const { result, writes } = await promote({
             stableRefs: [
@@ -516,7 +491,6 @@ describe("Stable release promotion", () => {
         expect(result.status, result.stderr).toBe(0);
         expect(writes).toEqual([]);
     });
-
     test.each([
         { stableRefs: null },
         { stableRefs: {} },
@@ -541,146 +515,58 @@ describe("Stable release promotion", () => {
     ])("Rejects malformed stable ref metadata: %j", async ({ stableRefs }) => {
         await expectRejected({ stableRefs }, "stable");
     });
-
-    test.each([
-        { ...previousSnapshot, sha: commit },
-        { ...previousSnapshot, message: null },
-        { ...previousSnapshot, tree: { sha: tree } },
-        {
-            ...previousSnapshot,
-            parents: [{ sha: previousSource }, { sha: commit }],
-        },
-        {
-            ...previousSnapshot,
-            parents: [{ sha: main }, { sha: commit }, { sha: previousSource }],
-        },
-        {
-            ...previousSnapshot,
-            message: `Release v0.2.0\n\nSource-Commit: ${commit}`,
-        },
-        {
-            ...previousSnapshot,
-            message: `Release v0.2.0-rc.1\n\nSource-Commit: ${previousSource}`,
-        },
-    ])(
-        "Rejects invalid stable release commit metadata: %j",
-        async (snapshot) => {
-            await expectRejected(
-                {
-                    stableRefs: [stableRef()],
-                    gitCommits: { [previous]: snapshot },
-                },
-                "stable",
-            );
-        },
-    );
-
     test("Rejects an invalid main snapshot SHA", async () => {
         await expectRejected({ main: "main" }, "SHA");
     });
 
-    test.each(["git/commits", "git/refs", "git/refs/heads/stable"])(
-        "Fails safely on %s failure and supports a successful retry",
-        async (route) => {
+    test.each(["POST", "PATCH"])(
+        "Fails safely on %s and retries the same tag commit",
+        async (method) => {
             const first = await promote({
-                fail: `${base}/${route}`,
-                stableRefs: route.endsWith("heads/stable") ? [stableRef()] : [],
+                fail: method,
+                ...(method === "POST"
+                    ? {
+                          stableRefs: [],
+                          gitCommits: {
+                              [commit]: { ...candidate, parents: [] },
+                          },
+                      }
+                    : {}),
             });
             expect(first.result.status).not.toBe(0);
-            expect(first.writes).toHaveLength(route === "git/commits" ? 1 : 2);
+            expect(first.writes).toHaveLength(1);
             const retry = await promote({ fail: null });
             expect(retry.result.status, retry.result.stderr).toBe(0);
-            expect(retry.writes).toHaveLength(2);
+            expect(JSON.parse(retry.writes[0]?.input ?? "null")).toMatchObject({
+                sha: commit,
+            });
             const again = await promote();
             expect(again.result.status, again.result.stderr).toBe(0);
             expect(again.writes).toEqual([]);
         },
     );
-
     test.each(["POST", "PATCH"])(
-        "A concurrent %s change fails once and retry cannot roll back stable",
+        "Concurrent %s promotion cannot roll back stable on retry",
         async (method) => {
-            const newerSource = "1".repeat(40);
             const first = await promote({
-                stableRefs: method === "POST" ? [] : [stableRef()],
-                raceStable: stableRef(main),
-                gitCommits: {
-                    [previous]: previousSnapshot,
-                    [main]: {
-                        sha: main,
-                        message: `Release v0.4.0\n\nSource-Commit: ${newerSource}`,
-                        tree: { sha: tree },
-                        parents: [{ sha: previous }, { sha: newerSource }],
-                    },
-                },
-                tagCommits: {
-                    "v0.2.0": { sha: previousSource, tree: previousTree },
-                    "v0.4.0": { sha: newerSource, tree },
-                },
+                raceStable: stableRef(newer),
+                ...(method === "POST"
+                    ? {
+                          stableRefs: [],
+                          gitCommits: {
+                              [commit]: { ...candidate, parents: [] },
+                          },
+                      }
+                    : {}),
             });
             expect(first.result.status).not.toBe(0);
             expect(first.result.stderr).toContain("Concurrent ref change");
-            expect(first.writes).toHaveLength(2);
+            expect(first.writes).toHaveLength(1);
             const retry = await promote();
             expect(retry.result.status, retry.result.stderr).toBe(0);
             expect(retry.writes).toEqual([]);
         },
     );
-
-    test.each([
-        {},
-        { sha: "short" },
-        {
-            sha: main,
-            message: "Wrong message",
-            tree: { sha: tree },
-            parents: [],
-        },
-        {
-            sha: main,
-            message: `Release v0.3.0\n\nSource-Commit: ${commit}`,
-            tree: { sha: previousTree },
-            parents: [],
-        },
-        {
-            sha: main,
-            message: `Release v0.3.0\n\nSource-Commit: ${commit}`,
-            tree: { sha: tree },
-            parents: [{ sha: commit }],
-        },
-    ])(
-        "Rejects malformed commit creation before updating stable: %j",
-        async (commitResponse) => {
-            const { result, writes } = await promote({ commitResponse });
-            expect(result.status).not.toBe(0);
-            expect(result.stderr).toMatch(/SHA|release commit/);
-            expect(writes).toHaveLength(1);
-        },
-    );
-
-    test.each([
-        [commit, previous],
-        [previous],
-        [previous, main],
-        [previous, commit, main],
-    ])(
-        "Rejects merge creation with incorrect parent order or count %j",
-        async (...parents) => {
-            const { result, writes } = await promote({
-                stableRefs: [stableRef()],
-                commitResponse: {
-                    sha: main,
-                    message: `Release v0.3.0\n\nSource-Commit: ${commit}`,
-                    tree: { sha: tree },
-                    parents: parents.map((sha) => ({ sha })),
-                },
-            });
-            expect(result.status).not.toBe(0);
-            expect(result.stderr).toContain("release commit");
-            expect(writes).toHaveLength(1);
-        },
-    );
-
     test.each([
         stableRef(previous),
         stableRef(commit, "refs/heads/main"),
@@ -692,7 +578,7 @@ describe("Stable release promotion", () => {
             const { result, writes } = await promote({ writeResponse });
             expect(result.status).not.toBe(0);
             expect(result.stderr).toContain("stable");
-            expect(writes).toHaveLength(2);
+            expect(writes).toHaveLength(1);
         },
     );
 });

@@ -27,8 +27,36 @@ function commitFiles() {
     return git("rev-parse", "HEAD");
 }
 
-function selectTag(tag: string, annotated = false) {
-    git("tag", ...(annotated ? ["-a", "-m", "Release"] : []), tag);
+function selectTag(
+    tag: string,
+    annotated = false,
+    options: {
+        direct?: boolean;
+        parents?: string[];
+        tree?: string;
+        message?: string;
+    } = {},
+) {
+    const source = git("rev-parse", "HEAD");
+    const stable = git(
+        "for-each-ref",
+        "--format=%(objectname)",
+        "refs/remotes/origin/stable",
+    );
+    const parents = options.parents ?? (stable ? [stable, source] : []);
+    commit =
+        tag.includes("-") || options.direct
+            ? source
+            : git(
+                  "commit-tree",
+                  options.tree ?? git("rev-parse", "HEAD^{tree}"),
+                  ...parents.flatMap((parent) => ["-p", parent]),
+                  "-m",
+                  options.message ??
+                      `Release ${tag}\n\nSource-Commit: ${source}`,
+              );
+    git("tag", ...(annotated ? ["-a", "-m", "Release"] : []), tag, commit);
+    git("checkout", "--detach", commit);
     env.GITHUB_REF = `refs/tags/${tag}`;
     env.GITHUB_SHA = git("rev-parse", tag);
     event.ref = env.GITHUB_REF;
@@ -136,8 +164,9 @@ describe("Tag release source", () => {
         },
     );
 
-    test("Allows an older stable commit on main", async () => {
+    test("Allows a release whose source is behind the main tip", async () => {
         selectTag("v0.1.0");
+        git("checkout", "main");
         git("commit", "--allow-empty", "-m", "Later main commit");
         git("update-ref", "refs/remotes/origin/main", "HEAD");
         git("checkout", "--detach", commit);
@@ -168,8 +197,83 @@ describe("Tag release source", () => {
             full_name: "example/plugin",
             default_branch: "stable",
         };
-        selectTag("v0.1.0");
+        selectTag("v0.1.0", false, { parents: [] });
         await expectFailure("main");
+    });
+
+    test("Rejects a stable tag directly on its main source", async () => {
+        selectTag("v0.1.0", false, { direct: true });
+        await expectFailure("release commit");
+    });
+
+    test("Rejects release metadata naming a different version", async () => {
+        selectTag("v0.1.0", false, {
+            message: `Release v0.2.0\n\nSource-Commit: ${commit}`,
+        });
+        await expectFailure("matching tag");
+    });
+
+    test("Rejects a release tree that differs from its main source", async () => {
+        const source = commit;
+        await writeFile(join(repo, "extra.txt"), "Unreviewed change");
+        commitFiles();
+        const tree = git("rev-parse", "HEAD^{tree}");
+        git("checkout", "--detach", source);
+        selectTag("v0.1.0", false, { tree });
+        await expectFailure("tree must match");
+    });
+
+    test("Rejects a release merge with the wrong source second parent", async () => {
+        const previous = commit;
+        git("commit", "--allow-empty", "-m", "Main advance");
+        const source = git("rev-parse", "HEAD");
+        git("update-ref", "refs/remotes/origin/main", source);
+        git("update-ref", "refs/remotes/origin/stable", previous);
+        selectTag("v0.1.0", false, { parents: [source, previous] });
+        await expectFailure("parents");
+    });
+
+    test("Rejects a candidate when stable advanced to a different release", async () => {
+        selectTag("v0.1.0");
+        const other = git(
+            "commit-tree",
+            git("rev-parse", "HEAD^{tree}"),
+            "-m",
+            "Other release",
+        );
+        git("update-ref", "refs/remotes/origin/stable", other);
+        await expectFailure("Stable changed");
+    });
+
+    test.each([false, true])(
+        "Accepts an already promoted candidate (newer=%s)",
+        async (newer) => {
+            selectTag("v0.1.0");
+            const current = newer
+                ? git(
+                      "commit-tree",
+                      git("rev-parse", "HEAD^{tree}"),
+                      "-p",
+                      commit,
+                      "-m",
+                      "Later release",
+                  )
+                : commit;
+            git("update-ref", "refs/remotes/origin/stable", current);
+            const result = await run();
+            expect(result.status, result.stderr).toBe(0);
+        },
+    );
+
+    test("Rejects a release whose source goes backward from its stable base", async () => {
+        const selected = commit;
+        git("commit", "--allow-empty", "-m", "Newer source");
+        const newer = git("rev-parse", "HEAD");
+        git("update-ref", "refs/remotes/origin/main", newer);
+        git("update-ref", "refs/remotes/origin/stable", newer);
+        git("checkout", "--detach", selected);
+        selectTag("v0.1.0");
+        await expectFailure("does not advance");
     });
 
     test.each([
