@@ -108,6 +108,38 @@ def normalize_cluster(raw, cluster_name, fixed_node_limit=50, node_array_limit=5
                         "arrayNodeCount": array_count, "configuredNodeCount": _checked_sum([len(fixed_nodes), array_count])}}
 
 
+NODE_ARRAY_DEFINITIONS_WARNING = "Configured node-array definitions could not be retrieved or validated."
+
+
+def normalize_node_array_definitions(raw, cluster_name, limit=50):
+    limit = validate_limit(limit, 0, 100)
+    definitions = {}
+    for row in required_rows(raw):
+        fields = consumed_fields(row, ("clustername", "name", "state", "targetstate"))
+        if required_wire_string(fields.get("clustername", MISSING), 256) != cluster_name:
+            invalid_response()
+        name = required_wire_string(fields.get("name", MISSING), 256)
+        if name in definitions:
+            invalid_response()
+        # Query projections represent undefined optional lifecycle fields as null.
+        states = {key: fields[key] for key in ("state", "targetstate") if fields.get(key) is not None}
+        definitions[name] = {"name": name, **_states(states)}
+    items = sorted(definitions.values(), key=lambda row: name_sort_key(row["name"]))[:limit]
+    return {"available": True, "items": items, "total": len(definitions), "returned": len(items), "truncated": len(items) < len(definitions)}
+
+
+def normalize_node_array_definition_counts(raw, cluster_names):
+    counts = {}
+    selected = set(cluster_names)
+    for row in required_rows(raw):
+        fields = consumed_fields(row, ("clustername", "count"))
+        name = required_wire_string(fields.get("clustername", MISSING), 256)
+        if name not in selected or name in counts:
+            invalid_response()
+        counts[name] = safe_integer(fields.get("count", MISSING), 0)
+    return {name: {"available": True, "total": counts.get(name, 0)} for name in cluster_names}
+
+
 def _bucket_status(value):
     record = required_record(value)
     result = {"bucketId": required_wire_string(record.get("bucketId", MISSING), 256)}

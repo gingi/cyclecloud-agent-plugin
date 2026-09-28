@@ -42,6 +42,18 @@ class FakeBackend(BaseHTTPRequestHandler):
             query = parse_qs(urlsplit(self.path).query)["q"][0]
             if "cloud.node.node_status" in query:
                 body = []
+            elif query in (
+                    'select ClusterName, Name, State, TargetState from Cloud.Node where ClusterName === "demo"'
+                    ' && IsArray === true && Abstract =!= true',
+                    'select ClusterName, count(*) as Count from Cloud.Node where IsArray === true && Abstract =!= true'
+                    ' && (ClusterName === "demo") group by ClusterName'):
+                if self.mode == "definitions-denied":
+                    status, body = 403, {"secret": "secret-canary"}
+                elif "count(*)" in query:
+                    body = [{"ClusterName": "demo", "Count": 6}]
+                else:
+                    body = [{"ClusterName": "demo", "Name": name, "State": "Activated"}
+                            for name in ("scheduler-ha", "login", "htc", "hpc", "gpu", "dynamic")]
             elif "from Cloud.Node" in query:
                 body = [{"Name": "scheduler", "Template": "scheduler", "State": "Started",
                          "ImageName": "fake-image", "AttachmentReference": "$Specs", "ClusterInitSpecs": {},
@@ -134,6 +146,37 @@ class OfficialCLI810Tests(unittest.TestCase):
             if "/exec/query/" in path:
                 self.assertEqual(headers["Accept"], "*/*")
                 self.assertNotIn("select *", parse_qs(urlsplit(path).query)["q"][0])
+
+    def test_definition_evidence_is_independent_of_legacy_groups_and_detail_limit(self):
+        code, value = self.invoke(["clusters"])
+        self.assertEqual(code, 0, value)
+        summary = value["result"]["clusters"][0]
+        self.assertEqual(summary["nodeArrayCount"], 0)
+        self.assertEqual(summary["nodeArraySummarySemantics"], "instantiated-node-groups")
+        self.assertEqual(summary["nodeArrayDefinitions"], {"available": True, "total": 6})
+        for limit in (0, 2):
+            with self.subTest(limit=limit):
+                code, value = self.invoke(["cluster", "demo", "--node-array-limit", str(limit)])
+                self.assertEqual(code, 0, value)
+                detail = value["result"]["cluster"]
+                self.assertEqual(detail["nodeArrayTotal"], 0)
+                self.assertEqual(detail["nodeArraySummarySemantics"], "instantiated-node-groups")
+                self.assertEqual(detail["nodeArrayDefinitions"], {
+                    "available": True, "total": 6, "returned": limit, "truncated": True,
+                    "items": [{"name": name, "state": "Activated"} for name in ("dynamic", "gpu")[:limit]],
+                })
+
+    def test_denied_definitions_preserve_primary_success_without_inventing_zero(self):
+        FakeBackend.mode = "definitions-denied"
+        for args, key in ((["clusters"], "clusters"), (["cluster", "demo"], "cluster")):
+            with self.subTest(command=args):
+                code, value = self.invoke(args)
+                self.assertEqual(code, 0, value)
+                result = value["result"][key]
+                row = result[0] if key == "clusters" else result
+                self.assertEqual(row["nodeArrayDefinitions"], {
+                    "available": False, "warning": "Configured node-array definitions could not be retrieved or validated.",
+                })
 
     def test_unconfigured_and_invalid_input_are_noninteractive(self):
         code, value = self.invoke(["clusters", "--config", str(self.directory / "does-not-exist")], config=False)

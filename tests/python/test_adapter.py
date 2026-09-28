@@ -1,5 +1,6 @@
 """Adapter seam tests use fakes, never user credentials or interactive login."""
 import json
+import re
 import sys
 import types
 import unittest
@@ -242,6 +243,72 @@ class QueryTests(unittest.TestCase):
         self.adapter.quote.assert_called_with(name)
         self.adapter.get_cluster_status(name)
         self.assertTrue(self.adapter.http.get_json.call_args.args[0].endswith("/status?nodes=false"))
+
+    def test_definition_query_is_narrow_and_exactly_scoped(self):
+        name = 'c" \\ && Secret === true / ? # é'
+        self.adapter.get_node_array_definitions(name)
+        self.assertEqual(self.query(), "select ClusterName, Name, State, TargetState from Cloud.Node where ClusterName === "
+                         + json.dumps(name) + " && IsArray === true && Abstract =!= true")
+
+    def test_definition_counts_are_scoped_batched_and_encoded_path_bounded(self):
+        names = ['c" \\ && Secret === true / ? # é'] + [str(index) + "界" * 100 for index in range(199)]
+        selected = []
+
+        def respond(url, **kwargs):
+            parsed = urlsplit(url)
+            self.assertLessEqual(len((parsed.path + "?" + parsed.query).encode("ascii")), 6144)
+            query = parse_qs(parsed.query)["q"][0]
+            batch = [json.loads(value) for value in re.findall(r'ClusterName === ("(?:\\.|[^"\\])*")', query)]
+            self.assertEqual(query, "select ClusterName, count(*) as Count from Cloud.Node where IsArray === true && Abstract =!= true && ("
+                             + " || ".join("ClusterName === " + json.dumps(name) for name in batch) + ") group by ClusterName")
+            selected.extend(batch)
+            return [{"ClusterName": batch[0], "Count": 6}]
+
+        self.adapter.http.get_json.side_effect = respond
+        result = self.adapter.get_node_array_definition_counts(names)
+        self.assertEqual(selected, names)
+        self.assertGreater(self.adapter.http.get_json.call_count, 1)
+        self.assertLess(self.adapter.http.get_json.call_count, len(names))
+        self.assertEqual(set(result), set(names))
+        self.assertTrue(all(value["available"] for value in result.values()))
+        self.assertEqual(result[names[0]]["total"], 6)
+        self.assertIn(0, [value["total"] for value in result.values()])
+
+    @unittest.skipUnless(requests, "Run with the bundled CLI Python to exercise requests")
+    def test_definition_count_path_bound_includes_transport_prefix_encoding(self):
+        self.adapter.base_url = "https://cc.example/proxy" + "p" * 42 + "%"
+        self.adapter.http.get_json.return_value = []
+        self.adapter.get_node_array_definition_counts(["cluster-" + str(index) for index in range(200)])
+        for call in self.adapter.http.get_json.call_args_list:
+            path = requests.Request("GET", call.args[0]).prepare().path_url
+            self.assertLessEqual(len(path.encode("ascii")), 6144)
+
+    def test_empty_selection_and_single_oversized_scope_make_no_request(self):
+        self.assertEqual(self.adapter.get_node_array_definition_counts([]), {})
+        self.adapter.base_url += "/" + "p" * 6000
+        name = "界" * 256
+        result = self.adapter.get_node_array_definition_counts([name])
+        self.assertFalse(result[name]["available"])
+        self.assertNotIn("total", result[name])
+        self.adapter.http.get_json.assert_not_called()
+
+    def test_failed_batches_do_not_erase_success_or_swallow_timeout(self):
+        names = [str(index) + "😀" * 250 for index in range(3)]
+        for failure in (InspectionError("permission_denied", "SECRET_CANARY"), [{"ClusterName": "wrong", "Count": 0}],
+                        InspectionError("timeout", "safe"), InspectionError("cancelled", "safe")):
+            with self.subTest(failure=failure):
+                self.adapter.http.get_json.side_effect = [[{"ClusterName": names[0], "Count": 6}], failure, []]
+                if isinstance(failure, InspectionError) and failure.code in ("timeout", "cancelled"):
+                    with self.assertRaises(InspectionError) as raised:
+                        self.adapter.get_node_array_definition_counts(names)
+                    self.assertEqual(raised.exception.code, failure.code)
+                else:
+                    result = self.adapter.get_node_array_definition_counts(names)
+                    self.assertEqual(result[names[0]], {"available": True, "total": 6})
+                    self.assertFalse(result[names[1]]["available"])
+                    self.assertNotIn("total", result[names[1]])
+                    self.assertEqual(result[names[2]], {"available": True, "total": 0})
+                    self.assertNotIn("SECRET_CANARY", json.dumps(result))
 
     def test_only_fixed_projected_queries(self):
         for section in ("environment", "storage", "attachments"):

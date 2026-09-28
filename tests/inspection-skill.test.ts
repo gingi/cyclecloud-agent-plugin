@@ -59,6 +59,19 @@ describe("CLI inspection guidance", () => {
         expect(text).toContain("do not broaden host filesystem permissions");
     });
 
+    test("Distinguishes configured definitions from runtime groups and discovery targets", async () => {
+        const text = await readFile(inspection, "utf8");
+        expect(text).toContain("nodeArrayDefinitions.total");
+        expect(text).toContain("available` is `true");
+        expect(text).toContain("absent or unavailable means unknown, not zero");
+        expect(text).toContain("instantiated-node groups");
+        expect(text).toContain("Never substitute");
+        expect(text).toContain("targets.total");
+        expect(text).toContain("capacity, not configured-definition counts");
+        expect(text).toContain("independently");
+        expect(text).toContain("not a reason to change backends");
+    });
+
     test("links only existing installed-relative reference files", async () => {
         const text = await readFile(inspection, "utf8").catch(() => "");
         expect(text).toContain("../../docs/cli-contract.md");

@@ -112,7 +112,11 @@ def parse_args(argv):
         if name == "cluster":
             sub.add_argument("--fixed-node-limit", dest="fixedNodeLimit", type=int)
         if name in ("cluster", "status"):
-            sub.add_argument("--node-array-limit", dest="nodeArrayLimit", type=int)
+            sub.add_argument(
+                "--node-array-limit", dest="nodeArrayLimit", type=int,
+                help=("Independent limit on instantiated-node groups and configured array definitions (0–100; default 50)."
+                      if name == "cluster" else "Limit on capacity arrays (0–50; default 20)."),
+            )
         if name == "status":
             sub.add_argument("--bucket-limit", dest="bucketLimit", type=int)
             sub.add_argument("--issue-limit", dest="issueLimit", type=int)
