@@ -75,6 +75,62 @@ Messages are sanitized guidance; raw subprocess stderr, server bodies, credentia
 
 `--help` intentionally prints human-readable text and exits 0. An unavailable issue/context enrichment is not a successful empty collection. Inspect availability/truncation metadata before drawing conclusions.
 
+## Configured arrays versus instantiated-node groups
+
+The schema-v1 definition extension is optional. It adds `nodeArraySummarySemantics: "instantiated-node-groups"` and `nodeArrayDefinitions` to each `result.clusters` entry and to `result.cluster`. It does not redefine any existing field, change required capabilities, or add these fields to `status`.
+
+Legacy fields retain these meanings:
+
+- `clusters[].nodeArrayCount` and `cluster.nodeArrayTotal` count instantiated-node summary groups, not configured array definitions. A configured array with no instantiated nodes contributes zero groups; one array can contribute several groups for different states, machine types, or phases.
+- `cluster.nodeArrays` contains the bounded groups; `nodeArrayReturned` counts returned groups and `nodeArraysTruncated` indicates omitted groups.
+- `arrayNodeCount` sums all summary-group `Count` values, independently of returned-item limits. `configuredNodeCount` adds the fixed-node entries to that sum; neither field counts configured arrays, desired nodes, or necessarily running VMs.
+- `clusters[].fixedNodeDefinitions` and `cluster.fixedNodeDefinitionsTotal` count fixed-node summary entries. `fixedNodes`, `fixedNodeDefinitionsReturned`, and `fixedNodeDefinitionsTruncated` describe the bounded fixed-node collection.
+- All `status` array, bucket, and issue fields remain capacity/runtime evidence, not configured-definition counts.
+
+### Definition evidence
+
+A definition is a `Cloud.Node` record in the exact requested cluster scope with `IsArray === true && Abstract =!= true`, regardless of lifecycle state or instantiated children. It does not require `Template === Name`. Fixed nodes, instantiated children, abstract templates, and child-cluster records are not included. Counts describe records visible under the current authorization, not unrestricted administrative visibility.
+
+A cluster-list entry adds only the total:
+
+```json
+"nodeArrayDefinitions": { "available": true, "total": 6 }
+```
+
+Cluster detail adds bounded items containing required `name` and optional `state` / `targetState` only:
+
+```json
+"nodeArrayDefinitions": {
+    "available": true,
+    "items": [
+        { "name": "dynamic", "state": "Activated" },
+        { "name": "gpu", "state": "Activated" }
+    ],
+    "total": 6,
+    "returned": 2,
+    "truncated": true
+}
+```
+
+For `cluster`, `--node-array-limit` (default 50, range 0–100) caps each of the legacy group and definition collections **independently**, not as a shared budget. Definitions are validated in full and sorted by name before truncation. `total` counts all validated definitions; with six definitions and limit zero, `items` is empty, `total` is 6, `returned` is 0, and `truncated` is true. Detail has no pagination: definitions beyond the cap are not all listed. Use paged application-context overview for target discovery, not as a substitute count: `targets.total` mixes fixed nodes and arrays.
+
+The primary cluster summary must succeed and its identity must validate before optional definition lookup. Detail uses only `ClusterName, Name, State, TargetState`; list counts use `ClusterName, count(*) as Count`, grouped by exact cluster scope. List enrichment queries only the normalized, returned cluster names (at most 200), skips empty lists, and batches sequential requests with at most 6 KiB of fully encoded request path. There is no broad configuration dump or per-cluster request loop. Malformed rows, duplicate identities, wrong scopes, and invalid counts are rejected rather than silently counted.
+
+### Unknown, unavailable, and zero
+
+A successful complete query with no definitions means `available: true, total: 0`; detail also returns `items: []`, `returned: 0`, and `truncated: false`. Failed, denied, or malformed optional queries instead return:
+
+```json
+"nodeArrayDefinitions": {
+    "available": false,
+    "warning": "Configured node-array definitions could not be retrieved or validated."
+}
+```
+
+Unavailable evidence omits totals and items. Only a failed list batch becomes unavailable; validated earlier batches remain intact. Timeout and cancellation are fatal to the entire invocation, including a timeout in a later batch: neither can become partial success or unavailable evidence. All queries share the existing invocation deadline and transport bounds; no retries or caches are introduced.
+
+An absent `nodeArrayDefinitions` means the implementation predates this optional extension, not zero definitions. Use `nodeArrayDefinitions.total` **only when `available` is true**. Never substitute legacy group counts, status capacity-array counts, or application overview's mixed `targets.total`. Older native responses remain accepted without fabricated fields or compatibility fallback. Summary and definition reads are not an atomic snapshot; runtime groups and configured definitions can change independently.
+
 ## Bounds and fallback rules
 
 - Complete stdout document: at most 1 MiB including its newline; overflow returns an error, never partial JSON.

@@ -1,0 +1,122 @@
+{
+    "schemaVersion": 1,
+    "description": "Optional configured-array evidence; legacy instantiated-node-group semantics remain unchanged.",
+    "cases": [
+        {
+            "name": "Six definitions without instantiated groups; bounded detail",
+            "summary": { "ClusterName": "demo", "Nodes": [{ "Name": "scheduler" }], "NodeArrays": [] },
+            "definitions": [
+                { "ClusterName": "demo", "Name": "scheduler-ha", "State": "Activated" },
+                { "ClusterName": "demo", "Name": "login", "State": "Activated" },
+                { "ClusterName": "demo", "Name": "htc", "State": "Activated" },
+                { "ClusterName": "demo", "Name": "hpc", "State": "Activated" },
+                { "ClusterName": "demo", "Name": "gpu", "State": "Activated" },
+                { "ClusterName": "demo", "Name": "dynamic", "State": "Activated", "Secret": "SECRET_CANARY" }
+            ],
+            "limit": 2,
+            "expectedDefinitions": {
+                "available": true,
+                "items": [
+                    { "name": "dynamic", "state": "Activated" },
+                    { "name": "gpu", "state": "Activated" }
+                ],
+                "total": 6,
+                "returned": 2,
+                "truncated": true
+            },
+            "legacy": {
+                "nodeArrayTotal": 0,
+                "nodeArrayReturned": 0,
+                "nodeArraysTruncated": false,
+                "arrayNodeCount": 0,
+                "configuredNodeCount": 1
+            }
+        },
+        {
+            "name": "One definition with multiple instantiated state and machine groups",
+            "summary": {
+                "ClusterName": "demo",
+                "Nodes": [{ "Name": "scheduler" }],
+                "NodeArrays": [
+                    { "Template": "compute", "State": "Started", "Count": 2 },
+                    { "Template": "compute", "State": "Acquiring", "Count": 3 },
+                    { "Template": "compute", "State": "Started", "Count": 4 }
+                ]
+            },
+            "definitions": [{ "clustername": "demo", "name": "compute", "targetstate": "Activated" }],
+            "limit": 1,
+            "expectedDefinitions": {
+                "available": true,
+                "items": [{ "name": "compute", "targetState": "Activated" }],
+                "total": 1,
+                "returned": 1,
+                "truncated": false
+            },
+            "legacy": {
+                "nodeArrayTotal": 3,
+                "nodeArrayReturned": 1,
+                "nodeArraysTruncated": true,
+                "arrayNodeCount": 9,
+                "configuredNodeCount": 10
+            }
+        },
+        {
+            "name": "Projected null lifecycle states leave configured definitions available",
+            "summary": { "ClusterName": "demo", "NodeArrays": [] },
+            "definitions": [
+                { "ClusterName": "demo", "Name": "client", "State": null, "TargetState": null },
+                { "ClusterName": "demo", "Name": "metadata", "State": null, "TargetState": "Activated" },
+                { "ClusterName": "demo", "Name": "monitor", "State": "Activated", "TargetState": null },
+                { "ClusterName": "demo", "Name": "storage" }
+            ],
+            "limit": 50,
+            "expectedDefinitions": {
+                "available": true,
+                "items": [
+                    { "name": "client" },
+                    { "name": "metadata", "targetState": "Activated" },
+                    { "name": "monitor", "state": "Activated" },
+                    { "name": "storage" }
+                ],
+                "total": 4,
+                "returned": 4,
+                "truncated": false
+            },
+            "legacy": {
+                "nodeArrayTotal": 0,
+                "nodeArrayReturned": 0,
+                "nodeArraysTruncated": false,
+                "arrayNodeCount": 0,
+                "configuredNodeCount": 0
+            }
+        },
+        {
+            "name": "Complete empty query means available zero",
+            "summary": { "ClusterName": "demo", "NodeArrays": [] },
+            "definitions": [],
+            "limit": 50,
+            "expectedDefinitions": { "available": true, "items": [], "total": 0, "returned": 0, "truncated": false },
+            "legacy": {
+                "nodeArrayTotal": 0,
+                "nodeArrayReturned": 0,
+                "nodeArraysTruncated": false,
+                "arrayNodeCount": 0,
+                "configuredNodeCount": 0
+            }
+        },
+        {
+            "name": "Terminated cluster retains definitions with zero item limit",
+            "summary": { "ClusterName": "demo", "State": "Terminated", "NodeArrays": [] },
+            "definitions": [{ "ClusterName": "demo", "Name": "compute", "State": "Terminated", "TargetState": "Terminated" }],
+            "limit": 0,
+            "expectedDefinitions": { "available": true, "items": [], "total": 1, "returned": 0, "truncated": true },
+            "legacy": {
+                "nodeArrayTotal": 0,
+                "nodeArrayReturned": 0,
+                "nodeArraysTruncated": false,
+                "arrayNodeCount": 0,
+                "configuredNodeCount": 0
+            }
+        }
+    ]
+}

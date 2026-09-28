@@ -4,9 +4,13 @@ No SDK, datastore, command execution, interactive login, or global patches.
 Installed imports are lazy so capabilities never constructs config or auth.
 """
 import re
+from urllib.parse import quote as quote_path
+from urllib.parse import urlsplit
 
+from .application_context import unavailable
 from .command import fail
-from .errors import InspectionError
+from .errors import InspectionError, propagate_cancellation
+from .normalize import NODE_ARRAY_DEFINITIONS_WARNING, normalize_node_array_definition_counts
 from .transport import BoundedHTTP, validate_base_url
 
 PROJECTIONS = {
@@ -163,14 +167,65 @@ class CycleCloudAdapter:
     def _read(self, path, accept="application/json"):
         return self.http.get_json(self.base_url + path, headers={"Accept": accept})
 
+    def _query_path(self, query):
+        return "/exec/query/?q=" + self.urlquote(query) + "&format=json"
+
     def _query(self, query):
-        return self._read("/exec/query/?q=" + self.urlquote(query) + "&format=json", "*/*")
+        return self._read(self._query_path(query), "*/*")
 
     def list_clusters(self):
         return self._read("/cloud/api/clusters?summary=true&cloud_instances=true")
 
     def get_cluster(self, name):
         return self._read("/cloud/api/clusters/" + self.urlquote(name) + "?summary=true&cloud_instances=true")
+
+    def get_node_array_definitions(self, name):
+        return self._query(
+            "select ClusterName, Name, State, TargetState from Cloud.Node where ClusterName === "
+            + self.quote(name)
+            + " && IsArray === true && Abstract =!= true"
+        )
+
+    def _node_array_count_query(self, names):
+        return (
+            "select ClusterName, count(*) as Count from Cloud.Node where IsArray === true && Abstract =!= true && ("
+            + " || ".join("ClusterName === " + self.quote(name) for name in names)
+            + ") group by ClusterName"
+        )
+
+    def get_node_array_definition_counts(self, cluster_names):
+        if len(cluster_names) > 200:
+            fail("invalid_response")
+        batches = []
+        batch = []
+        counts = {}
+        # Count percent signs conservatively: the transport may encode them again.
+        prefix = quote_path(urlsplit(self.base_url).path, safe="/")
+        for name in dict.fromkeys(cluster_names):
+            candidate = batch + [name]
+            path = prefix + self._query_path(self._node_array_count_query(candidate))
+            if len(path.encode("ascii")) <= 6144:
+                batch = candidate
+                continue
+            if batch:
+                batches.append(batch)
+            batch = [name]
+            path = prefix + self._query_path(self._node_array_count_query(batch))
+            if len(path.encode("ascii")) > 6144:
+                counts[name] = unavailable(NODE_ARRAY_DEFINITIONS_WARNING)
+                batch = []
+        if batch:
+            batches.append(batch)
+        for names in batches:
+            try:
+                raw = self._query(self._node_array_count_query(names))
+                counts.update(normalize_node_array_definition_counts(raw, names))
+            except Exception as error:
+                propagate_cancellation(error)
+                if isinstance(error, InspectionError) and error.code == "timeout":
+                    raise
+                counts.update({name: unavailable(NODE_ARRAY_DEFINITIONS_WARNING) for name in names})
+        return counts
 
     def get_cluster_status(self, name):
         return self._read("/clusters/" + self.urlquote(name) + "/status?nodes=false")

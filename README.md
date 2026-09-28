@@ -76,11 +76,13 @@ CYCLECLOUD_CLI="/absolute/path/to/cyclecloud" sh scripts/cyclecloud-inspect capa
 | Command                    | Result                                                          |
 | -------------------------- | --------------------------------------------------------------- |
 | `clusters`                 | Bounded, sorted cluster summaries                               |
-| `cluster NAME`             | Lifecycle/configured node and nodearray details                 |
+| `cluster NAME`             | Lifecycle, instantiated-node groups and configured definitions  |
 | `status NAME`              | Capacity/buckets and grouped errors/warnings                    |
 | `application-context NAME` | Overview, then selected environment/storage/attachment evidence |
 
 Data commands use `--schema-version 1` and return JSON under `result`. Run `sh scripts/cyclecloud-inspect --help` for options, or read the [CLI reference](docs/cli-contract.md).
+
+For configured-array counts, use `nodeArrayDefinitions.total` only when `available` is true. Legacy `nodeArrayCount` / `nodeArrayTotal` count instantiated-node groups: an empty configured array contributes zero, and one array can contribute several groups. Missing fields on older native CLIs or unavailable evidence mean unknown, not zero; do not substitute capacity counts or application overview's mixed target total. Cluster detail independently limits groups and definition items with `--node-array-limit`. See [array-count semantics](docs/cli-contract.md#configured-arrays-versus-instantiated-node-groups).
 
 Issue counts are per condition, not distinct affected-node totals. Unavailable issue queries are not proof of no errors. Application context describes configuration, not installed software or working mounts. Collections are paged and byte-limited; follow `nextOffset` when you need more entries. See [application-context semantics](docs/application-context.md).
 

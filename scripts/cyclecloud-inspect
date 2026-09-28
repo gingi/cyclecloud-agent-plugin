@@ -19,6 +19,7 @@ for argument do
                 'All commands: --schema-version 1 --config PATH (absolute POSIX path)' \
                 'clusters: --limit N' \
                 'cluster: --fixed-node-limit N --node-array-limit N' \
+                '  --node-array-limit independently caps instantiated-node groups and configured array definitions.' \
                 'status: --node-array-limit N --bucket-limit N --issue-limit N' \
                 'application-context: --view overview|details --target-name NAME (repeatable)' \
                 '  --section environment|storage|attachments --install-path PATH' \

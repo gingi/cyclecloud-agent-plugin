@@ -35,4 +35,8 @@ The installation prefix is a path on cluster nodes, not a local project director
 
 Read results from the envelope's `result`. Follow a collection's `nextOffset` only when its remaining entries are needed. Missing/unavailable evidence is not an empty result; a truncated list is not complete. Keep configured facts separate from runtime verification.
 
+For “how many arrays are configured?”, use `nodeArrayDefinitions.total` only when `available` is `true`; absent or unavailable means unknown, not zero. An absent field on an older native CLI is not a reason to change backends or fabricate evidence. Legacy `nodeArrayCount`, `nodeArrayTotal`, and `nodeArrays` describe instantiated-node groups: an empty configured array contributes none, and one array can contribute several. `arrayNodeCount` sums group node counts; `configuredNodeCount` adds fixed-node entries, not configured arrays or necessarily running VMs. Never substitute these fields or the mixed application `targets.total` for configured-definition counts.
+
+Use `status` for capacity, not configured-definition counts, and paged application-context overview for target discovery. Cluster detail's `--node-array-limit` caps summary groups and definition items independently; definitions beyond the cap are not all listed and detail has no pagination. A successful complete definition query can report available zero. Counts reflect current authorization, and summary/definition reads are not an atomic snapshot.
+
 Starting, terminating, uploading, attaching, installing software and submitting jobs require **separate approval** and separate workflows. Skill text is not a security boundary: host approvals and CycleCloud RBAC apply. Never recommend a broad `cyclecloud *` permission grant.

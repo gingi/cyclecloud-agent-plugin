@@ -68,6 +68,23 @@ class RoutingTests(unittest.TestCase):
         self.assertIn("inspect", run.call_args.args[0])
         self.assertNotIn("--worker", run.call_args.args[0])
 
+    def test_old_and_new_native_optional_definition_evidence_passes_through(self):
+        for operation in ("clusters", "cluster"):
+            for evidence in (None, {"available": True, "total": 6}, {"available": False, "warning": "Unavailable"}):
+                row = {"name": "demo", "nodeArrayCount" if operation == "clusters" else "nodeArrayTotal": 0}
+                if evidence is not None:
+                    row.update(nodeArraySummarySemantics="instantiated-node-groups", nodeArrayDefinitions=evidence)
+                    if operation == "cluster" and evidence["available"]:
+                        evidence.update(items=[], returned=0, truncated=True)
+                result = {"clusters": [row]} if operation == "clusters" else {"cluster": row}
+                args = [operation] if operation == "clusters" else [operation, "demo", "--node-array-limit", "0"]
+                with self.subTest(operation=operation, evidence=evidence):
+                    value, run = self.route([probe(b"CycleCloud 8.10.0"), probe(command.encode(capabilities("8.10.0"))),
+                                             probe(command.encode(command.envelope(operation, result=result)))], args)
+                    self.assertEqual(value["result"], result)
+                    self.assertEqual(run.call_count, 3)
+                    self.assertTrue(all("--worker" not in call.args[0] for call in run.call_args_list))
+
     def test_future_native_accepted(self):
         value, _ = self.route([probe(b"incidental warning\nCycleCloud 9.0.1\n"), probe(command.encode(capabilities("9.0.1")))], ["capabilities"], (9, 0, 1))
         self.assertEqual(value["result"]["backend"], "native")
@@ -445,6 +462,7 @@ def main():
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=3)
         self.assertEqual(result.returncode, 0)
         self.assertIn(b"application-context", result.stdout)
+        self.assertIn(b"independently caps instantiated-node groups and configured array definitions", result.stdout)
         self.assertEqual(result.stderr, b"")
 
 

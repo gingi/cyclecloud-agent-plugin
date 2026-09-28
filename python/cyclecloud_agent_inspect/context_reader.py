@@ -1,6 +1,7 @@
 """Synchronous read orchestration. Clients own transport and cancellation timing.
 
 The client is duck typed and supplies list_clusters(), get_cluster(name),
+get_node_array_definitions(name), get_node_array_definition_counts(names),
 get_cluster_status(name), get_cluster_issues(name),
 get_application_nodes(name, selection=None),
 get_application_parameters(name, parameter_name=None), and
@@ -16,20 +17,50 @@ from .contract import (
     ENVELOPE_BYTE_LIMIT, json_bytes, validate_application_input,
     validate_cluster_input, validate_list_input, validate_status_input,
 )
-from .errors import invalid_response, propagate_cancellation
+from .errors import InspectionError, invalid_response, propagate_cancellation
 from .image_platform import normalize_image_platform
-from .normalize import normalize_cluster, normalize_cluster_issues, normalize_cluster_list, normalize_cluster_status
+from .normalize import (
+    NODE_ARRAY_DEFINITIONS_WARNING, normalize_cluster, normalize_cluster_issues,
+    normalize_cluster_list, normalize_cluster_status, normalize_node_array_definitions,
+)
 
 
 def read_cluster_list(client, input=None):
     input = validate_list_input({} if input is None else input)
-    return normalize_cluster_list(client.list_clusters(), input["limit"])
+    result = normalize_cluster_list(client.list_clusters(), input["limit"])
+    names = [cluster["name"] for cluster in result["clusters"]]
+    if not names:
+        return result
+    try:
+        counts = client.get_node_array_definition_counts(names)
+    except Exception as error:
+        propagate_cancellation(error)
+        if isinstance(error, InspectionError) and error.code == "timeout":
+            raise
+        counts = {name: unavailable(NODE_ARRAY_DEFINITIONS_WARNING) for name in names}
+    for cluster in result["clusters"]:
+        cluster["nodeArraySummarySemantics"] = "instantiated-node-groups"
+        cluster["nodeArrayDefinitions"] = counts[cluster["name"]]
+    return result
 
 
 def read_cluster(client, input):
     input = validate_cluster_input(input)
-    return normalize_cluster(client.get_cluster(input["clusterName"]), input["clusterName"],
-                             input["fixedNodeLimit"], input["nodeArrayLimit"])
+    result = normalize_cluster(
+        client.get_cluster(input["clusterName"]), input["clusterName"], input["fixedNodeLimit"], input["nodeArrayLimit"]
+    )
+    try:
+        definitions = normalize_node_array_definitions(
+            client.get_node_array_definitions(input["clusterName"]), input["clusterName"], input["nodeArrayLimit"]
+        )
+    except Exception as error:
+        propagate_cancellation(error)
+        if isinstance(error, InspectionError) and error.code == "timeout":
+            raise
+        definitions = unavailable(NODE_ARRAY_DEFINITIONS_WARNING)
+    result["cluster"]["nodeArraySummarySemantics"] = "instantiated-node-groups"
+    result["cluster"]["nodeArrayDefinitions"] = definitions
+    return result
 
 
 def read_cluster_status(client, input):
