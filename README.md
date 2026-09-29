@@ -2,7 +2,7 @@
 
 Inspect CycleCloud clusters and draft application projects from Copilot CLI or Copilot in VS Code. The plugin uses your existing CycleCloud CLI configuration for read-only inspection. Its authoring skill prepares project files for review; it does not deploy them.
 
-This is a proof of concept. The application skeleton is incomplete, and host/platform testing is limited. See [verification status](docs/development.md#verification-status) before relying on it in your environment.
+This is a proof of concept with an incomplete application skeleton. See [scope and limitations](docs/development.md#scope-and-limitations) before relying on it in your environment.
 
 ## Prerequisites
 
@@ -51,6 +51,7 @@ In an agent session, ask:
 
 - “Check my CycleCloud CLI compatibility and list my CycleCloud clusters.”
 - “Show capacity and issues for cluster `demo`.”
+- “Find nodes with recorded failures in `demo` and investigate the relevant node diagnostics and recent events.”
 - “Get application authoring context for `demo`, targeting `scheduler` and `hpc`.”
 - “Prepare a cluster-init application project using the configured cluster environment.”
 
@@ -73,14 +74,19 @@ CYCLECLOUD_CLI="/absolute/path/to/cyclecloud" sh scripts/cyclecloud-inspect capa
 
 ## What inspection provides
 
-| Command                    | Result                                                          |
-| -------------------------- | --------------------------------------------------------------- |
-| `clusters`                 | Bounded, sorted cluster summaries                               |
-| `cluster NAME`             | Lifecycle, instantiated-node groups and configured definitions  |
-| `status NAME`              | Capacity/buckets and grouped errors/warnings                    |
-| `application-context NAME` | Overview, then selected environment/storage/attachment evidence |
+| Command                    | Result                                                                         |
+| -------------------------- | ------------------------------------------------------------------------------ |
+| `clusters`                 | Bounded, sorted cluster summaries                                              |
+| `cluster NAME`             | Lifecycle, instantiated-node groups and configured definitions                 |
+| `status NAME`              | Capacity/buckets and grouped errors/warnings                                   |
+| `application-context NAME` | Overview, then selected environment/storage/attachment evidence                |
+| `nodes NAME`               | Bounded concrete-node discovery, optionally filtered to orchestration failures |
+| `node-diagnostics NAME`    | Individual conditions, phase/installation evidence and stored VM checks        |
+| `cluster-events NAME`      | Recent cluster-wide events and optional exact-node Activity                    |
 
 Data commands use `--schema-version 1` and return JSON under `result`. Run `sh scripts/cyclecloud-inspect --help` for options, or read the [CLI reference](docs/cli-contract.md).
+
+Check capabilities for the three diagnostic commands: older native CLIs can retain the original commands without these additions. `nodes --problems-only` finds recorded orchestration failures, not every condition-level warning or error; an empty result is not proof of health. Use unfiltered discovery when needed, then diagnose selected nodes rather than every node automatically. Node-ID paging, source freshness and event-correlation limits are described in [node diagnostics](docs/node-diagnostics.md).
 
 For configured-array counts, use `nodeArrayDefinitions.total` only when `available` is true. Legacy `nodeArrayCount` / `nodeArrayTotal` count instantiated-node groups: an empty configured array contributes zero, and one array can contribute several groups. Missing fields on older native CLIs or unavailable evidence mean unknown, not zero; do not substitute capacity counts or application overview's mixed target total. Cluster detail independently limits groups and definition items with `--node-array-limit`. See [array-count semantics](docs/cli-contract.md#configured-arrays-versus-instantiated-node-groups).
 

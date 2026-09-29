@@ -4,7 +4,7 @@
 set -f
 operation=inspect
 case ${1-} in
-    capabilities|clusters|cluster|status|application-context) operation=$1 ;;
+    capabilities|clusters|cluster|status|application-context|nodes|node-diagnostics|cluster-events) operation=$1 ;;
 esac
 failure() {
     printf '{"schemaVersion":1,"command":"%s","error":{"code":"%s","message":"%s"}}\n' "$operation" "$1" "$2"
@@ -16,6 +16,7 @@ for argument do
         --help|-h)
             printf '%s\n' 'Usage: cyclecloud-inspect COMMAND [options]' \
                 'Read-only commands: capabilities, clusters, cluster NAME, status NAME, application-context NAME' \
+                'Diagnostic commands (check capabilities): nodes NAME, node-diagnostics NAME, cluster-events NAME' \
                 'All commands: --schema-version 1 --config PATH (absolute POSIX path)' \
                 'clusters: --limit N' \
                 'cluster: --fixed-node-limit N --node-array-limit N' \
@@ -24,6 +25,11 @@ for argument do
                 'application-context: --view overview|details --target-name NAME (repeatable)' \
                 '  --section environment|storage|attachments --install-path PATH' \
                 '  --target-limit N --item-limit N --offset N' \
+                'nodes: --problems-only --node-array NAME --limit N --after-node-id ID' \
+                '  Problems are recorded orchestration failures, not all unhealthy nodes.' \
+                'node-diagnostics: --node-name NAME (required) --issue-limit N --phase-limit N' \
+                'cluster-events: --node-name NAME (optional) --lookback-hours N --limit N' \
+                '  Cluster events remain cluster-wide; node selection adds node Activity.' \
                 'Uses the installed official CLI Python. No login, password flags, or mutation.'
             exit 0 ;;
     esac

@@ -37,7 +37,7 @@ class RoutingTests(unittest.TestCase):
     def route(self, replies, args=None, version=(8, 10, 0)):
         args = args or ["clusters"]
         with patch.object(launcher, "verify_environment", return_value=version), patch.object(launcher, "run", side_effect=replies) as run:
-            value = launcher.route("/fake/bin/cyclecloud", command.parse_args(args), args, Deadline(5), launcher.load_policy())
+            value = launcher.route("/fake/bin/cyclecloud", SimpleNamespace(command=args[0]), args, Deadline(5), launcher.load_policy())
         return value, run
 
     def test_known_stock_absence_only(self):
@@ -88,6 +88,71 @@ class RoutingTests(unittest.TestCase):
     def test_future_native_accepted(self):
         value, _ = self.route([probe(b"incidental warning\nCycleCloud 9.0.1\n"), probe(command.encode(capabilities("9.0.1")))], ["capabilities"], (9, 0, 1))
         self.assertEqual(value["result"]["backend"], "native")
+
+    def test_capabilities_publish_only_known_supported_commands(self):
+        baseline = launcher.load_policy()["native"]["commands"]
+        self.assertEqual(baseline, ["clusters", "cluster", "status", "application-context"])
+        extras = ["nodes", "node-diagnostics", "cluster-events"]
+        for supported in (baseline, baseline + ["nodes"], baseline + extras):
+            with self.subTest(supported=supported):
+                native = capabilities("8.10.0", commands=supported + ["future-command"])
+                value, run = self.route([probe(b"CycleCloud 8.10.0"), probe(command.encode(native))], ["capabilities"])
+                self.assertEqual(value["result"]["inspectionContracts"], [{"version": 1, "commands": supported}])
+                self.assertEqual(run.call_count, 2)
+        value, _ = self.route([probe(b"CycleCloud 8.10.0"),
+                               probe(b"Usage: cyclecloud", b"**** Error: Unknown command 'inspect'", 1)], ["capabilities"])
+        self.assertEqual(value["result"]["inspectionContracts"][0]["commands"], baseline + extras)
+
+    def test_missing_native_diagnostic_command_stops_before_execution(self):
+        baseline = launcher.load_policy()["native"]["commands"]
+        for operation in ("nodes", "node-diagnostics", "cluster-events"):
+            replies = [probe(b"CycleCloud 8.10.0"), probe(command.encode(capabilities("8.10.0", commands=baseline))),
+                       probe(command.encode(command.envelope(operation, result={}))) ]
+            with self.subTest(operation=operation), patch.object(launcher, "verify_environment", return_value=(8, 10, 0)), \
+                    patch.object(launcher, "run", side_effect=replies) as run:
+                with self.assertRaises(InspectionError) as raised:
+                    launcher.route("/fake", SimpleNamespace(command=operation), [operation, "demo"], Deadline(5), launcher.load_policy())
+                self.assertEqual(raised.exception.code, "unsupported_command")
+                error = command.envelope(operation, error=raised.exception)
+                self.assertEqual(error["error"]["code"], "unsupported_command")
+                self.assertEqual(command.exit_code(error), 2)
+                self.assertEqual(run.call_count, 2)
+
+    def test_advertised_native_diagnostics_pass_through_without_worker(self):
+        baseline = launcher.load_policy()["native"]["commands"]
+        for operation in ("nodes", "node-diagnostics", "cluster-events"):
+            with self.subTest(operation=operation):
+                expected = command.envelope(operation, result={"evidence": {"available": False}})
+                value, run = self.route([probe(b"CycleCloud 8.10.0"),
+                                         probe(command.encode(capabilities("8.10.0", commands=baseline + [operation]))),
+                                         probe(command.encode(expected))], [operation, "demo"])
+                self.assertEqual(value, expected)
+                self.assertEqual(run.call_count, 3)
+                self.assertIn("inspect", run.call_args.args[0])
+                self.assertNotIn("--worker", run.call_args.args[0])
+
+    def test_multiple_native_contracts_are_preserved_not_unioned(self):
+        baseline = launcher.load_policy()["native"]["commands"]
+        valid = [{"version": 1, "commands": baseline + [extra]} for extra in ("nodes", "cluster-events")]
+        native = capabilities("8.10.0")
+        native["result"]["inspectionContracts"] = [
+            {"version": 1, "commands": ["node-diagnostics"]},
+            {"version": 2, "commands": baseline + ["node-diagnostics"]},
+        ] + valid
+        replies = [probe(b"CycleCloud 8.10.0"), probe(command.encode(native))]
+        value, _ = self.route(replies, ["capabilities"])
+        self.assertEqual(value["result"]["inspectionContracts"], valid)
+        expected = command.envelope("cluster-events", result={"events": {}})
+        value, _ = self.route(replies + [probe(command.encode(expected))], ["cluster-events", "demo"])
+        self.assertEqual(value, expected)
+        with self.assertRaises(InspectionError) as raised:
+            self.route(replies, ["node-diagnostics", "demo"])
+        self.assertEqual(raised.exception.code, "unsupported_command")
+        native["result"]["inspectionContracts"] = [{"version": 1, "commands": baseline[:2]},
+                                                   {"version": 1, "commands": baseline[2:]}]
+        with self.assertRaises(InspectionError) as raised:
+            self.route([probe(b"CycleCloud 8.10.0"), probe(command.encode(native))], ["capabilities"])
+        self.assertEqual(raised.exception.code, "incompatible_schema")
 
     def test_native_failure_never_falls_back(self):
         failures = [probe(b"not JSON", status=1), probe(b"", b"authentication secret-canary", 1),
@@ -264,6 +329,42 @@ raise SystemExit(main())
         self.cli.write_text("#!" + str(plain / "bin" / "python3") + "\nfrom cyclecloud import main\nraise SystemExit(main())\n")
         result, value = self.invoke()
         self.assertEqual(result.returncode, 0, value)
+
+    def test_diagnostic_capabilities_at_real_entrypoint(self):
+        baseline = launcher.load_policy()["native"]["commands"]
+        operations = {"nodes": ["demo"], "node-diagnostics": ["demo", "--node-name", "scheduler"],
+                      "cluster-events": ["demo"]}
+        marker = self.directory / "native-operation"
+        for extras in ([], ["nodes"], list(operations)):
+            source = '''import json,pathlib,sys
+
+def main():
+    if '--version' in sys.argv:
+        print('CycleCloud 8.10.0')
+    elif sys.argv[-1] == 'capabilities':
+        print(%r)
+    else:
+        pathlib.Path(%r).write_text(sys.argv[2])
+        print(json.dumps({'schemaVersion': 1, 'command': sys.argv[2], 'result': {'native': True}}))
+''' % (json.dumps(capabilities("8.10.0", commands=baseline + extras)), str(marker))
+            (self.site / "cyclecloud" / "__init__.py").write_text(source)
+            self.record()
+            result, value = self.invoke(["capabilities"])
+            self.assertEqual(result.returncode, 0, value)
+            self.assertEqual(value["result"]["inspectionContracts"][0]["commands"], baseline + extras)
+            for operation, arguments in operations.items():
+                with self.subTest(extras=extras, operation=operation):
+                    marker.unlink(missing_ok=True)
+                    result, value = self.invoke([operation] + arguments)
+                    self.assertEqual(value["command"], operation)
+                    if operation in extras:
+                        self.assertEqual(result.returncode, 0, value)
+                        self.assertEqual(value["result"], {"native": True})
+                        self.assertEqual(marker.read_text(), operation)
+                    else:
+                        self.assertEqual(result.returncode, 2, value)
+                        self.assertEqual(value["error"]["code"], "unsupported_command")
+                        self.assertFalse(marker.exists())
 
     def test_native_stdout_overflow_is_bounded_before_publication(self):
         source = '''import json,os,sys,time
@@ -463,7 +564,18 @@ def main():
         self.assertEqual(result.returncode, 0)
         self.assertIn(b"application-context", result.stdout)
         self.assertIn(b"independently caps instantiated-node groups and configured array definitions", result.stdout)
+        for flag in (b"nodes NAME", b"--problems-only", b"--after-node-id", b"node-diagnostics NAME",
+                     b"--node-name", b"cluster-events NAME", b"--lookback-hours"):
+            self.assertIn(flag, result.stdout)
         self.assertEqual(result.stderr, b"")
+
+    def test_diagnostic_shell_failures_preserve_command_identity(self):
+        for operation in ("nodes", "node-diagnostics", "cluster-events"):
+            with self.subTest(operation=operation):
+                result, value = self.invoke([operation, "demo"], cli="/missing")
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(value["command"], operation)
+                self.assertEqual(value["error"]["code"], "missing_cli")
 
 
 if __name__ == "__main__":

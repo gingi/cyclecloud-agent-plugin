@@ -310,6 +310,43 @@ class QueryTests(unittest.TestCase):
                     self.assertEqual(result[names[2]], {"available": True, "total": 0})
                     self.assertNotIn("SECRET_CANARY", json.dumps(result))
 
+    def test_node_identity_query_is_narrow_scoped_quoted_and_bounded(self):
+        cluster, node = 'c"\\', 'n"\\'
+        self.adapter.get_node_identity(cluster, node)
+        self.assertEqual(self.query(), "select ClusterName, Name, NodeId, IsArray, Abstract from Cloud.Node where ClusterName === "
+                         + json.dumps(cluster) + " && Name === " + json.dumps(node)
+                         + " && IsArray =!= true && Abstract =!= true limit 2")
+
+    def test_diagnostic_queries_are_projected_scoped_quoted_and_bounded(self):
+        cluster, node, cursor = 'c"\\', 'n"\\', 'id"\\'
+        self.adapter.get_nodes({"clusterName": cluster, "nodeArray": node, "afterNodeId": cursor, "problemsOnly": True, "limit": 20})
+        query = self.query()
+        self.assertIn("IsArray, Abstract", query)
+        self.assertIn("ClusterName === " + json.dumps(cluster), query)
+        self.assertIn("Template === " + json.dumps(node) + " && Template =!= Name", query)
+        self.assertIn("IsArray =!= true && Abstract =!= true", query)
+        self.assertIn('(PhaseFailed === true || Status === "Failed")', query)
+        self.assertTrue(query.endswith("NodeId > " + json.dumps(cursor) + " order by NodeId asc limit 21"))
+        for forbidden in ("offset", "Configuration", "PhaseMap", "select *"):
+            self.assertNotIn(forbidden, query)
+        self.adapter.get_diagnostic_node(cluster, node)
+        self.assertIn("PhaseMap", self.query())
+        self.assertIn("Name === " + json.dumps(node), self.query())
+        self.assertTrue(self.query().endswith("IsArray =!= true && Abstract =!= true limit 2"))
+        self.adapter.get_node_issues(cluster, node)
+        self.assertIn("Description", self.query())
+        self.assertTrue(self.query().endswith("ClusterName == " + json.dumps(cluster) + " && NodeId == " + json.dumps(node)))
+        self.adapter.get_diagnostic_instance(cluster, node)
+        self.assertIn("ClusterName === " + json.dumps(cluster), self.query())
+        self.assertTrue(self.query().endswith("InstanceId === " + json.dumps(node) + " limit 2"))
+        self.adapter.get_cluster_events(cluster, 3, 21)
+        self.assertIn("using cloud.cluster_event_log_datasource", self.query())
+        self.assertIn("ClusterName == " + json.dumps(cluster), self.query())
+        self.assertTrue(self.query().endswith("_Timestamp > now() - `3h` order by _Timestamp desc limit 21"))
+        self.adapter.get_node_activity(node, 3, 21)
+        self.assertIn("from Activity where NodeId == " + json.dumps(node), self.query())
+        self.assertTrue(self.query().endswith("EventTime > now() - `3h` order by EventTime desc limit 21"))
+
     def test_only_fixed_projected_queries(self):
         for section in ("environment", "storage", "attachments"):
             self.adapter.get_application_nodes("c", {"view": "details", "section": section, "targetName": 'n"'})

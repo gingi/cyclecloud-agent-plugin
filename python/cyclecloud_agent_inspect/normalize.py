@@ -67,9 +67,18 @@ def normalize_cluster_list(raw, limit=50):
 
 
 def _fixed_node(value):
-    fields = consumed_fields(value, ("nodeid", "name", "template", "state", "targetstate"))
-    return {"name": required_wire_string(fields.get("name", MISSING), 256),
-            **_optional_strings(fields, (("id", "nodeid", 256), ("template", "template", 256))), **_states(fields)}
+    from .diagnostic_evidence import DiagnosticText
+
+    fields = consumed_fields(value, ("nodeid", "name", "template", "state", "targetstate", "status", "statusmessage"))
+    result = {"name": required_wire_string(fields.get("name", MISSING), 256),
+              **_optional_strings(fields, (("id", "nodeid", 256), ("template", "template", 256))), **_states(fields)}
+    if fields.get("status") is not None:
+        result["status"] = optional_wire_string(fields["status"], 128)
+    if fields.get("statusmessage") is not None:
+        text = DiagnosticText()
+        result["statusMessage"] = text.read(fields["statusmessage"], 2048, 8192)
+        result["statusMessageTruncated"] = text.truncated
+    return result
 
 
 def _node_array(value):

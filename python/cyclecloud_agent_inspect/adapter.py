@@ -234,6 +234,64 @@ class CycleCloudAdapter:
         return self._query("select Name, Status, Message, NodeCount, Detail, Recommendation "
                            "using cloud.node.node_status where ClusterName == " + self.quote(name))
 
+    def get_nodes(self, data):
+        query = (
+            "select ClusterName, Name, NodeId, Template, IsArray, Abstract, InstanceId, State, TargetState, Status, StatusMessage, PhaseFailed "
+            "from Cloud.Node where ClusterName === " + self.quote(data["clusterName"])
+            + " && IsArray =!= true && Abstract =!= true"
+        )
+        if "nodeArray" in data:
+            query += " && Template === " + self.quote(data["nodeArray"]) + " && Template =!= Name"
+        if data["problemsOnly"]:
+            query += ' && (PhaseFailed === true || Status === "Failed")'
+        if "afterNodeId" in data:
+            query += " && NodeId > " + self.quote(data["afterNodeId"])
+        return self._query(query + " order by NodeId asc limit " + str(data["limit"] + 1))
+
+    def get_node_identity(self, cluster_name, node_name):
+        return self._query(
+            "select ClusterName, Name, NodeId, IsArray, Abstract from Cloud.Node where ClusterName === "
+            + self.quote(cluster_name) + " && Name === " + self.quote(node_name)
+            + " && IsArray =!= true && Abstract =!= true limit 2"
+        )
+
+    def get_diagnostic_node(self, cluster_name, node_name):
+        return self._query(
+            "select ClusterName, Name, NodeId, InstanceId, IsArray, Abstract, State, TargetState, Status, StatusMessage, PhaseFailed, "
+            "InstallationStatus, AwaitInstallation, AwaitInstallationTimeout, BootDiagnosticsMode, PhaseMap, "
+            "Lifecycle.Started.RetryCount as RetryCount, _Timestamp as UpdatedAt from Cloud.Node where ClusterName === "
+            + self.quote(cluster_name) + " && Name === " + self.quote(node_name)
+            + " && IsArray =!= true && Abstract =!= true limit 2"
+        )
+
+    def get_node_issues(self, cluster_name, node_id):
+        return self._query(
+            "select Name, Status, Active, Message, Description, Detail, Recommendation, StartTime, EndTime, Provisional "
+            "using cloud.node.node_status where ClusterName == " + self.quote(cluster_name) + " && NodeId == " + self.quote(node_id)
+        )
+
+    def get_diagnostic_instance(self, cluster_name, instance_id):
+        return self._query(
+            "select ClusterName, InstanceId, ResourceId, VirtualMachineId, PowerState, ProvisioningState, ProvisioningStateTime, "
+            "Status, StatusDescription, FailedExtensionCount, StatusChecks, PrivateIp, LastUpdated, _Timestamp as UpdatedAt "
+            "from Cloud.Instance where ClusterName === " + self.quote(cluster_name)
+            + " && InstanceId === " + self.quote(instance_id) + " limit 2"
+        )
+
+    def get_cluster_events(self, cluster_name, lookback_hours, limit):
+        return self._query(
+            "select _Timestamp, Level, Message, NodeName, InstanceId using cloud.cluster_event_log_datasource where ClusterName == "
+            + self.quote(cluster_name) + " && _Timestamp > now() - `" + str(lookback_hours)
+            + "h` order by _Timestamp desc limit " + str(limit)
+        )
+
+    def get_node_activity(self, node_id, lookback_hours, limit):
+        return self._query(
+            "select EventTime, EventType, Status, Reason, Message from Activity where NodeId == "
+            + self.quote(node_id) + " && EventTime > now() - `" + str(lookback_hours)
+            + "h` order by EventTime desc limit " + str(limit)
+        )
+
     def get_application_nodes(self, name, selection=None):
         selection = selection or {"view": "overview"}
         details = selection.get("view") == "details"

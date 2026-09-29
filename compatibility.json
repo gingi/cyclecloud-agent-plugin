@@ -8,6 +8,7 @@
     "native": {
         "minimumCliVersion": [8, 10, 0],
         "schemaVersion": 1,
-        "commands": ["clusters", "cluster", "status", "application-context"]
+        "commands": ["clusters", "cluster", "status", "application-context"],
+        "optionalCommands": ["nodes", "node-diagnostics", "cluster-events"]
     }
 }

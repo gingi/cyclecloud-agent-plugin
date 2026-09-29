@@ -187,6 +187,45 @@ def validate_status_input(value):
             "issueLimit": validate_limit(value.get("issueLimit", 20), 0, 100)}
 
 
+def validate_nodes_input(value):
+    value = _input(value, ("clusterName", "nodeArray", "problemsOnly", "limit", "afterNodeId"))
+    problems = value.get("problemsOnly", False)
+    if not isinstance(problems, bool):
+        invalid_response()
+    result = {"clusterName": _cluster_name(value.get("clusterName")), "problemsOnly": problems,
+              "limit": validate_limit(value.get("limit", 20), 1, 100)}
+    if "nodeArray" in value:
+        result["nodeArray"] = _cluster_name(value["nodeArray"])
+    if "afterNodeId" in value:
+        cursor = required_wire_string(value["afterNodeId"], 256)
+        if not cursor.isascii():
+            invalid_response()
+        result["afterNodeId"] = cursor
+    return result
+
+
+def validate_node_diagnostics_input(value):
+    value = _input(value, ("clusterName", "nodeName", "issueLimit", "phaseLimit"))
+    return {
+        "clusterName": _cluster_name(value.get("clusterName")),
+        "nodeName": _cluster_name(value.get("nodeName")),
+        "issueLimit": validate_limit(value.get("issueLimit", 20), 0, 100),
+        "phaseLimit": validate_limit(value.get("phaseLimit", 20), 0, 100),
+    }
+
+
+def validate_cluster_events_input(value):
+    value = _input(value, ("clusterName", "nodeName", "lookbackHours", "limit"))
+    result = {
+        "clusterName": _cluster_name(value.get("clusterName")),
+        "lookbackHours": validate_limit(value.get("lookbackHours", 3), 1, 168),
+        "limit": validate_limit(value.get("limit", 20), 1, 100),
+    }
+    if "nodeName" in value:
+        result["nodeName"] = _cluster_name(value["nodeName"])
+    return result
+
+
 def validate_application_input(value):
     value = _input(value, ("clusterName", "targetNames", "installPath", "view", "section", "targetLimit", "itemLimit", "offset"))
     result = {"clusterName": _cluster_name(value.get("clusterName")),
