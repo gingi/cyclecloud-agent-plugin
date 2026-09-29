@@ -83,6 +83,7 @@ describe("Source-only portable packaging", () => {
             "scripts/inspect-bootstrap.py",
             "skills/inspect-cyclecloud/SKILL.md",
             "docs/agent-plugin-design.md",
+            "docs/node-diagnostics.md",
         ])
             expect(files).toContain(file);
         const modules = (

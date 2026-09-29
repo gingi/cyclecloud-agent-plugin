@@ -27,6 +27,8 @@ class CommandTests(unittest.TestCase):
     def test_config_requires_an_absolute_posix_path(self):
         for operation in ("capabilities",) + command.COMMANDS:
             argv = [operation] + ([] if operation in ("capabilities", "clusters") else ["c"])
+            if operation == "node-diagnostics":
+                argv += ["--node-name", "scheduler"]
             for path in ("profile.ini", "../profile.ini", "~/profile.ini", "C:\\profile.ini", "\\\\server\\profile.ini",
                          "", "/secret-canary\n", "/" + "a" * 4096):
                 with self.subTest(operation=operation, path=path):

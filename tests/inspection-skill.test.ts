@@ -72,6 +72,40 @@ describe("CLI inspection guidance", () => {
         expect(text).toContain("not a reason to change backends");
     });
 
+    test("discovers concrete nodes before selectively collecting diagnostics", async () => {
+        const text = await readFile(inspection, "utf8");
+        for (const term of [
+            "inspectionContracts",
+            "unsupported_command",
+            "--problems-only",
+            "node-diagnostics",
+            "cluster-events",
+            "nextAfterNodeId",
+            "--after-node-id",
+            "condition-only",
+            "not proof",
+            "cluster-wide",
+        ])
+            expect(text).toContain(term);
+        expect(text).toContain("Do not automatically diagnose every node");
+        expect(text).toContain(
+            "Application overview is not concrete-node discovery",
+        );
+    });
+
+    test("keeps connectivity advice conditional on the server network path", async () => {
+        const text = await readFile(inspection, "utf8");
+        for (const term of [
+            "from the CycleCloud server",
+            "not necessarily from the CLI host",
+            "If that server's route depends on a VPN",
+            "user-confirmed context",
+            "does not rule out orchestration defects",
+            "require separate approval",
+        ])
+            expect(text).toContain(term);
+    });
+
     test("links only existing installed-relative reference files", async () => {
         const text = await readFile(inspection, "utf8").catch(() => "");
         expect(text).toContain("../../docs/cli-contract.md");
@@ -79,6 +113,7 @@ describe("CLI inspection guidance", () => {
         for (const relative of [
             "../../docs/cli-contract.md",
             "../../docs/configuration.md",
+            "../../docs/node-diagnostics.md",
         ]) {
             const reference = new URL(relative, inspection);
             expect(fileURLToPath(reference)).toContain("/docs/");

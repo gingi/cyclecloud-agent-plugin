@@ -64,4 +64,4 @@ Before publication or cluster changes, review `ATTACHMENT.md` for:
 
 Keep stages distinct: **authored**, **locally checked**, **published**, **attached**, **rolled out**, **installed**, and **workload-verified**. Inspection and local checks do not complete later stages.
 
-For testing or extending the skill, see [authoring evaluation](development.md#application-authoring-evaluation) and the [authoring roadmap](agent-plugin-design.md#application-authoring-evolution). Current environment coverage is recorded under [verification status](development.md#verification-status).
+For testing or extending the skill, see [authoring evaluation](development.md#application-authoring-evaluation), the [authoring roadmap](agent-plugin-design.md#application-authoring-evolution), and [scope and limitations](development.md#scope-and-limitations).

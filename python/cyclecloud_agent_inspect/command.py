@@ -6,11 +6,12 @@ from types import SimpleNamespace
 from . import contract
 from .errors import InspectionError
 
-COMMANDS = ("clusters", "cluster", "status", "application-context")
+COMMANDS = ("clusters", "cluster", "status", "application-context", "nodes", "node-diagnostics", "cluster-events")
 OUTPUT_LIMIT = 1024 * 1024  # Includes the terminating newline.
 MESSAGES = {
     "invalid_arguments": "Invalid inspection arguments. Run cyclecloud-inspect --help.",
     "incompatible_schema": "Inspection requires schema version 1 and all supported read commands.",
+    "unsupported_command": "The selected native CLI does not support this inspection command. Use a CLI whose inspection capabilities advertise it; no compatibility fallback was attempted.",
     "missing_cli": "CycleCloud CLI was not found. Install the official CLI or set CYCLECLOUD_CLI to its absolute executable path.",
     "unsupported_cli": "This CLI is unsupported. Use official CycleCloud 8.10.x or a contract-compatible newer CLI.",
     "unsupported_layout": "The selected CLI's Python environment or bundled dependencies could not be verified. Reinstall the official CLI; do not install the cyclecloud API SDK.",
@@ -22,6 +23,7 @@ MESSAGES = {
     "upstream_error": "The CycleCloud or identity service could not complete the inspection.",
     "invalid_response": "CycleCloud returned a response the plugin could not safely use.",
     "cluster_not_found": "CycleCloud did not return the requested cluster.",
+    "node_not_found": "CycleCloud did not return the requested concrete node.",
     "output_limit": "The inspection response exceeded the safe output limit. Request smaller limits.",
     "timeout": "The inspection exceeded its time limit. Retry when the service is available.",
     "cancelled": "The CycleCloud request was cancelled.",
@@ -45,7 +47,7 @@ def envelope(command, result=None, error=None):
 
 def exit_code(value):
     code = value.get("error", {}).get("code")
-    return 0 if code is None else 130 if code == "cancelled" else 2 if code in ("invalid_arguments", "incompatible_schema") else 1
+    return 0 if code is None else 130 if code == "cancelled" else 2 if code in ("invalid_arguments", "incompatible_schema", "unsupported_command") else 1
 
 
 def encode(value):
@@ -107,8 +109,19 @@ def parse_args(argv):
             continue
         if name != "clusters":
             sub.add_argument("clusterName", metavar="NAME")
-        if name == "clusters":
+        if name in ("clusters", "nodes", "cluster-events"):
             sub.add_argument("--limit", type=int)
+        if name == "nodes":
+            sub.add_argument("--node-array", dest="nodeArray")
+            sub.add_argument("--problems-only", dest="problemsOnly", action="store_true")
+            sub.add_argument("--after-node-id", dest="afterNodeId")
+        if name in ("node-diagnostics", "cluster-events"):
+            sub.add_argument("--node-name", dest="nodeName", required=name == "node-diagnostics")
+        if name == "node-diagnostics":
+            sub.add_argument("--issue-limit", dest="issueLimit", type=int)
+            sub.add_argument("--phase-limit", dest="phaseLimit", type=int)
+        if name == "cluster-events":
+            sub.add_argument("--lookback-hours", dest="lookbackHours", type=int)
         if name == "cluster":
             sub.add_argument("--fixed-node-limit", dest="fixedNodeLimit", type=int)
         if name in ("cluster", "status"):
@@ -135,7 +148,9 @@ def parse_args(argv):
         fail("invalid_arguments")
     data = {key: value for key, value in vars(args).items() if key not in ("command", "schema_version", "config") and value is not None}
     validators = dict(zip(COMMANDS, (contract.validate_list_input, contract.validate_cluster_input,
-                                    contract.validate_status_input, contract.validate_application_input)))
+                                    contract.validate_status_input, contract.validate_application_input,
+                                    contract.validate_nodes_input, contract.validate_node_diagnostics_input,
+                                    contract.validate_cluster_events_input)))
     try:
         data = validators[args.command](data) if args.command in validators else {}
     except InspectionError:
@@ -144,7 +159,9 @@ def parse_args(argv):
 
 
 def execute(parsed, client):
-    from . import context_reader
+    from . import cluster_events, context_reader, node_diagnostics
     readers = dict(zip(COMMANDS, (context_reader.read_cluster_list, context_reader.read_cluster,
-                                 context_reader.read_cluster_status, context_reader.read_application_context)))
+                                 context_reader.read_cluster_status, context_reader.read_application_context,
+                                 node_diagnostics.read_nodes, node_diagnostics.read_node_diagnostics,
+                                 cluster_events.read_cluster_events)))
     return readers[parsed.command](client, parsed.input)

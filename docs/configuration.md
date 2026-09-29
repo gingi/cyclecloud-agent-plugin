@@ -58,7 +58,7 @@ Use a dedicated least-privilege account scoped to the clusters needed for inspec
 
 By default the CLI's current configuration applies. Pass `--config /absolute/path/to/config.ini` to the inspection command when selecting another existing configuration. Do not read credential files into the conversation. Normal silent token refresh and CLI cache persistence may occur; browser/device-code login and credential prompts do not occur during inspection.
 
-Supported authentication configurations are Basic, public-client silent sign-in, confidential-client, and managed identity. Unknown configurations fail explicitly. Live identity-provider integration has not been verified; see [verification status](development.md#verification-status) and validate the method required by your environment before production use.
+Supported authentication configurations are Basic, public-client silent sign-in, confidential-client, and managed identity. Unknown configurations fail explicitly. Validate the method required by your environment before production use; see [scope and limitations](development.md#scope-and-limitations).
 
 ## Transport and permissions
 

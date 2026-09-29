@@ -135,14 +135,19 @@ def _capabilities(value, policy):
     if not isinstance(contracts, list):
         command.fail("incompatible_schema")
     required = set(policy["native"]["commands"])
+    known = policy["native"]["commands"] + policy["native"]["optionalCommands"]
+    accepted = []
     for contract in contracts:
         if (isinstance(contract, dict) and type(contract.get("version")) is int
                 and contract["version"] == policy["native"]["schemaVersion"]
                 and isinstance(contract.get("commands"), list)
                 and all(isinstance(name, str) for name in contract["commands"])
                 and required.issubset(contract["commands"])):
-            return
-    command.fail("incompatible_schema")
+            accepted.append({"version": contract["version"],
+                             "commands": [name for name in known if name in contract["commands"]]})
+    if not accepted:
+        command.fail("incompatible_schema")
+    return accepted
 
 
 def _native_result(probe, name):
@@ -193,7 +198,7 @@ def route(cli, parsed, argv, deadline, policy, diagnostics=None):
             command.fail("unsupported_cli")
         if parsed.command == "capabilities":
             result = {"cliVersion": cli_version, "inspectionContracts": [{"version": bridge["schemaVersion"],
-                      "commands": policy["native"]["commands"]}], "backend": "compat"}
+                      "commands": policy["native"]["commands"] + policy["native"]["optionalCommands"]}], "backend": "compat"}
             if suffix in bridge["developmentBuilds"]:
                 result["developmentBuild"] = {"label": suffix, "testedStableRelease": False}
             return command.envelope("capabilities", result=result)
@@ -202,16 +207,17 @@ def route(cli, parsed, argv, deadline, policy, diagnostics=None):
     native = _native_result(capability_probe, "capabilities")
     if "error" in native:
         return command.envelope(parsed.command, error=InspectionError(native["error"]["code"], ""))
-    _capabilities(native, policy)
+    contracts = _capabilities(native, policy)
     reported, _ = version_parts(native["result"]["cliVersion"])
     if reported != numeric:
         command.fail("invalid_response")
     if parsed.command == "capabilities":
-        # Publish only the explicit accepted capability contract, not arbitrary
-        # extra native fields. The queried CLI version is authoritative.
+        # Preserve valid entries separately; never union partial contracts or
+        # advertise commands the selected native implementation does not offer.
         return command.envelope("capabilities", result={"cliVersion": cli_version,
-            "inspectionContracts": [{"version": policy["native"]["schemaVersion"], "commands": policy["native"]["commands"]}],
-            "backend": "native"})
+            "inspectionContracts": contracts, "backend": "native"})
+    if not any(parsed.command in contract["commands"] for contract in contracts):
+        command.fail("unsupported_command")
     operation = run(_native_argv(cli, ["inspect"] + list(argv)), deadline)
     return _native_result(operation, parsed.command)
 

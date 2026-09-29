@@ -18,6 +18,7 @@ const files = [
     "docs/cli-contract.md",
     "docs/configuration.md",
     "docs/development.md",
+    "docs/node-diagnostics.md",
     "docs/troubleshooting.md",
     "skills/inspect-cyclecloud/SKILL.md",
     "skills/author-cyclecloud-application/SKILL.md",

@@ -24,9 +24,15 @@ npm run verify
 
 Verification covers formatting, JavaScript lint/typecheck/tests, Python inspection/failure tests and dependency audit. Source/package checks validate the distributed helpers and assets. The Python suite checks all shipped Python modules and the bootstrap with `ast.parse(..., feature_version=(3, 8))`; this syntax check does not substitute for running on Python 3.8. Tests that require `requests` are skipped when it is unavailable; run with the bundled CLI Python to exercise those tests.
 
-The frozen portable corpus is `tests/fixtures/inspect/v1/parity.json`: synthetic inputs/results generated from the original TypeScript implementation, with source commit and frozen-clock provenance. Preserve its bytes and legacy field meanings. The separate optional-extension corpus, `tests/fixtures/inspect/v1/array-definitions.json`, covers configured definitions without instantiated groups, multiple groups for one definition, available zero, and independent detail limits. Keep both corpora byte-identical with the native CLI's copies under `cli/cyclecloud/tests/fixtures/inspect/v1/`; mirrored helpers must not diverge. Extension tests also cover nonmutation, scoped/batched queries, sanitized unavailable evidence, and fatal timeout/cancellation.
+Shared synthetic contract fixtures live under `tests/fixtures/inspect/v1/`:
 
-Mixed-version verification covers new-plugin/new-native pass-through, new-plugin/old-compatible-native responses without fabricated fields or fallback, old-plugin/new-native execution through an archived baseline launcher, and new-plugin/stock-8.10 compatibility routing through the opt-in fake-server harness below. Native artifact integration tests live with the CLI implementation and accept explicit `CYCLECLOUD_INSPECT_TEST_CLI` and `CYCLECLOUD_INSPECT_TEST_PLUGIN` paths. The launcher tests here use self-contained native fixtures; no required capability or schema-major change is needed for this optional extension.
+- `parity.json`: frozen schema-v1 normalization and evidence semantics. Preserve its bytes and field meanings.
+- `array-definitions.json`: configured definitions, instantiated-node groups, availability, and collection limits.
+- `node-diagnostics.json`: concrete-node discovery, cursor behavior, per-node evidence, timestamps, and event history.
+
+Keep these fixtures byte-identical with the native CLI's copies under `cli/cyclecloud/tests/fixtures/inspect/v1/`. Changes to mirrored helpers must preserve native/bridge behavior, source-failure handling, timeout/cancellation, identity validation, bounds, and input nonmutation.
+
+Test compatibility in both directions: current plugins with baseline native CLIs, baseline plugins with current native CLIs, and current plugins with stock 8.10 compatibility routing. Optional fields must not be fabricated; unsupported diagnostic commands must fail without backend fallback. Native artifact integration tests accept explicit `CYCLECLOUD_INSPECT_TEST_CLI` and `CYCLECLOUD_INSPECT_TEST_PLUGIN` paths.
 
 ### Explicit packaged-CLI smoke
 
@@ -37,30 +43,15 @@ CYCLECLOUD_TEST_CLI=/absolute/path/to/approved/cyclecloud \
   python3 -B -m unittest discover -s tests/python
 ```
 
-These tests create synthetic configuration and fake credentials, use a local HTTP backend, and exercise all read commands/context sections plus failure paths. They do not initialize the CLI, contact a real CycleCloud instance, or alter user credentials. Record the exact artifact and checks run; see [verification status](#verification-status) for existing evidence.
+These tests create synthetic configuration and fake credentials, use a local HTTP backend, and exercise all read commands/context sections plus failure paths. They do not initialize the CLI, contact a real CycleCloud instance, or alter user credentials.
 
-## Verification status
+## Scope and limitations
 
-The plugin is a proof of concept. Passing local checks does not qualify every CLI installer, server, identity provider, agent host, or application runtime.
+The plugin is a proof of concept, not a production-support guarantee. Validate the intended CLI/server versions, identity provider, and agent host in your deployment. Capability discovery, fixture tests, and plugin registration do not establish live connectivity or agent behavior.
 
-| Area                     | Recorded evidence                                                                                                                             | Still requires verification                                                                                 |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Inspection core          | Synthetic golden fixtures and Python boundary, failure-path, transport, process, and launcher tests.                                          | Supported live CycleCloud server combinations.                                                              |
-| Packaged CLI integration | A local 8.10 snapshot passed opt-in tests using synthetic configuration and a local fake backend.                                             | Released CLI installers and live identity-provider behavior.                                                |
-| Authentication           | Unit tests exercise Basic, public-client silent, confidential-client, and managed-identity integration points.                                | Real Entra and managed-identity services in the intended deployment.                                        |
-| Copilot CLI              | Isolated registration and launcher checks on version **1.0.86-2**, recorded on **2026-09-18** (details below).                                | Model-backed skill behavior and other host versions.                                                        |
-| Platforms and hosts      | Local development checks.                                                                                                                     | macOS execution and VS Code runtime behavior; native Windows is not qualified.                              |
-| Python                   | Shipped modules and bootstrap are checked with `ast.parse(..., feature_version=(3, 8))`.                                                      | Execution on Python 3.8 itself; syntax acceptance is not a runtime test.                                    |
-| Native inspection        | Local rebuilt CLI artifact: native/wrapper fake-server integration and read-only local-backend comparisons on **2026-09-28** (details below). | Released CLI/server combinations and other environments.                                                    |
-| Application authoring    | Structural/TODO checks, Bash syntax checks, and skill-guidance assertions.                                                                    | Agent compliance, installation, and serial/parallel workloads. No OpenFOAM/OS/MPI combination is validated. |
-
-The 2026-09-18 Copilot CLI checks used isolated state and covered non-persistent source discovery, native local marketplace registration, installation discovering both skills, live-source update preserving a disabled state, packaged launcher capabilities with the local 8.10 snapshot, and uninstall/marketplace removal leaving an empty inventory. Normal host configuration was not changed. This is host registration/launcher evidence, not a model-backed skill evaluation or a VS Code runtime test.
-
-On **2026-09-28**, an isolated Rally-built native CLI artifact was checked with system Python 3.10; the four changed inspection modules matched source, wheel, and installed bytes. Native/new-wrapper fake-server integration passed 10 tests, including independent definition counts and optional-query denial. The archived `af55ff1` plugin also selected the new native CLI successfully. A separately approved local **8.10 snapshot** passed all 6 stock-compat fake-server tests, including configured definitions and denied enrichment; this is not released-stock qualification.
-
-Authorized read-only comparisons against the local backend matched direct-native and new-plugin result payloads for a 9-cluster list, `slurm4` (6 definitions, 0 instantiated groups), and terminated `s7hpc-2` (24 definitions, 0 groups), including limits 0, 2, and 50. A nonexistent cluster returned exit 1 / `cluster_not_found`; invalid arguments returned exit 2 with each entrypoint's appropriate help guidance. These are local observations, not stable fixture expectations or general live-server qualification. No cluster lifecycle changes were made and no real credentials were saved in fixtures. Entra, other supported server versions, released stock installers, and cross-host behavior remain unqualified.
-
-Update this section when an authorized environment check is completed, recording the version, environment, scope, and result rather than inferring support from a unit test.
+- Inspection requires a POSIX environment. Native Windows is not qualified; macOS and VS Code deployments require environment-specific validation.
+- The application skeleton is incomplete. Structural checks do not certify an OpenFOAM/OS/MPI combination or replace installation and workload validation.
+- Diagnostic evidence has source, freshness, and server-work limitations; see [node diagnostics](node-diagnostics.md#bounds-and-interpretation).
 
 ## Application authoring evaluation
 
@@ -106,7 +97,7 @@ Check that the agent:
 | Denied or conflicting metadata          | Preserve available facts and ask about the specific missing or conflicting evidence.        |
 | Different project and software versions | Use `scheduler.version` for Slurm, never the cluster-init project revision.                 |
 
-Repeat in Copilot CLI and VS Code before claiming cross-host behavior. Record observations and limitations in [verification status](#verification-status); instruction-text assertions and fixture tests do not prove agent compliance. Planned application implementation work belongs in the [design roadmap](agent-plugin-design.md#application-authoring-evolution).
+Repeat in Copilot CLI and VS Code before claiming cross-host behavior; instruction-text assertions and fixture tests do not prove agent compliance. Planned application implementation work belongs in the [design roadmap](agent-plugin-design.md#application-authoring-evolution).
 
 ## Install a local or unpublished build
 
@@ -149,7 +140,7 @@ Copilot CLI supports `COPILOT_HOME` for an isolated configuration/state director
 
 VS Code `chat.pluginLocations` and `chat.plugins.marketplaces` are supported discovery surfaces. A disposable VS Code profile alone does not isolate files under a shared home directory; ensure test locations are actually separate. Register/enable through supported UI/settings, never by editing `state.vscdb`. See [host discovery](troubleshooting.md#host-discovery).
 
-Record results in [verification status](#verification-status), separately from model-backed skill evaluations. Registration checks alone do not validate agent behavior.
+Keep host registration checks separate from model-backed skill evaluations. Registration checks alone do not validate agent behavior.
 
 ### Development workflow artifacts
 

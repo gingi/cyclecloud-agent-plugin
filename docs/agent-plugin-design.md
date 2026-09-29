@@ -78,6 +78,9 @@ sh "<installed-plugin-root>/scripts/cyclecloud-inspect" COMMAND [options]
 | `contract.py`                    | Input validation, scalar/integer rules, deterministic ordering, JSON serialization, and byte budgets.                                        |
 | `context_reader.py`              | Read orchestration, optional enrichment, target/section selection, and parent/shared-parameter discovery.                                    |
 | `normalize.py`                   | Closed-field cluster, capacity, and issue normalization.                                                                                     |
+| `diagnostic_evidence.py`         | Bounded diagnostic text, UTC timestamps, collections and optional-source failure handling.                                                   |
+| `node_diagnostics.py`            | Keyset concrete-node discovery, exact-node resolution and per-node/phase/issue/VM evidence.                                                  |
+| `cluster_events.py`              | Bounded recent cluster events and optional node-scoped Activity.                                                                             |
 | `application_context.py`         | Application evidence, bounded collection pages, configured mounts, specs, and attachment mappings.                                           |
 | `image_platform.py`              | Exact image metadata interpretation without guessing OS releases from aliases.                                                               |
 | `adapter.py`                     | Isolated 8.10-specific CLI configuration/authentication integration and read endpoint/query selection.                                       |
@@ -92,7 +95,8 @@ Python module paths in the table are relative to `python/cyclecloud_agent_inspec
 2. Resolve the executable and use its sibling Python. Validate the console-script layout, interpreter/virtual-environment identity, `cyclecloud-cli` distribution metadata, package origins and recorded package hashes. Reject overlapping API SDK installations and unsupported layouts.
 3. Run an offline, bounded `--version` probe and check it against the installed distribution's numeric version. Version compatibility errors identify the resolved executable and safely parsed reported version when available.
 4. Probe `cyclecloud inspect capabilities`. Prefer native inspection only if it advertises the required schema and all required commands.
-5. Use the compatibility worker only when a supported 8.10 installation returns the recognized missing-`inspect` diagnostic. A native authentication, permission, network, schema, or malformed-output failure does not select another backend.
+5. For native inspection, publish the known supported commands from each valid baseline-containing contract separately. Check the requested command against those entries: absent optional diagnostic commands produce `unsupported_command`, not a backend switch. The required baseline remains the original four commands.
+6. Use the compatibility worker only when a supported 8.10 installation returns the recognized missing-`inspect` diagnostic. A native authentication, permission, network, schema, or malformed-output failure does not select another backend.
 
 `compatibility.json` declares the supported bridge family, recognized development/build labels, and native schema/command requirements. CLI product versions, plugin release versions, and inspection schema versions are independent. A newer CLI is not accepted merely because its version number is higher.
 
@@ -102,12 +106,15 @@ Capabilities do not load user configuration or credentials and do not contact Cy
 
 Data commands select `--schema-version 1` and emit one complete UTF-8 JSON document. A successful response has `schemaVersion`, `command`, and `result`; a failure has `error` instead of `result`. Exit codes distinguish success, operational failure, invalid arguments/schema, and cancellation. Help intentionally uses human-readable output.
 
-| Command                    | Evidence                                                                              |
-| -------------------------- | ------------------------------------------------------------------------------------- |
-| `clusters`                 | Bounded, deterministically sorted cluster summaries and collection totals.            |
-| `cluster NAME`             | Exact cluster identity, lifecycle state, configured fixed nodes, and node arrays.     |
-| `status NAME`              | Capacity/buckets and optional grouped node errors/warnings.                           |
-| `application-context NAME` | Configured targets followed by selected environment, storage, or attachment evidence. |
+| Command                    | Evidence                                                                                         |
+| -------------------------- | ------------------------------------------------------------------------------------------------ |
+| `clusters`                 | Bounded, deterministically sorted cluster summaries and collection totals.                       |
+| `cluster NAME`             | Exact cluster identity, lifecycle state, configured fixed nodes, and node arrays.                |
+| `status NAME`              | Capacity/buckets and optional grouped node errors/warnings.                                      |
+| `application-context NAME` | Configured targets followed by selected environment, storage, or attachment evidence.            |
+| `nodes NAME`               | Concrete nodes, optionally restricted to recorded orchestration failures; node-ID keyset paging. |
+| `node-diagnostics NAME`    | Individual conditions, phase/installation evidence and separately sourced stored VM checks.      |
+| `cluster-events NAME`      | Cluster-wide recent events and optional exact-node Activity.                                     |
 
 The bridge validates consumed fields and rejects ambiguous duplicate field variants. It distinguishes absent data from empty collections, validates rows before applying return limits, preserves configured precedence where order has meaning, and reports truncation explicitly. Issue counts describe conditions, not necessarily distinct affected nodes.
 
@@ -115,7 +122,9 @@ Primary read failures are errors. Optional enrichment failures produce unavailab
 
 Native results are checked for the accepted envelope, schema, command, error shape, JSON validity, and output bounds. **The launcher does not currently validate every native command's result fields.** Native schema claims therefore need conformance testing, not just capability negotiation. The portable fixture corpus records required normalization behavior; it is not certification of a future native implementation.
 
-See [the CLI contract](cli-contract.md) for exact flags, limits, error categories, and versioning rules.
+Diagnostic readers verify primary cluster/node identities before further queries. Discovery uses a narrow projection and no per-node enrichment fanout; filtered candidates reflect recorded orchestration failures, not comprehensive health. Its ASCII-folded NodeId keyset cursor advances from the last emitted row, including byte-limited pages. Node diagnostics separates phases, conditions and VM observations; recent cluster events remain cluster-wide even when node Activity is requested. Optional diagnostic sources preserve successful independent evidence, but both timeout and cancellation remain fatal. Source timestamps, collection times and non-atomic observations are distinct.
+
+See [the CLI contract](cli-contract.md) and [node diagnostics](node-diagnostics.md) for exact flags, limits, evidence semantics, error categories, and versioning rules.
 
 ## Application context and authoring
 
@@ -177,7 +186,7 @@ Verification layers are intentionally separate:
 - Opt-in packaged-CLI tests use synthetic configuration and a local fake backend, not real credentials or a live CycleCloud instance.
 - Host registration, live identity services, supported server combinations, platform execution, and model-backed skill behavior require separate authorized checks.
 
-See [development and release procedures](development.md) for commands and recorded qualification limits.
+See [development and release procedures](development.md) for commands and deployment limitations.
 
 ## Native CLI evolution
 
@@ -185,7 +194,7 @@ The intended next ownership step is to move the inspection core and its fixtures
 
 Required-field, type, or meaning changes require a new inspection schema major. Compatible optional additions can remain within the existing schema. Before native support is qualified, run the shared semantic fixtures and command-level conformance checks against it, including argument defaults, pagination, errors, and exit behavior. Avoid independently maintained normalizers with divergent semantics.
 
-Current qualification evidence and outstanding environment checks are recorded under [verification status](development.md#verification-status). Capability discovery and a successful local snapshot test do not substitute for native conformance testing.
+Use the [packaged-CLI smoke tests](development.md#explicit-packaged-cli-smoke) and native conformance suite to check the implementation. Capability discovery alone does not establish conformance.
 
 ## Application authoring evolution
 
