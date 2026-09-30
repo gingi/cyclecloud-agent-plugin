@@ -21,7 +21,7 @@ describe("CLI inspection guidance", () => {
         expect(text).toContain("CYCLECLOUD_CLI");
         expect(text).toContain("PATH");
         expect(text).toContain("Do not download or install automatically");
-        expect(text).toContain("cyclecloud initialize");
+        expect(text).toContain("cyclecloud initialize --force");
         expect(text).toContain("authentication");
         expect(text).toContain("Never ask for passwords");
         expect(text).toContain("permission");

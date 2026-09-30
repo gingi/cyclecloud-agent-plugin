@@ -22,7 +22,7 @@ npm ci --ignore-scripts
 npm run verify
 ```
 
-Verification covers formatting, JavaScript lint/typecheck/tests, Python inspection/failure tests and dependency audit. Source/package checks validate the distributed helpers and assets. The Python suite checks all shipped Python modules and the bootstrap with `ast.parse(..., feature_version=(3, 8))`; this syntax check does not substitute for running on Python 3.8. Tests that require `requests` are skipped when it is unavailable; run with the bundled CLI Python to exercise those tests.
+Verification covers formatting, JavaScript lint/typecheck/tests, Python inspection/failure tests and dependency audit. Source/package checks validate the distributed helpers and assets. The Python suite checks all shipped Python modules and the bootstrap with `ast.parse(..., feature_version=(3, 8))`; this syntax check does not substitute for running on Python 3.8. See [development verification troubleshooting](troubleshooting.md#development-verification) for skipped Python tests.
 
 Shared synthetic contract fixtures live under `tests/fixtures/inspect/v1/`:
 
@@ -187,7 +187,7 @@ The workflow authenticates with the built-in `GITHUB_TOKEN`. Only the publishing
     npm run release:tag -- 0.4.2 --push
     ```
 
-    Tagging requires a clean checkout, validates versions/notes and the source's ancestry against fetched `origin/main`, and runs `npm run verify`. It then creates a release commit with the source's exact tree, the current remote `stable` tip as first parent, and the selected source as second parent. With no `stable`, it creates a parentless release commit. The new annotated tag identifies this release commit, not the checked-out preparation commit; the checkout and branches remain unchanged. Omit `--push` to prepare the tag locally. Retries reuse a matching annotated or lightweight release tag, preserving its commit and annotation; a changed `stable` base is rejected before pushing a pending tag. Only the selected tag is pushed.
+    Tagging requires a clean checkout, validates versions/notes and the source's ancestry against fetched `origin/main`, and runs `npm run verify`. It then creates a release commit with the source's exact tree, the current remote `stable` tip as first parent, and the selected source as second parent. With no `stable`, it creates a parentless release commit. The new annotated tag identifies this release commit, not the checked-out preparation commit; the checkout and branches remain unchanged. Omit `--push` to prepare the tag locally. Only the selected tag is pushed. For interrupted tagging or push recovery, see [local tagging troubleshooting](troubleshooting.md#local-tagging).
 
 4. Watch **Actions → Release** through publication, public source verification, and the separate **Promote stable** job. **Do not pre-create a release in the GitHub UI**: the workflow creates it with verified assets and committed notes.
 
@@ -224,7 +224,7 @@ Publication and promotion are serialized across versions. Tests use isolated fix
 
 Mechanical version/preparation subjects such as `chore: prepare v0.2.0`, `chore(release): 0.2.0`, and `Bump version to 0.2.0`, plus exact changelog/release-notes update subjects, are omitted. Release-tooling improvements remain. Review generated bullets for relevance and wording; if no subjects remain, write notes manually. Pending `Unreleased` notes can serve as a review checklist, but preparation drafts from committed history rather than promoting that section automatically.
 
-Existing version entries are validated and preserved verbatim. To regenerate a draft, first save any edits and remove only that version's entry. Entries must be nonempty and unique; an optional ` - YYYY-MM-DD` suffix is accepted. Publication uses only the chosen version's committed entry. Versions follow SemVer without build metadata.
+Existing version entries are validated and preserved verbatim. For draft regeneration, see [preparation troubleshooting](troubleshooting.md#preparation). Entries must be nonempty and unique; an optional ` - YYYY-MM-DD` suffix is accepted. Publication uses only the chosen version's committed entry. Versions follow SemVer without build metadata.
 
 Each release contains:
 
@@ -239,31 +239,11 @@ Local `npm run verify` includes tag validation, isolated publication/promotion f
 npm run verify:release -- v0.2.0 <full-commit-sha>
 ```
 
-Append `--latest` only for the current latest stable. Verification uses isolated storage, not your installed plugin or credentials. `verify-release.mjs` delegates to `verify-package.mjs`, which compares full source bytes against its own checkout; verifying a historic release from changed `main` is invalid.
-
-### Manual stable promotion
-
-Workflow reruns use the workflow and helper from the tagged commit, not updated tooling from `main`. To promote an existing release with a reviewed helper:
-
-1. From a clean checkout of the exact tag, run `npm ci --ignore-scripts` and `npm run verify:release -- <tag> <full-tagged-commit-sha>`. Record successful verification for that tag/SHA. Include `--latest` only for the current latest stable release.
-2. From the reviewed tooling checkout, run:
-
-    ```sh
-    GH_REPO=gingi/cyclecloud-agent-plugin npm run release:promote -- <tag> <full-tagged-commit-sha>
-    ```
-
-    This is a remote write requiring authorization and a token with repository contents write access. The helper checks identity, release metadata, and ancestry but **does not independently run public verification**. It creates/advances `stable` to the existing release tag; it never creates commits or changes tags, releases, assets, repository settings, or existing history. Configure branch protections separately as described in [Repository settings](#repository-settings).
+Append `--latest` only for the current latest stable. Verification uses isolated storage, not your installed plugin or credentials. See [public release verification troubleshooting](troubleshooting.md#public-release-verification) for checkout mismatches or failed checks.
 
 Existing source-tagged releases, including `v0.4.1`, remain unchanged. The next release commit may use the existing `stable` tip as its first parent, whether that tip is an ordinary `main` commit, a release snapshot, or a release merge. This helper requires new-style release-commit tags; historical source-tagged releases retain their tagged workflow/tooling. Do not move old tags or rewrite existing parent links to adopt the new process. Changes to source, docs, or tooling must reach `stable` through a verified release from `main`, not standalone commits.
 
-### Failure and retry behavior
-
-- **Preparation:** a new preparation branch requires a clean checkout and an unused version. Existing branches are not reset; inspect and switch to the matching preparation branch to resume. Rerunning there preserves review edits, including uncommitted changes. Resolve fetch/authentication failures before retrying. If writes fail after branch creation, retain the branch/files for inspection and repair.
-- **Local tagging:** mismatched versions/notes, off-main stable-release sources, dirty checkouts, failed verification, or a source that does not advance the previous release stop tagging. Existing release tags are reused only for the same selected source and exact tree; conflicting tags are never moved. If a push fails, the local tag and release commit remain: fix the cause and retry `npm run release:tag -- <version> --push` from the same source checkout. If `stable` has advanced to a different base, prepare a new version rather than retargeting the pending tag. A matching tag already on origin is neither changed nor pushed again.
-- **Validation/build failed:** no release was created. Rerun the original failed jobs for transient failures. If the tagged source needs changes, commit a fix and use a new version/tag; do not move the old tag.
-- **Publication failed:** inspect GitHub first. An upload failure may leave a draft that automation refuses to overwrite. After inspection, either finish that draft manually using verified assets, or explicitly delete only the incomplete draft (keep the tag) and rerun publishing. If transfer artifacts expired, rerun the original workflow. If publication actually succeeded, verify the existing release instead of publishing again.
-- **Post-release check failed:** the release is already public, not rolled back, and `stable` is not promoted. Rerun failed jobs for transient failures; package defects require a new version, not replacement assets or a moved tag.
-- **Promotion failed:** leave the published release and tag intact. Inspect permissions, branch protections, ancestry, or the API failure, then rerun **only the failed promotion job** (or rerun failed jobs), not all jobs: the publisher intentionally rejects existing releases. Concurrent ref creation/update rejection fails safely and is rerunnable without forced recovery; a retry for an older release cannot roll back `stable`. If divergence requires source changes, release a new version rather than rewriting `stable` ancestry. A manual helper retry requires successful public verification evidence for the same tag/SHA.
+For failed preparation, tagging, publication, verification, or promotion, use [release troubleshooting](troubleshooting.md#release-troubleshooting-maintainers). The [manual stable promotion procedure](troubleshooting.md#manual-stable-promotion) is documented there alongside its verification and authorization requirements.
 
 ## Local plugin removal
 
