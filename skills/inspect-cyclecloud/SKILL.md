@@ -22,7 +22,9 @@ The launcher selects `CYCLECLOUD_CLI` (an explicit executable path), otherwise `
 
 - Missing CLI: offer an explicit path if already installed, or guided installation from the user's trusted CycleCloud instance. **Do not download or install automatically**. Ask before executing an installer; never invoke sudo or disable certificate verification automatically.
 - Unsupported version/layout/schema: include the resolved CLI executable path and reported version from the launcher's error message when explaining the requirement and installation options; do not guess a missing version. Do not guess a Python interpreter or modify the installed CLI.
-- Missing configuration or authentication required: direct the user to run `cyclecloud initialize` in an interactive terminal. **Never ask for passwords** or tokens in chat or command arguments. Existing CLI configuration is authoritative; do not read or copy credential files yourself.
+- Missing configuration: direct the user to run `cyclecloud initialize` in an interactive terminal.
+- Authentication required with an existing configuration: confirm the intended instance/account, then direct the user to run **`cyclecloud initialize --force`** in an interactive terminal. Plain `initialize` saying “configured properly” is not an authentication check; `--force` reruns setup and may modify the active profile. Retry inspection after setup succeeds, not merely after repeating plain `initialize`.
+- Setup belongs in the user's interactive terminal, not the agent's shell tool. **Never ask for passwords** or tokens in chat or command arguments. Existing CLI configuration is authoritative; do not read or copy credential files yourself.
 - A permission or connectivity failure is not a missing dependency. Diagnose it without reinstalling. **Do not bypass** an error with raw API calls, raw configuration dumps, another backend, or unapproved retries. The launcher owns backend selection.
 
 See [configuration and guided setup](../../docs/configuration.md). The CLI must be installed in the environment executing agent commands, including WSL or a remote workspace.

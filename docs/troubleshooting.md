@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Start with the [quick start](../README.md). Diagnose host skill discovery, local CLI compatibility, and the actual read request separately.
+Start with the [quick start](../README.md). Diagnose host skill discovery, local CLI compatibility, and the actual read request separately. Contributor checks are covered under [development verification](#development-verification); failed release steps are covered under [release troubleshooting](#release-troubleshooting-maintainers).
 
 ## Host discovery
 
@@ -40,21 +40,33 @@ The fallback is only for a recognized missing native command on supported 8.10. 
 
 ## Authentication, permissions and transport
 
-| Error/state                  | Check                                                                                                                |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `configuration_required`     | Run CLI initialization separately or select an existing `--config PATH`; do not paste its contents                   |
-| `authentication_required`    | Complete interactive CLI login outside chat; valid silent refresh is allowed, browser/device-code interaction is not |
-| `unsupported_authentication` | The 8.10 adapter does not recognize that configuration; use a supported setup or verified native inspection          |
-| `permission_denied`          | Intended account, cluster/group scope and required internal read permissions                                         |
-| `network_error`              | Instance/identity endpoint, VPN, proxy, hostname and trusted CA settings                                             |
-| `upstream_error`             | Service/identity failure or an unexpected redirect; do not treat it as missing CLI                                   |
-| `invalid_response`           | Unexpected/malformed/oversized backend data; do not work around it with raw dumps                                    |
-| `timeout`                    | Service availability and request scope; output is not proof of an empty result                                       |
-| `output_limit`               | Request smaller supported limits/sections; no partial JSON should be used                                            |
+| Error/state                  | Check                                                                                                                                                 |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `configuration_required`     | Run CLI initialization separately or select an existing `--config PATH`; do not paste its contents                                                    |
+| `authentication_required`    | Use **`cyclecloud initialize --force`** for an existing configuration; see [reinitialization guidance](#reinitialize-after-an-authentication-failure) |
+| `unsupported_authentication` | The 8.10 adapter does not recognize that configuration; use a supported setup or verified native inspection                                           |
+| `permission_denied`          | Intended account, cluster/group scope and required internal read permissions                                                                          |
+| `network_error`              | Instance/identity endpoint, VPN, proxy, hostname and trusted CA settings                                                                              |
+| `upstream_error`             | Service/identity failure or an unexpected redirect; do not treat it as missing CLI                                                                    |
+| `invalid_response`           | Unexpected/malformed/oversized backend data; do not work around it with raw dumps                                                                     |
+| `timeout`                    | Service availability and request scope; output is not proof of an empty result                                                                        |
+| `output_limit`               | Request smaller supported limits/sections; no partial JSON should be used                                                                             |
 
 Use verified HTTPS remotely. The bridge preserves the CLI's configured transport policy, so an insecure existing CLI configuration remains insecure. It does not silently disable verification or accept certificates. Identity sessions do not inherit CycleCloud credentials or its insecure override.
 
 A successful `status` with `issues.available: false` means issue evidence was unavailable, not that the cluster is healthy. Likewise, missing storage/spec/platform evidence must remain unknown. Follow paging cursors only where needed, and re-read before making changes because pages are not an atomic snapshot.
+
+### Reinitialize after an authentication failure
+
+If an existing configuration fails authentication, confirm the intended CycleCloud instance and account, then run **`cyclecloud initialize --force`** in your own interactive terminal:
+
+```sh
+cyclecloud initialize --force
+```
+
+Plain `cyclecloud initialize` can report “CycleCloud is configured properly” just because the configuration loads; it does not validate the stored credentials. **`--force` reruns setup and may modify the active profile.** Use the same CLI and intended configuration as inspection, enter credentials only in the terminal prompts, and retry inspection after setup succeeds. Do not run the setup wizard through an agent's noninteractive shell tool.
+
+For missing configuration, use plain `cyclecloud initialize` or select an existing `--config PATH`. Do not treat authentication, permission, or network failures as a reason to reinstall the CLI. Inspection allows normal silent refresh, but never browser/device-code interaction or credential prompts.
 
 ## Source packages and updates
 
@@ -67,3 +79,62 @@ Use the host's plugin installation and removal commands. Removing the plugin lea
 ## Authoring validator
 
 Inspection does not need Node, but `validate-project.mjs` does. It also needs Bash for parse-only checks. Missing Node/Bash or a syntax-check timeout is a failure, not permission to claim validation succeeded. The shipped skeleton intentionally fails until TODOs and script stubs are completed; a passing structural check does not certify installation, MPI compatibility or Slurm execution.
+
+## Development verification
+
+Follow [setup and verification](development.md#setup-and-verification) for the normal contributor checks. Python tests that require `requests` are skipped when it is unavailable; run with the bundled CLI Python to exercise those tests. This does not opt into testing an installed CLI artifact: use the separate [explicit packaged-CLI smoke](development.md#explicit-packaged-cli-smoke) procedure for that.
+
+## Release troubleshooting (maintainers)
+
+The normal release workflow is in [releases and previews](development.md#releases-and-previews). Identify the failed stage before retrying: publication may already have succeeded even when the overall workflow failed. Preserve published releases, tags, assets, and `stable` history; fixes to published source require a new version.
+
+### Preparation
+
+A new preparation branch requires a clean checkout and an unused version. Existing branches are not reset; inspect and switch to the matching preparation branch to resume. Rerunning there preserves review edits, including uncommitted changes. Resolve fetch/authentication failures before retrying. If writes fail after branch creation, retain the branch/files for inspection and repair.
+
+Existing changelog entries are preserved rather than regenerated. To regenerate a draft, first save any edits and remove only that version's entry, then rerun preparation on the matching branch.
+
+### Local tagging
+
+Mismatched versions/notes, off-main stable-release sources, dirty checkouts, failed verification, or a source that does not advance the previous release stop tagging. Existing release tags are reused only for the same selected source and exact tree; conflicting tags are never moved. Retries preserve a matching annotated or lightweight tag's commit and annotation.
+
+If a push fails, the local tag and release commit remain: fix the cause and retry `npm run release:tag -- <version> --push` from the same source checkout. A changed `stable` base is rejected before pushing a pending tag; if `stable` has advanced to a different base, prepare a new version rather than retargeting the pending tag. A matching tag already on origin is neither changed nor pushed again.
+
+### Validation or build failed
+
+No release was created. Rerun the original failed jobs for transient failures. If the tagged source needs changes, commit a fix and use a new version/tag; do not move the old tag.
+
+### Publication failed
+
+Inspect GitHub first. An upload failure may leave a draft that automation refuses to overwrite. After inspection, either finish that draft manually using verified assets, or explicitly delete only the incomplete draft (keep the tag) and rerun publishing. If transfer artifacts expired, rerun the original workflow. If publication actually succeeded, verify the existing release instead of publishing again.
+
+### Public release verification
+
+If a post-release check failed, the release is already public, not rolled back, and `stable` is not promoted. Rerun failed jobs for transient failures; package defects require a new version, not replacement assets or a moved tag.
+
+When checking an existing release locally, use a separate clean checkout of its exact tag with its own verification dependencies and harness. `verify-release.mjs` delegates to `verify-package.mjs`, which compares full source bytes against its own checkout; verifying a historic release from changed `main` is invalid. Run `npm ci --ignore-scripts`, then:
+
+```sh
+npm run verify:release -- <tag> <full-tagged-commit-sha>
+```
+
+Append `--latest` only for the current latest stable release. Verification uses isolated storage, not your installed plugin or credentials.
+
+### Promotion failed
+
+Leave the published release and tag intact. Inspect permissions, [branch protections](development.md#repository-settings), ancestry, or the API failure, then rerun **only the failed promotion job** (or rerun failed jobs), not all jobs: the publisher intentionally rejects existing releases. Concurrent ref creation/update rejection fails safely and is rerunnable without forced recovery; a retry for an older release cannot roll back `stable`.
+
+If divergence requires source changes, release a new version rather than rewriting `stable` ancestry. A manual helper retry requires successful public verification evidence for the same tag/SHA; follow the procedure below.
+
+### Manual stable promotion
+
+Workflow reruns use the workflow and helper from the tagged commit, not updated tooling from `main`. To promote an existing release with a reviewed helper:
+
+1. From a clean checkout of the exact tag, complete [public release verification](#public-release-verification). Record successful verification for that tag/SHA. Include `--latest` only for the current latest stable release.
+2. From the reviewed tooling checkout, run:
+
+    ```sh
+    GH_REPO=gingi/cyclecloud-agent-plugin npm run release:promote -- <tag> <full-tagged-commit-sha>
+    ```
+
+    This is a remote write requiring authorization and a token with repository contents write access. The helper checks identity, release metadata, and ancestry but **does not independently run public verification**. It creates/advances `stable` to the existing release tag; it never creates commits or changes tags, releases, assets, repository settings, or existing history. Configure branch protections separately as described in [repository settings](development.md#repository-settings).

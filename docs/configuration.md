@@ -20,17 +20,11 @@ Set the override in the environment that runs the agent. A terminal, VS Code, WS
 
 Inspection runs in the Python environment supplied by the selected CLI. Use an official embedded or virtualenv CLI installation, not a shell alias, custom wrapper, or the separate CycleCloud API SDK. You do not need to select or install another Python interpreter. See [compatibility troubleshooting](troubleshooting.md#cli-discovery-and-compatibility) if the launcher rejects the installation.
 
-## Keep setup states separate
+## Initialize the CLI
 
-| State                                 | Next step                                                                                             |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| CLI missing                           | Offer an explicit path or opt-in installation help                                                    |
-| Unsupported CLI/version/layout/schema | Explain the supported official installation and upgrade options                                       |
-| Compatible CLI, missing configuration | User runs `cyclecloud initialize` in an interactive terminal                                          |
-| Silent authentication cannot succeed  | User signs in again through the CLI outside chat                                                      |
-| Permission or network failure         | Check account scope, connectivity, proxy/CA and the intended instance; do not reinstall automatically |
+For first-time setup, run `cyclecloud initialize` in your own interactive terminal and enter credentials only in its prompts. Use the same CLI and intended configuration as inspection.
 
-Capabilities checks are offline. Successful capabilities do not establish a login, reachable server or read permissions.
+Capabilities checks are offline. Successful capabilities do not establish a login, reachable server or read permissions. For an existing configuration that fails authentication, see [reinitialization with **`cyclecloud initialize --force`**](troubleshooting.md#reinitialize-after-an-authentication-failure). Other setup and request failures are covered in [troubleshooting](troubleshooting.md).
 
 ## Assisted installation is opt-in
 
