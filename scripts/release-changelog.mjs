@@ -122,8 +122,8 @@ function commitSubjects(root) {
     let distance = base
         ? Number(git("rev-list", "--count", `${base}..${head}`))
         : Infinity;
-    // Stable tags identify release commits outside main; their reviewed sources
-    // provide the changelog boundary without merging release history into main.
+    // Stable tags point to release commits outside main. Use their reviewed source
+    // commits to find where new changelog entries begin, without merging release history.
     for (const tag of git("tag", "--list", "v*")
         .split("\n")
         .filter(isVersionTag)) {

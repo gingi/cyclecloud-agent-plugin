@@ -1,6 +1,6 @@
 # Development guide
 
-The plugin is source-only. Node is development tooling and powers the small authoring validator; the inspection helper runs in the selected CycleCloud CLI's Python environment. No runtime build or server startup is required.
+The plugin is source-only. Skills use the host's tools to invoke the selected CycleCloud CLI directly. Node powers development tooling and the small authoring checker; there is no plugin-owned Python runtime, API bridge, build step or server to start.
 
 ## Setup and verification
 
@@ -15,43 +15,77 @@ git switch -c <feature-branch>
 
 Create contributor and release-preparation PRs with `gh pr create --base main`. Never commit development changes directly to `stable`; tagging prepares the release merge commit, and promotion advances `stable` to that exact verified tag.
 
-Use a supported Node development version from `package.json` and Python 3.9+ for the complete development suite (the inspection source targets Python 3.8+). Install development dependencies and verify:
+Use a supported Node version from `package.json` and Bash for parse-only authoring checks. Install development dependencies and verify:
 
 ```sh
 npm ci --ignore-scripts
 npm run verify
+npm run package:local
+npm run verify:package
 ```
 
-Verification covers formatting, JavaScript lint/typecheck/tests, Python inspection/failure tests and dependency audit. Source/package checks validate the distributed helpers and assets. The Python suite checks all shipped Python modules and the bootstrap with `ast.parse(..., feature_version=(3, 8))`; this syntax check does not substitute for running on Python 3.8. See [development verification troubleshooting](troubleshooting.md#development-verification) for skipped Python tests.
+Verification covers formatting, lint/typecheck/tests and dependency audit. Tests exercise authoring checks, source/package integrity and release tooling. Instruction assertions protect key guidance but are not a model-backed proof of agent compliance. Package smoke runs the retained checker against its intentionally incomplete skeleton without executing application scripts or contacting a CLI/server.
 
-Shared synthetic contract fixtures live under `tests/fixtures/inspect/v1/`:
-
-- `parity.json`: frozen schema-v1 normalization and evidence semantics. Preserve its bytes and field meanings.
-- `array-definitions.json`: configured definitions, instantiated-node groups, availability, and collection limits.
-- `node-diagnostics.json`: concrete-node discovery, cursor behavior, per-node evidence, timestamps, and event history.
-
-Keep these fixtures byte-identical with the native CLI's copies under `cli/cyclecloud/tests/fixtures/inspect/v1/`. Changes to mirrored helpers must preserve native/bridge behavior, source-failure handling, timeout/cancellation, identity validation, bounds, and input nonmutation.
-
-Test compatibility in both directions: current plugins with baseline native CLIs, baseline plugins with current native CLIs, and current plugins with stock 8.10 compatibility routing. Optional fields must not be fabricated; unsupported diagnostic commands must fail without backend fallback. Native artifact integration tests accept explicit `CYCLECLOUD_INSPECT_TEST_CLI` and `CYCLECLOUD_INSPECT_TEST_PLUGIN` paths.
+Keep CLI operation/parser/result tests in the CLI repository rather than maintain a mirrored plugin implementation. Add focused plugin guidance and integration checks when adopting a new verified contract; do not hardcode a proposed command API before it exists.
 
 ### Explicit packaged-CLI smoke
 
-The default Python suite never discovers external CLI artifacts or reads the user's configuration. To opt into integration tests against a **reviewed, explicitly approved** CLI artifact:
+Default tests never discover an external CLI or read user configuration. To opt into offline discovery checks against a **reviewed, explicitly selected** executable:
 
 ```sh
 CYCLECLOUD_TEST_CLI=/absolute/path/to/approved/cyclecloud \
-  python3 -B -m unittest discover -s tests/python
+  npx vitest run tests/cli-discovery.test.ts
 ```
 
-These tests create synthetic configuration and fake credentials, use a local HTTP backend, and exercise all read commands/context sections plus failure paths. They do not initialize the CLI, contact a real CycleCloud instance, or alter user credentials.
+The test uses a fresh temporary HOME and root/leaf help to check the contracts the skills consume. It does not initialize, execute data commands, contact a real instance or validate authentication. The executable must provide `cyclecloud.help.v1` and the documented node JSON descriptor. An older artifact failing this check is not proof that all its ordinary commands are unusable.
+
+When testing a source-built CLI, explicitly configure its documented source import path if necessary; do not discover private checkout paths in plugin code. Runtime platform support belongs to the selected CLI and host.
+
+### Synthetic cluster workflow
+
+To exercise the public CLI beyond help, explicitly select a reviewed CLI, its Python environment and the CLI repository's `tests/cluster_json_fixture.py`:
+
+```sh
+CYCLECLOUD_TEST_CLI=/absolute/path/to/approved/cyclecloud \
+CYCLECLOUD_TEST_PYTHON=/absolute/path/to/cli-python \
+CYCLECLOUD_TEST_CLUSTER_FIXTURE=/absolute/path/to/cli/tests/cluster_json_fixture.py \
+  npx vitest run tests/cluster-workflow.test.ts
+```
+
+Configure `PYTHONPATH` explicitly if required by a source build. This opt-in test uses the CLI-owned fixture, a loopback ephemeral port, a temporary HOME/configuration and dummy credentials. It executes inventory, cursor continuation, named detail, partial/unavailable counts and a missing-cluster failure through the public executable. Default tests skip it; no private source paths are discovered automatically and no Python/runtime helper is shipped in the plugin.
+
+The analogous node-selection workflow uses the CLI-owned `node_json_fixture.py` and its sibling cluster fixture:
+
+```sh
+CYCLECLOUD_TEST_CLI=/absolute/path/to/approved/cyclecloud \
+CYCLECLOUD_TEST_PYTHON=/absolute/path/to/cli-python \
+CYCLECLOUD_TEST_NODE_FIXTURE=/absolute/path/to/cli/tests/node_json_fixture.py \
+  npx vitest run tests/node-workflow.test.ts
+```
+
+It checks definition/concrete overlap while Off, failed array-member selection, exact target lookup, cursor continuation and empty-array versus missing-target behavior. Like the cluster test it uses only loopback, dummy credentials and isolated files; explicitly select the reviewed fixture and any required source PYTHONPATH. All these integration tests are skipped unless their paths are supplied.
+
+Selected-node diagnostics use the same isolated pattern with the CLI-owned diagnostics fixture and its sibling node/cluster fixtures:
+
+```sh
+CYCLECLOUD_TEST_CLI=/absolute/path/to/approved/cyclecloud \
+CYCLECLOUD_TEST_PYTHON=/absolute/path/to/cli-python \
+CYCLECLOUD_TEST_DIAGNOSTICS_FIXTURE=/absolute/path/to/cli/tests/node_diagnostics_fixture.py \
+  npx vitest run tests/diagnostics-workflow.test.ts
+```
+
+This checks active-phase previews, current-issue descriptions, zero installation settings, cached VM evidence, denied sections, missing association and fatal wrong association beyond a preview. It does not run live diagnostics or validate model interpretation. Explicitly review/authorize the external fixture/executable before running; default tests skip it.
+
+The fixtures check known View requests, not arbitrary query execution or real account permissions. Passing proves command/result interoperability for those synthetic scenarios, not live server compatibility or model-backed skill compliance. Keep parser, transport and datastore regression tests in the CLI repository rather than copying its implementation into the plugin.
 
 ## Scope and limitations
 
-The plugin is a proof of concept, not a production-support guarantee. Validate the intended CLI/server versions, identity provider, and agent host in your deployment. Capability discovery, fixture tests, and plugin registration do not establish live connectivity or agent behavior.
+The plugin is a proof of concept, not a production-support guarantee. Validate the intended CLI/server versions, identity provider, shell and host in your deployment. Contract checks and plugin registration do not establish live connectivity or agent behavior.
 
-- Inspection requires a POSIX environment. Native Windows is not qualified; macOS and VS Code deployments require environment-specific validation.
-- The application skeleton is incomplete. Structural checks do not certify an OpenFOAM/OS/MPI combination or replace installation and workload validation.
-- Diagnostic evidence has source, freshness, and server-work limitations; see [node diagnostics](node-diagnostics.md#bounds-and-interpretation).
+- Examples use POSIX shell syntax; native Windows/macOS/remote host combinations require their own qualification.
+- The application skeleton is incomplete. Structural checks do not certify an OpenFOAM/OS/MPI combination or replace live installation/workload validation.
+- Structured discovery and legacy node JSON do not supply all richer diagnostic/authoring evidence. Unsupported capabilities need explicit gap guidance; do not claim complete workflow parity from a basic JSON flag.
+- Diagnostic evidence has source, freshness and server-work limitations; see [node diagnostics](node-diagnostics.md).
 
 ## Application authoring evaluation
 
@@ -77,9 +111,9 @@ Use an isolated host configuration and a separate workspace; follow [isolated ho
 Check that the agent:
 
 1. Discovers the skill, resolves assets relative to the installed plugin, and writes only to the chosen workspace while preserving existing files.
-2. For a named cluster, checks launcher capabilities, starts with `application-context NAME --schema-version 1 --view overview`, and selects relevant targets before requesting details for one target and section at a time.
-3. Follows needed collection cursors to preserve existing specs and assess `usedBy`, inheritance, and HA scope; leaves incomplete evidence explicit and never invents attachment mappings.
-4. Reads relevant environment sections and summarizes configured `platform.release` and `scheduler.version` before asking version questions. It reuses known values, asks about material conflicts or missing facts, and keeps OpenFOAM distribution/release as an application choice.
+2. For a named cluster, discovers the selected CLI's actual root/leaf capabilities, selects supported scoped reads and explains missing evidence without invoking a second API client or raw dumps.
+3. Requires complete current specs and enough inheritance/shared-use/HA evidence for attachment edits; follows only documented continuation and never invents mappings from partial output.
+4. Summarizes available configured OS and Slurm versions with target/source before asking questions. It reuses known facts, asks about material conflicts or gaps, and keeps OpenFOAM distribution/release as an application choice.
 5. Runs the checker on the authored directory and reports both failures and unchecked runtime assumptions. It does not claim successful installation or execute deployment steps.
 
 | Scenario                                | Expected behavior                                                                           |
@@ -95,7 +129,7 @@ Check that the agent:
 | Mixed scheduler/compute images          | Report per-target facts; ask only when the difference requires an implementation choice.    |
 | Unknown custom image                    | Mark the OS release unresolved rather than guessing from the image name.                    |
 | Denied or conflicting metadata          | Preserve available facts and ask about the specific missing or conflicting evidence.        |
-| Different project and software versions | Use `scheduler.version` for Slurm, never the cluster-init project revision.                 |
+| Different project and software versions | Use sourced Slurm software metadata, never the cluster-init project revision.               |
 
 Repeat in Copilot CLI and VS Code before claiming cross-host behavior; instruction-text assertions and fixture tests do not prove agent compliance. Planned application implementation work belongs in the [design roadmap](agent-plugin-design.md#application-authoring-evolution).
 
@@ -117,7 +151,7 @@ npm run package:local
 npm run verify:package
 ```
 
-Copy the complete `dist/cyclecloud-agent-plugin/` directory to a persistent destination and register it through the host. The package includes the Python inspection source, launcher, skills, assets, compatibility metadata, docs/license and hidden marketplace catalog. It excludes credentials, `node_modules`, bytecode caches and generated bundles. Install and remove the plugin through the host's native plugin mechanism.
+Copy the complete `dist/cyclecloud-agent-plugin/` directory to a persistent destination and register it through the host. The package includes skills, authoring assets/checker, public docs/license and the hidden marketplace catalog. The explicit source allowlist excludes credentials, developer tests, `node_modules` and private plans. Install and remove the plugin through the host's native plugin mechanism.
 
 To test a specific branch/SHA, select that reviewed source in a separate checkout/worktree and register that persistent path. Nothing silently substitutes `main`. Do not change the active checkout to test another branch.
 
@@ -146,11 +180,11 @@ Keep host registration checks separate from model-backed skill evaluations. Regi
 
 For a manual **Development build** dispatch, use the default **main** branch (or `gh workflow run development.yml --ref main`), or select another branch to verify that source. The workflow already runs on all branches and verifies and packages the selected source. Artifacts use `cyclecloud-agent-plugin-package-<ref>-<source-sha>` naming. `SOURCE_COMMIT.json` records source SHA, checkout SHA, ref, event and run metadata; a PR's source SHA and synthetic merge checkout SHA may differ. Keep the file when sharing a package.
 
-Extract artifacts to a persistent directory for host registration. A source package does not need a compiled `bin` directory. Host discovery tests and structured-helper smoke tests are separate from agent-behavior evaluations.
+Extract artifacts to a persistent directory for host registration. A source package does not need a compiled `bin` directory. Host registration checks, CLI discovery checks and authoring-checker smoke are separate from agent-behavior evaluations.
 
 ## Releases and previews
 
-Plugin release versions remain independent of CLI versions. `compatibility.json` selects the 8.10 bridge policy and required native inspection schema. Publishing the bridge does **not** wait for 8.11; removing the bridge later requires a deliberate minimum-CLI/support decision.
+Plugin release versions remain independent of CLI versions. Skills consume advertised command/result contracts per task; there is no bundled compatibility implementation or single product-version gate. Clearly document capability requirements without claiming an unreleased snapshot establishes a minimum supported release.
 
 Prepare the version and changelog, review them through a normal PR into `main`, then run **`release:tag` on the reviewed source**. For a stable version, the helper creates a `Release vX.Y.Z` commit from that source and tags the release commit, without moving `main` or `stable`. Pushing the tag starts the **Release** workflow: build and publish that exact commit, verify public downloads, then advance `stable` to the tag. Stable release commits must record a source on `main`, regardless of the repository default. SemVer prerelease tags such as `v0.2.0-rc.1` continue to identify their feature-branch source directly and never promote `stable`. There is no release-preparation dispatch workflow or automatic release-branch cleanup.
 
@@ -212,7 +246,7 @@ To use that exact preview, verify/extract its versioned source archive into a pe
 
 - **Build (read-only):** validate the tag/event commit, clean committed checkout, manifest versions and changelog entry. For a stable release, validate its message, parent order, exact source tree, source ancestry against `main`, forward progress from the previous release, and unchanged `stable` base (or that it is already promoted). Run the full verification suite, package the tagged release commit, and check archive integrity/layout.
 - **Publish (write access, no dependency installation):** confirm the existing remote tag still identifies the built commit, upload both assets and committed notes into a draft, then publish. Existing releases/drafts are refused; tags/assets are never overwritten. Prereleases use `--prerelease --latest=false`; GitHub selects latest for stable releases.
-- **Post-release (read-only):** download anonymously, check checksums/tag/full-SHA metadata and the extracted source package, then exercise bounded launcher smoke. If this release is latest stable, verify its latest checksum download as well. This does not validate native Copilot/VS Code installation.
+- **Post-release (read-only):** download anonymously, check checksums/tag/full-SHA metadata and the extracted source package, then smoke-test the packaged authoring checker. If this release is latest stable, verify its latest checksum download as well. This does not validate native Copilot/VS Code installation.
 
 - **Promote (write access, no dependency installation):** only after build, publication, and public verification all succeed for a nonprerelease, recheck the remote tag's peeled SHA, published stable release metadata, release topology, source tree, and source ancestry against `main`. Advance `stable` to that exact tagged commit with `force: false`, or create the branch at a parentless tagged release if absent. Promotion creates no commits or tags. A tag already included in `stable` is a successful no-op; a different `stable` base or nonadvancing source fails closed. Compare status is authoritative even when GitHub truncates the returned commit list; API errors propagate.
 

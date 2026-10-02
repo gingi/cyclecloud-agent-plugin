@@ -1,18 +1,17 @@
 # Azure CycleCloud Agent Plugin
 
-Inspect CycleCloud clusters and draft application projects from Copilot CLI or Copilot in VS Code. The plugin uses your existing CycleCloud CLI configuration for read-only inspection. Its authoring skill prepares project files for review; it does not deploy them.
+Use the existing CycleCloud CLI to investigate clusters and draft application projects from Copilot CLI or Copilot in VS Code. The plugin discovers the installed CLI's capabilities and composes supported commands. It does not implement a second API client or deploy the projects it authors.
 
 This is a proof of concept with an incomplete application skeleton. See [scope and limitations](docs/development.md#scope-and-limitations) before relying on it in your environment.
 
 ## Prerequisites
 
-- Linux, macOS, or WSL in the environment executing agent commands. Native Windows is not qualified; macOS execution has not yet been verified.
-- An official CycleCloud CLI **8.10.x** installation on PATH, or an absolute `CYCLECLOUD_CLI` override. Other versions require compatible native inspection support; see [CLI compatibility](docs/cli-contract.md#cli-compatibility).
+- A CycleCloud CLI executable available in the environment running agent commands, on PATH or selected by an absolute `CYCLECLOUD_CLI` path. Support is determined per capability, not by a single version threshold.
 - Copilot CLI 1.0.81+ or VS Code with Agent Plugins enabled. Sign in to the agent host separately.
-- For connected inspection: a reachable CycleCloud instance and a least-privilege CLI account with the required read access.
-- **Only for the authoring checker:** Node.js and Bash. Inspection and plugin installation do not need npm dependencies.
+- For connected reads: a reachable CycleCloud instance and a least-privilege CLI account with the required access.
+- **Only for the authoring checker:** Node.js and Bash. Plugin installation and CLI discovery do not need npm dependencies or plugin-owned Python code.
 
-Review the plugin before installation: its helpers run with your OS user's permissions.
+The shell examples use POSIX syntax. Validate the CLI, shell and host combination in your deployment; WSL/remote agents do not automatically share the desktop's PATH. Review the plugin before installation: host tools run with your OS user's permissions.
 
 ## Quick start
 
@@ -20,13 +19,16 @@ Review the plugin before installation: its helpers run with your OS user's permi
 
 ```sh
 cyclecloud --version
+cyclecloud --help --format json
 ```
 
-If needed, install the CLI from your trusted CycleCloud instance's **Download CLI Tools** link, then run `cyclecloud initialize` in an interactive terminal. Never paste passwords or tokens into chat. See [configuration](docs/configuration.md) for PATH/WSL differences, authentication, private CAs, and selecting an existing configuration file.
+A CLI implementing structured discovery returns `cyclecloud.help.v1`. Older CLIs can return text or reject the help-format request; the plugin can consult text help and explain the exact capability gap. A version string or successful discovery does not establish a login or server compatibility.
+
+If needed, install the CLI from your trusted CycleCloud instance's **Download CLI Tools** link, then run `cyclecloud initialize` in your own interactive terminal. Never paste passwords or tokens into chat. See [configuration](docs/configuration.md) for executable selection, authentication recovery, private CAs and existing configuration selection.
 
 ### 2. Install the plugin
 
-Install from the canonical repository, [gingi/cyclecloud-agent-plugin](https://github.com/gingi/cyclecloud-agent-plugin). No local source checkout, build, or `npm install` is needed.
+Install from [gingi/cyclecloud-agent-plugin](https://github.com/gingi/cyclecloud-agent-plugin). No source checkout, build or `npm install` is needed.
 
 For **Copilot CLI**:
 
@@ -37,79 +39,83 @@ copilot plugin install cyclecloud@cyclecloud
 
 For **VS Code**:
 
-1. Enable Agent Plugins by setting `"chat.plugins.enabled": true` in settings.
+1. Enable Agent Plugins with `"chat.plugins.enabled": true`.
 2. Run **Chat: Install Plugin From Source** from the Command Palette.
 3. Enter `https://github.com/gingi/cyclecloud-agent-plugin` and approve installation if prompted.
 
-Start a new agent session after installation. VS Code installation is separate from Copilot CLI registration; see [host discovery troubleshooting](docs/troubleshooting.md#host-discovery) if the skills do not appear.
+Start a new agent session. VS Code installation is separate from Copilot CLI registration; see [host discovery troubleshooting](docs/troubleshooting.md#host-discovery). Repository installation can include unreleased changes. For exact releases, previews or local builds, see [source installation options](docs/development.md#install-a-local-or-unpublished-build).
 
-Repository installation can include unreleased changes. For an exact release, preview, or local development build, see [source installation options](docs/development.md#install-a-local-or-unpublished-build).
-
-### 3. Check compatibility and inspect a cluster
+### 3. Discover and use available commands
 
 In an agent session, ask:
 
-- “Check my CycleCloud CLI compatibility and list my CycleCloud clusters.”
-- “Show capacity and issues for cluster `demo`.”
-- “Find nodes with recorded failures in `demo` and investigate the relevant node diagnostics and recent events.”
-- “Get application authoring context for `demo`, targeting `scheduler` and `hpc`.”
-- “Prepare a cluster-init application project using the configured cluster environment.”
+- “Check what my CycleCloud CLI supports and list my clusters.”
+- “Read the state of node `scheduler` in cluster `demo`.”
+- “Help diagnose a failed node in `demo`; explain any missing diagnostic or event capability.”
+- “Prepare a cluster-init application project using available configuration for `demo`, and tell me which facts are missing.”
 
-Replace `demo` with your cluster's name. Review terminal tool-call approvals. For setup or request failures, use the [troubleshooting guide](docs/troubleshooting.md).
-
-For optional manual diagnostics from a source checkout:
+Replace the names with your authorized targets and review terminal approvals. The `use-cyclecloud` skill starts with local help, then inspects relevant command descriptors:
 
 ```sh
-sh scripts/cyclecloud-inspect capabilities
-sh scripts/cyclecloud-inspect clusters --schema-version 1
+cyclecloud show_nodes --help --format json
+cyclecloud project upload --help --format json
 ```
 
-The first command checks local CLI compatibility without contacting CycleCloud. A successful response contains `result.cliVersion`, `result.inspectionContracts`, and `result.backend`. The second command contacts your configured instance and returns cluster names under `result.clusters`; an empty list means no clusters were returned. Failures contain an `error` object with a code and guidance instead of `result`.
-
-To select another CLI installation for a manual check:
+Help describes a command; it does not execute it or authorize uploads. When `show_cluster --help --format json` advertises `cyclecloud.clusters.v1`, list clusters and request counts for a selected cluster:
 
 ```sh
-CYCLECLOUD_CLI="/absolute/path/to/cyclecloud" sh scripts/cyclecloud-inspect capabilities
+cyclecloud show_cluster --format json --limit 50
+cyclecloud show_cluster "demo" --format json
 ```
 
-## What inspection provides
+Inventory does not fetch definition counts; named detail reports readable persisted arrays/standalone definitions, not runtime groups or VM capacity. Unknown/partial counts stay explicit. Follow the returned opaque cursor only when needed; a failed continuation is not a complete listing. See [counts and paging](docs/cli-contract.md#cluster-inventory-and-definition-counts).
 
-| Command                    | Result                                                                         |
-| -------------------------- | ------------------------------------------------------------------------------ |
-| `clusters`                 | Bounded, sorted cluster summaries                                              |
-| `cluster NAME`             | Lifecycle, instantiated-node groups and configured definitions                 |
-| `status NAME`              | Capacity/buckets and grouped errors/warnings                                   |
-| `application-context NAME` | Overview, then selected environment/storage/attachment evidence                |
-| `nodes NAME`               | Bounded concrete-node discovery, optionally filtered to orchestration failures |
-| `node-diagnostics NAME`    | Individual conditions, phase/installation evidence and stored VM checks        |
-| `cluster-events NAME`      | Recent cluster-wide events and optional exact-node Activity                    |
+When `show_nodes` advertises `cyclecloud.nodes.v1`, select definitions for authoring or concrete identities for investigation:
 
-Data commands use `--schema-version 1` and return JSON under `result`. Run `sh scripts/cyclecloud-inspect --help` for options, or read the [CLI reference](docs/cli-contract.md).
+```sh
+cyclecloud show_nodes --cluster "demo" --kind definition --format json
+cyclecloud show_nodes --cluster "demo" --kind concrete --format json --failed
+cyclecloud show_nodes "scheduler" --cluster "demo" --kind concrete --format json
+```
 
-Check capabilities for the three diagnostic commands: older native CLIs can retain the original commands without these additions. `nodes --problems-only` finds recorded orchestration failures, not every condition-level warning or error; an empty result is not proof of health. Use unfiltered discovery when needed, then diagnose selected nodes rather than every node automatically. Node-ID paging, source freshness and event-correlation limits are described in [node diagnostics](docs/node-diagnostics.md).
+Kind-selected results are bounded objects with `nodes`, scope and paging—not legacy arrays. A standalone definition can also have a concrete identity while Off/prelaunch; this does not establish a VM or readiness. `--failed` selects stored failures, not all unhealthy nodes. Exact lookup returns one target or an error. See [node discovery](docs/cli-contract.md#bounded-definition-and-concrete-node-discovery).
 
-For configured-array counts, use `nodeArrayDefinitions.total` only when `available` is true. Legacy `nodeArrayCount` / `nodeArrayTotal` count instantiated-node groups: an empty configured array contributes zero, and one array can contribute several groups. Missing fields on older native CLIs or unavailable evidence mean unknown, not zero; do not substitute capacity counts or application overview's mixed target total. Cluster detail independently limits groups and definition items with `--node-array-limit`. See [array-count semantics](docs/cli-contract.md#configured-arrays-versus-instantiated-node-groups).
+Without `--kind`, existing node JSON remains a legacy, unbounded array with nested `Instance` data. Custom `--output` is still usable in that legacy mode and overrides JSON with text; it is incompatible with kind mode. Authentication and configuration remain unchanged. Cluster and kind-selected node data failures use safe text errors, while legacy node output/error behavior is unchanged; only JSON help uses the structured help-error contract.
 
-Issue counts are per condition, not distinct affected-node totals. Unavailable issue queries are not proof of no errors. Application context describes configuration, not installed software or working mounts. Collections are paged and byte-limited; follow `nextOffset` when you need more entries. See [application-context semantics](docs/application-context.md).
+## Diagnose a selected node
+
+After choosing a concrete target, check help for `cyclecloud.node-diagnostics.v1`:
+
+```sh
+cyclecloud show_nodes "scheduler" --cluster "demo" --kind concrete --format json --diagnostics --detail-limit 20
+```
+
+This reads stored installation settings, active phases, current issues and cached VM checks where available. It does not supply completed-phase history, events or fresh VM health. The detail limit controls previews, not upstream condition rows. Unavailable sections remain unknown; a missing instance association does not prove no VM exists. Diagnostic text can contain sensitive operational content and must be treated as untrusted data. See [diagnostics and limits](docs/node-diagnostics.md#read-stored-diagnostics-for-one-selected-node).
+
+## Capability gaps and evidence
+
+The plugin uses existing commands when they genuinely answer the question. It does not invent flags or retrieve raw configuration/full parameter exports to emulate missing functionality. For unsupported requirements, it explains the gap and offers documented upgrade/manual guidance or offline authoring. There is no API fallback or automatic installation.
+
+Compact cluster inventory and definition counts require `cyclecloud.clusters.v1`. Bounded definition/concrete-node selection requires `cyclecloud.nodes.v1`. Selected-node stored diagnostics require `cyclecloud.node-diagnostics.v1`. Capacity rollups, events, selective environment/storage/attachments and image metadata still require additional capabilities; discovery and diagnostics do not provide that evidence. A development snapshot does not establish a released minimum version.
+
+Keep configured definitions, runtime groups and concrete nodes distinct. Missing evidence is not zero or proof of health; configuration is not runtime readiness. See [node diagnostics](docs/node-diagnostics.md) and [application evidence](docs/application-context.md).
 
 ## Draft an application project
 
-The `author-cyclecloud-application` skill prepares cluster-init project files, an OpenFOAM/Slurm example, and an `ATTACHMENT.md` handoff. The bundled skeleton is deliberately unfinished: its scripts exit without installing or running anything until implemented. No OpenFOAM/platform/MPI combination has been validated.
+The `author-cyclecloud-application` skill prepares cluster-init files, an OpenFOAM/Slurm example and an `ATTACHMENT.md` handoff. The skeleton is deliberately unfinished: its scripts exit without installing or running anything until implemented. No OpenFOAM/platform/MPI combination has been validated.
 
-Start with the [application authoring guide](docs/application-authoring.md) for an example request, expected files, and local checks. Upload, attachment, lifecycle changes, installation, and job submission require separate approval. Host permissions and CycleCloud RBAC are the authorization boundaries.
+Use the [authoring guide](docs/application-authoring.md) for an example request and local checks. Missing environment or attachment evidence remains explicit; safe attachment edits need complete preservation and scope information. Upload, attachment, lifecycle changes, installation and job submission require separate approval. Host permissions and CycleCloud RBAC are the authorization boundaries.
 
 ## Update or remove
 
-Use the host's native plugin update mechanism for repository installations. If you installed a local development build instead, update the reviewed source in its persistent location and refresh the host. Recheck compatibility after changing the CLI or plugin, and preserve any deliberate disabled state.
-
-To remove a marketplace installation from Copilot CLI:
+Use host-native updates for repository installations. For a local build, update the reviewed persistent directory and refresh the host. Recheck CLI capabilities after changing installations, and preserve deliberately disabled state.
 
 ```sh
 copilot plugin uninstall cyclecloud@cyclecloud
 copilot plugin marketplace remove cyclecloud
 ```
 
-Remove or disable the corresponding VS Code source separately through its UI/settings. Plugin removal leaves your CLI configuration and credentials intact; credential deletion or revocation is a separate decision.
+Remove/disable VS Code sources separately. Plugin removal leaves CLI credentials intact; credential deletion/revocation is a separate decision.
 
 ## For contributors
 

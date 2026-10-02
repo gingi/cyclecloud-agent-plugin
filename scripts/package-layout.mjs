@@ -2,16 +2,13 @@ import { lstat, readdir } from "node:fs/promises";
 import { join, resolve, relative, sep } from "node:path";
 
 export const packageName = "cyclecloud-agent-plugin";
-// Reviewed source-only distribution boundary. Never recursively copy the checkout.
+// Only these reviewed source files belong in the package. Never copy the whole checkout.
 const files = [
     "plugin.json",
-    "compatibility.json",
     "LICENSE",
     "README.md",
     "CHANGELOG.md",
     ".github/plugin/marketplace.json",
-    "scripts/cyclecloud-inspect",
-    "scripts/inspect-bootstrap.py",
     "docs/agent-plugin-design.md",
     "docs/application-authoring.md",
     "docs/application-context.md",
@@ -20,7 +17,7 @@ const files = [
     "docs/development.md",
     "docs/node-diagnostics.md",
     "docs/troubleshooting.md",
-    "skills/inspect-cyclecloud/SKILL.md",
+    "skills/use-cyclecloud/SKILL.md",
     "skills/author-cyclecloud-application/SKILL.md",
     "skills/author-cyclecloud-application/references/authoring.md",
     "skills/author-cyclecloud-application/scripts/validate-project.mjs",
@@ -32,7 +29,7 @@ const files = [
     "skills/author-cyclecloud-application/assets/project/examples/openfoam.sbatch",
 ];
 
-export async function requireRegularPath(root, name, directory = false) {
+export async function requireRegularPath(root, name) {
     const target = resolve(root, name);
     const parts = relative(resolve(root), target).split(sep);
     if (parts.some((part) => part === ".."))
@@ -43,7 +40,7 @@ export async function requireRegularPath(root, name, directory = false) {
     for (let i = 0; i < parts.length; i++) {
         current = join(current, parts[i]);
         const info = await lstat(current);
-        const isDirectory = i < parts.length - 1 || directory;
+        const isDirectory = i < parts.length - 1;
         if (isDirectory ? !info.isDirectory() : !info.isFile())
             throw new Error(
                 `Not a regular package ${isDirectory ? "directory" : "file"}: ${current}`,
@@ -52,20 +49,8 @@ export async function requireRegularPath(root, name, directory = false) {
 }
 
 export async function sourceFiles(root) {
-    const moduleDirectory = "python/cyclecloud_agent_inspect";
-    await requireRegularPath(root, moduleDirectory, true);
-    const modules = [];
-    for (const entry of await readdir(join(root, moduleDirectory), {
-        withFileTypes: true,
-    })) {
-        if (!entry.name.endsWith(".py")) continue;
-        const name = `${moduleDirectory}/${entry.name}`;
-        await requireRegularPath(root, name);
-        modules.push(name);
-    }
-    if (!modules.includes(`${moduleDirectory}/__init__.py`))
-        throw new Error("Missing Python source package");
-    return [...files, ...modules].sort();
+    for (const file of files) await requireRegularPath(root, file);
+    return [...files].sort();
 }
 
 export async function checkOutputDirectory(directory) {
@@ -87,9 +72,5 @@ export async function checkOutputDirectory(directory) {
 }
 
 export function executableFile(file) {
-    return (
-        file === "scripts/cyclecloud-inspect" ||
-        file.endsWith(".sh") ||
-        file.endsWith("/validate-project.mjs")
-    );
+    return file.endsWith(".sh") || file.endsWith("/validate-project.mjs");
 }

@@ -60,19 +60,18 @@ describe("Application authoring skeleton", () => {
 
     test("guides context discovery and produces an actionable attachment handoff", async () => {
         const text = await readFile(join(skill, "SKILL.md"), "utf8");
-        expect(text).toContain("scripts/cyclecloud-inspect");
-        expect(text).toContain("application-context");
-        expect(text).toContain("--schema-version 1");
-        expect(text).toContain("--view overview");
-        expect(text).toContain("--view details");
-        expect(text).toContain("nextOffset");
-        expect(text).toContain("Do not exhaustively");
+        expect(text).toContain("../use-cyclecloud/SKILL.md");
+        expect(text).toContain("supported");
+        expect(text).toContain("offline authoring");
+        expect(text).toContain("Do not enumerate every target");
+        expect(text).toContain("Do not invent attachment mappings");
         expect(text).toContain("ATTACHMENT.md");
         const attachment = await readFile(
             join(skill, "assets/project/ATTACHMENT.md"),
             "utf8",
         );
-        expect(attachment).toContain("usedBy");
+        expect(attachment).toContain("shared uses");
+        expect(attachment).toContain("incomplete");
         expect(attachment).toContain("terminate_cluster");
         expect(attachment).toContain("upload");
     });
@@ -84,16 +83,11 @@ describe("Application authoring skeleton", () => {
         expect(text).toContain(
             "Do not inspect or create the cluster prefix locally",
         );
-        expect(text).toContain(
-            "Omit `--install-path` for the default `/shared/apps`",
-        );
-        expect(text).toContain("non-default prefix");
-        expect(text).toContain(
-            "every overview, detail, and pagination request",
-        );
+        expect(text).toContain("not a CLI flag");
+        expect(text).toContain("do not broaden host filesystem permissions");
     });
 
-    test("demonstrates workspace authoring without passing the default remote path", async () => {
+    test("demonstrates workspace authoring with a separate cluster installation prefix", async () => {
         const authoring = await readFile(
             new URL("../docs/application-authoring.md", import.meta.url),
             "utf8",
@@ -102,17 +96,6 @@ describe("Application authoring skeleton", () => {
         expect(authoring).toContain(
             "targeting /shared/apps on the cluster nodes",
         );
-        const context = await readFile(
-            new URL("../docs/application-context.md", import.meta.url),
-            "utf8",
-        );
-        const examples = [...context.matchAll(/```sh\n([\s\S]*?)```/g)];
-        expect(examples.length).toBeGreaterThan(0);
-        for (const [, command] of examples) {
-            expect(command).not.toMatch(
-                /--install-path(?:=|\s+)["']?\/shared\/apps/,
-            );
-        }
     });
 
     test("requires an attachment guide in the generated project", async () => {
@@ -128,12 +111,12 @@ describe("Application authoring skeleton", () => {
 
     test("requires version discovery before asking the user for environment facts", async () => {
         const text = await readFile(join(skill, "SKILL.md"), "utf8");
-        expect(text).toContain("platform.release");
-        expect(text).toContain("scheduler.version");
+        expect(text).toContain("configured OS and Slurm versions");
+        expect(text).toContain("target and source");
         expect(text).toContain("scheduler and selected compute");
         expect(text).toContain("Do not ask the user to re-enter");
         expect(text).toContain("configured but not runtime-verified");
-        expect(text).toContain("OpenFOAM distribution/release");
+        expect(text).toContain("OpenFOAM distribution and release");
         const reference = await readFile(
             join(skill, "references/authoring.md"),
             "utf8",

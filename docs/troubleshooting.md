@@ -10,7 +10,7 @@ Start with the [quick start](../README.md). Diagnose host skill discovery, local
 - For a persistent local checkout/package, register its absolute path through `chat.pluginLocations`. Set its value to `false` if intentionally disabled. Merge settings rather than replace unrelated entries.
 - For a repository, use **Chat: Install Plugin From Source** or a supported `chat.plugins.marketplaces` entry. Local marketplace entries use `file:///` URIs. The [VS Code documentation](https://code.visualstudio.com/docs/copilot/customization/agent-plugins) describes these supported surfaces and CLI-installed-copy discovery.
 - Reload the window/start a new agent session after changing source or enablement. Use **Chat: Configure Skills** to check skill discovery.
-- WSL, remote workspaces and cloud agents run in their own environments. A desktop installation or PATH is not automatically available there. Do not use a Windows CLI executable from a WSL inspection helper.
+- WSL, remote workspaces and cloud agents run in their own environments. A desktop installation or PATH is not automatically available there. Select a CLI supported by the environment executing the command; do not assume cross-platform executable compatibility.
 
 ### Access or plugin-sync failures
 
@@ -21,40 +21,63 @@ Compare with a terminal Copilot CLI session in the same WSL distribution to help
 ## CLI discovery and compatibility
 
 ```sh
-sh "<installed-plugin-root>/scripts/cyclecloud-inspect" capabilities
+cyclecloud --help --format json
+cyclecloud show_nodes --help --format json
 ```
 
-The launcher uses absolute `CYCLECLOUD_CLI`, otherwise PATH. Run from the same environment as the agent. If the terminal finds a CLI but VS Code does not, restart the host or provide the explicit executable path in its environment. Do not scan the filesystem or substitute an unrelated Python interpreter.
+Use the selected absolute `CYCLECLOUD_CLI` executable when supplied, otherwise resolve PATH in the agent's environment. An invalid override does not fall back to another installation. If a terminal finds the CLI but the host does not, restart the host or supply its explicit executable path. Do not scan the filesystem or import private CLI Python modules.
 
-Compatibility errors from the Python launcher include the resolved executable path (after following symlinks) and the version reported by its offline `--version` probe. If installation verification or version parsing fails before a version can be established, the message says the reported version could not be determined; it never echoes raw probe output. For example: `Selected CLI "/usr/local/cyclecloud-cli/embedded/bin/cyclecloud": reports version "8.9.0-SNAPSHOT". This CLI is unsupported. Use official CycleCloud 8.10.x or a contract-compatible newer CLI.`
+| Symptom                                   | Check                                                                                                    |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Executable missing                        | Intended absolute path, permissions and agent PATH; offer opt-in installation                            |
+| Help is text or exits 1                   | Older help behavior; consult targeted text help rather than treating this alone as a missing command     |
+| JSON descriptor has an unknown contract   | Mark capability unknown; consult matching documentation before relying on it                             |
+| Help supports JSON but execution does not | Inspect the leaf's options and execution `outputs`; output support is per command/mode                   |
+| Required evidence is absent               | State the specific gap and offer manual/upgrade/offline guidance, not an API fallback                    |
+| `invalid_arguments`                       | Actual leaf help, exact quoted target names and flag conflicts; do not invent proposed view/paging flags |
 
-| Error/state           | Check                                                                                                                                    |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `missing_cli`         | Correct absolute override, executable permissions or PATH; offer opt-in official installation                                            |
-| `unsupported_cli`     | Supported 8.10 family for the bridge, or a compatible native schema; do not infer feature support solely from a version                  |
-| `unsupported_layout`  | Official embedded/virtualenv layout and intact CLI dependencies; avoid editable wrappers or the separate API SDK in the same environment |
-| `incompatible_schema` | Required schema major and read commands; update deliberately rather than scrape human tables                                             |
-| `invalid_arguments`   | `--help`, exact quoted names, bounds and one-target details; `--section` is invalid with overview                                        |
-
-The fallback is only for a recognized missing native command on supported 8.10. Native errors or malformed capability output never switch backends. An explicit invalid override never silently falls back to PATH. See [configuration and guided installation](configuration.md); a dependency check does not download, install, initialize, upgrade or request credentials.
+Include the selected executable path and reported version when explaining compatibility; do not guess missing versions or infer a released capability from a snapshot number. Discovery is local and does not validate login/server access. See [CLI contracts](cli-contract.md) and [guided setup](configuration.md).
 
 ## Authentication, permissions and transport
 
-| Error/state                  | Check                                                                                                                                                 |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `configuration_required`     | Run CLI initialization separately or select an existing `--config PATH`; do not paste its contents                                                    |
-| `authentication_required`    | Use **`cyclecloud initialize --force`** for an existing configuration; see [reinitialization guidance](#reinitialize-after-an-authentication-failure) |
-| `unsupported_authentication` | The 8.10 adapter does not recognize that configuration; use a supported setup or verified native inspection                                           |
-| `permission_denied`          | Intended account, cluster/group scope and required internal read permissions                                                                          |
-| `network_error`              | Instance/identity endpoint, VPN, proxy, hostname and trusted CA settings                                                                              |
-| `upstream_error`             | Service/identity failure or an unexpected redirect; do not treat it as missing CLI                                                                    |
-| `invalid_response`           | Unexpected/malformed/oversized backend data; do not work around it with raw dumps                                                                     |
-| `timeout`                    | Service availability and request scope; output is not proof of an empty result                                                                        |
-| `output_limit`               | Request smaller supported limits/sections; no partial JSON should be used                                                                             |
+`cyclecloud.error.v1` applies only to explicit JSON help failures: sanitized JSON on stderr, empty stdout, and `invalid_arguments`, `internal_error` or `cancelled`. JSON help succeeds with exit 0, fails with 1, or cancels with 130; unsupported non-JSON help formats and ordinary option errors may use text errors and status 2.
 
-Use verified HTTPS remotely. The bridge preserves the CLI's configured transport policy, so an insecure existing CLI configuration remains insecure. It does not silently disable verification or accept certificates. Identity sessions do not inherit CycleCloud credentials or its insecure override.
+Cluster JSON and kind-selected node data failures use safe text stderr/nonzero status, with no partial JSON document. Their setup/authentication paths still retain legacy behavior. Node execution without `--kind` retains legacy behavior throughout. Do not parse execution stderr using the help error contract or forward raw server bodies/credentials into reports. The following are symptoms to diagnose, not guaranteed machine-readable execution codes:
 
-A successful `status` with `issues.available: false` means issue evidence was unavailable, not that the cluster is healthy. Likewise, missing storage/spec/platform evidence must remain unknown. Follow paging cursors only where needed, and re-read before making changes because pages are not an atomic snapshot.
+| Symptom                                             | Check                                                                                                                    |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Missing/invalid configuration                       | Initialize separately or select the intended existing config; do not paste its contents                                  |
+| Authentication failure or interactive login request | Confirm instance/account; stop the unattended operation and use the interactive recovery below                           |
+| Permission denial                                   | Intended identity, cluster/group scope and required read permissions                                                     |
+| Network failure or timeout                          | Intended endpoint, relevant VPN/routes, proxy, hostname, trusted CA and request scope                                    |
+| Resource not found                                  | Exact requested resource and configuration; do not interpret it as an empty inventory                                    |
+| Unsupported operation/mode                          | Local command capability versus connected-server requirements                                                            |
+| Text when JSON was expected                         | Check whether nonempty `--output` selected custom text; otherwise treat malformed/unexpected output as unusable evidence |
+| Cancellation or incomplete response                 | The operation did not complete; do not silently retry, switch backend or infer success from exit status alone            |
+
+Do not reinstall, change identity or use raw API calls to work around permission/authentication/network failures. Use verified HTTPS; the CLI retains its configured transport/retry/timeout behavior and the plugin adds no isolation or bounds. Never weaken certificate checks to fix connectivity.
+
+Missing storage/spec/platform/issue evidence remains unknown, not proof of an empty configuration or healthy cluster. Host-truncated output is incomplete. Follow only documented pagination where supported and re-read before consequential changes.
+
+### Cluster counts or continuation unavailable
+
+Inventory `definitionCounts.status: notRequested` means counts were not fetched; select a relevant cluster and request named detail. Partial detail may preserve a known array count with null standalone count. Unavailable counts are unknown, not zero; explain the reason and do not query an alternate backend. These counts cover readable persisted definitions, not all hidden resources.
+
+Use `page.nextCursor` unchanged with the same endpoint/configuration and template filter. A Unicode collation-boundary failure returns no JSON/cursor: propose a larger `--limit` up to 200 or an exact named lookup, using stored spelling/case for non-ASCII names. A byte-limited tied group may still prevent paging at a larger row limit. Do not fabricate a cursor, bypass the guard or call the failed listing complete. Named detail rejects paging flags; JSON also rejects `--long` and `--recursive`.
+
+### Node selection and kind-mode conflicts
+
+Bounded discovery requires `--cluster`, explicit `--kind definition|concrete` and `--format json`. Without kind, JSON retains the unbounded legacy body/behavior. Do not mix kind mode with raw attribute/custom-output/filter/long/summary/credential/state options. Failure/array filters apply only to concrete collections; exact NAME rejects them and paging options. A missing exact target is an error, not an empty successful collection.
+
+A stored failure filter is not comprehensive health evidence, and a concrete target can exist while Off with no VM. Null fields remain unknown. Definition discovery can select authoring identities but cannot supply roles, images, environment or attachments. Keep the endpoint, cluster, kind and filters consistent when using an opaque continuation; cluster and node cursors are not interchangeable.
+
+### Selected-node diagnostics unavailable or incomplete
+
+`--diagnostics` requires exact NAME, cluster, concrete kind and JSON. It rejects collection paging/failure/array filters and raw projection/output options. `--detail-limit` is a 1–100 preview limit, not upstream condition paging. No completed history or event stream is included.
+
+Check each section's status, scope and completeness, not just empty items. Unavailable phases/conditions have null totals/truncation and a reason; available emptiness has total zero/truncated false. `workLimit` or `responseTooLarge` is not permission to fetch a full PhaseMap or raw condition payload. A larger preview cannot recover unavailable upstream evidence. A wrong identity or association anywhere is fatal, including outside the preview.
+
+VM `notAssociated` records a missing current link, not proof of no VM. Cached running/provisioning observations do not establish installation readiness. Text may be clipped or sensitive; `clippedFields` does not guarantee redaction. See [diagnostic evidence](node-diagnostics.md#read-stored-diagnostics-for-one-selected-node) before escalating to separately authorized logs or live checks.
 
 ### Reinitialize after an authentication failure
 
@@ -66,7 +89,7 @@ cyclecloud initialize --force
 
 Plain `cyclecloud initialize` can report “CycleCloud is configured properly” just because the configuration loads; it does not validate the stored credentials. **`--force` reruns setup and may modify the active profile.** Use the same CLI and intended configuration as inspection, enter credentials only in the terminal prompts, and retry inspection after setup succeeds. Do not run the setup wizard through an agent's noninteractive shell tool.
 
-For missing configuration, use plain `cyclecloud initialize` or select an existing `--config PATH`. Do not treat authentication, permission, or network failures as a reason to reinstall the CLI. Inspection allows normal silent refresh, but never browser/device-code interaction or credential prompts.
+For missing configuration, use plain `cyclecloud initialize` or select an existing `--config PATH`. Do not treat authentication, permission or network failures as a reason to reinstall. `show_nodes --format json` retains existing interactive authentication and token persistence behavior. Keep login in the user's terminal rather than retrying a different output mode or supplying credentials through the agent.
 
 ## Source packages and updates
 
@@ -82,7 +105,7 @@ Inspection does not need Node, but `validate-project.mjs` does. It also needs Ba
 
 ## Development verification
 
-Follow [setup and verification](development.md#setup-and-verification) for the normal contributor checks. Python tests that require `requests` are skipped when it is unavailable; run with the bundled CLI Python to exercise those tests. This does not opt into testing an installed CLI artifact: use the separate [explicit packaged-CLI smoke](development.md#explicit-packaged-cli-smoke) procedure for that.
+Follow [setup and verification](development.md#setup-and-verification) for contributor checks. Default tests do not inspect an external CLI or use user credentials. The [explicit packaged-CLI smoke](development.md#explicit-packaged-cli-smoke) is opt-in and tests local discovery only; it does not establish server or agent behavior.
 
 ## Release troubleshooting (maintainers)
 

@@ -35,7 +35,7 @@ function promote() {
         throw new Error("Cannot promote a prerelease to stable");
     requireSha(commit);
     const base = `repos/${releaseRepository()}`;
-    // Filter in gh before buffering: full commit diffs can exceed 1 MiB.
+    // Have gh select the needed fields before buffering; full commit diffs can exceed 1 MiB.
     const target = githubApi(
         `${base}/commits/${encodeURIComponent(`refs/tags/${tag}`)}`,
         {
@@ -90,7 +90,7 @@ function promote() {
             );
     }
 
-    // Only an exact missing ref permits creation; API failures propagate.
+    // Create stable only when its exact ref is absent. Let API failures stop promotion.
     const matches = githubApi(`${base}/git/matching-refs/heads/stable`);
     if (!Array.isArray(matches)) throw new Error("Invalid stable ref lookup");
     const refs = matches.filter((ref) => ref?.ref === "refs/heads/stable");
@@ -113,7 +113,7 @@ function promote() {
         return;
     }
     checkStableParent(snapshot, current);
-    // Publish exactly the verified tag commit; never manufacture or retag a release here.
+    // Point stable at the verified tag's commit. Do not create release commits or move tags here.
     const updated = current
         ? githubApi(`${base}/git/refs/heads/stable`, {
               method: "PATCH",

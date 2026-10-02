@@ -39,7 +39,7 @@ export function releaseSource(snapshot, tag, allowSnapshot = false) {
 }
 
 export function stableSource(snapshot) {
-    // Existing stable tips may be ordinary main commits or release snapshots.
+    // An existing stable tip can be a normal main commit or a dedicated release commit.
     return snapshot.message?.startsWith("Release ") &&
         snapshot.message.includes("Source-Commit:")
         ? releaseSource(snapshot, undefined, true)

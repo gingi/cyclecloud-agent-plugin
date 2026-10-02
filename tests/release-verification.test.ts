@@ -190,7 +190,7 @@ async function verify(
 }
 
 describe("Anonymous published source verification", () => {
-    test("downloads checksums and source, verifies identity, and smokes relative launcher without installation", async () => {
+    test("downloads checksums and source, verifies identity, and checks authoring assets without installation", async () => {
         const result = await verify();
         expect(result.stdout).toContain("Verified anonymous source release");
         expect(result.stdout).toContain(commit);

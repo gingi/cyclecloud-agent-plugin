@@ -11,9 +11,9 @@ import { versionFromTag } from "./release-version.mjs";
 
 const maxArchiveBytes = 32 * 1024 * 1024;
 
-// Parse only the ustar regular files/directories emitted by package-release.
-// Reject links, special files, extension headers, duplicate paths and traversal
-// before any archive member is written. Do not ask system tar to trust input.
+// Read only the regular files and directories package-release writes in ustar format.
+// Before extracting anything, reject links, special files, extension headers, duplicate
+// paths and paths that escape the destination. Do not hand unchecked input to system tar.
 export async function extractSourceArchive(archive, destination) {
     const data = gunzipSync(archive, { maxOutputLength: 64 * 1024 * 1024 });
     const entries = [];
@@ -123,8 +123,8 @@ function download(url, output, home) {
         throw new Error(
             "Public downloads require HTTPS (HTTP is permitted only for local test servers)",
         );
-    // -q disables curlrc; a fresh HOME and explicit environment omit tokens,
-    // netrc, proxy credentials and any real host configuration.
+    // -q disables curl's config file. A fresh HOME and explicit environment keep
+    // tokens, netrc entries, proxy credentials and real host configuration out of downloads.
     const result = spawnSync(
         "curl",
         [
@@ -224,7 +224,7 @@ export async function verifyRelease(tag, commit, checksumsUrl) {
                 "Released source identity/commit does not match the published build",
             );
         process.stdout.write(
-            `Verified anonymous source release ${tag} (${commit}): checksums, source identity, layout and isolated launcher smoke.\nNo native host installation was performed or validated.\n`,
+            `Verified anonymous source release ${tag} (${commit}): checksums, source identity, layout and authoring checker smoke.\nNo native host installation was performed or validated.\n`,
         );
     } finally {
         await rm(home, { recursive: true, force: true });

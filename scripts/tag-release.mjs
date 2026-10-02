@@ -76,7 +76,7 @@ try {
     }
     let commit = local ?? remote;
     if (commit) {
-        // Published source tags remain immutable; only new stable tags need release topology.
+        // Keep published source tags unchanged. Check release-commit parents for new stable tags.
         const source =
             prerelease || (remote === head && commit === head)
                 ? commit

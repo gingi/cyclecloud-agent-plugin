@@ -4,15 +4,8 @@ const npmCli = process.env.npm_execpath;
 if (npmCli === undefined)
     throw new Error("npm_execpath is required to run verification");
 
-// Node is development tooling only; the distributed inspection runtime is Python.
-const steps = [
-    "format:check",
-    "lint",
-    "typecheck",
-    "test",
-    "test:inspect",
-    "audit",
-];
+// CLI access uses host tools; Node powers development and the authoring checker.
+const steps = ["format:check", "lint", "typecheck", "test", "audit"];
 for (const step of steps) {
     const code = await new Promise((resolve, reject) => {
         const child = spawn(process.execPath, [npmCli, "run", step], {
