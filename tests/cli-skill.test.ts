@@ -85,6 +85,95 @@ describe("CLI-first guidance", () => {
         );
     });
 
+    test("Triages grouped current issues without inventing affected-node counts", async () => {
+        const text = await readFile(skill, "utf8");
+        const triage = text
+            .split("## Triage a cluster's current issues")[1]
+            ?.split("\n## ")[0];
+        expect(triage).toBeDefined();
+        for (const term of [
+            "show_issues --help --format json",
+            "cyclecloud.cluster-issues.v1",
+            "page.nextCursor",
+            "--after",
+            "identity order",
+            "Error",
+            "Warning",
+            "occurrenceCount",
+            "not distinct affected nodes",
+            "No node identities",
+            "non-null short logical group ID",
+            "last emitted group's representative",
+            "PageVersion=2",
+            "not a health verdict",
+            "Do not fan out",
+        ])
+            expect(triage).toContain(term);
+        const contract = (await readFile(reference, "utf8"))
+            .split("## Grouped current issues")[1]
+            ?.split("\n## ")[0];
+        expect(contract).toBeDefined();
+        for (const term of [
+            "cloud.node.current_issues",
+            "raw aspect name, status and message",
+            "1–100",
+            "limit + 1",
+            "aggregation scan",
+            "unsupported",
+            "nonzero",
+        ])
+            expect(contract).toContain(term);
+    });
+
+    test("Uses exact issue selectors and checks diagnostic identity at handoff", async () => {
+        const text = await readFile(skill, "utf8");
+        const drilldown = text
+            .split("## Select nodes from an issue group")[1]
+            ?.split("\n## ")[0];
+        expect(drilldown).toBeDefined();
+        for (const term of [
+            "cyclecloud.issue-nodes.v1",
+            "--group",
+            "groupSelector",
+            "nodeReferences",
+            "page.nextCursor",
+            "--after",
+            "only as needed",
+            "notFoundOrNotReadable",
+            "Unresolved references consume preview slots",
+            "storageaccount:7c4e9a12d63b08f5",
+            "illustrative",
+            "not self-contained endpoint-bound tokens",
+            "representative deletion",
+            "Legacy long selectors",
+            "full logical fingerprint",
+            "diagnostics.node.nodeId",
+            "selected reference's nodeId",
+            "Do not accept or attribute",
+        ])
+            expect(drilldown).toContain(term);
+        const contract = (await readFile(reference, "utf8"))
+            .split("## Issue-group node references")[1]
+            ?.split("\n## ")[0];
+        expect(contract).toBeDefined();
+        for (const term of [
+            "cloud.node.current_issue_nodes",
+            "short logical group ID",
+            "Legacy long selectors",
+            "full logical fingerprint",
+            "PageVersion=2",
+            "no registry, cache or stored mapping",
+            "representative",
+            "endpoint",
+            "not encryption or authorization",
+            "ordinary user's permissions",
+            "page.nextCursor",
+            "--after",
+            "no overall affected-node total",
+        ])
+            expect(contract).toContain(term);
+    });
+
     test("diagnoses only a selected node and distinguishes evidence scopes", async () => {
         const text = await readFile(skill, "utf8");
         for (const term of [

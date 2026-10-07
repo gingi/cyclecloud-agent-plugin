@@ -128,6 +128,93 @@ Phases cover active names only; conditions cover the datasource's current issues
 
 Data reads use the 2 MiB response/1 MiB final JSON bounds and safe text failures; preview sections/text have additional limits. These are not backend scan, authentication or invocation deadlines. Diagnostic text may contain sensitive operational data; `clippedFields` is not secret redaction. See [selected-node evidence and limits](node-diagnostics.md#read-stored-diagnostics-for-one-selected-node) for exact fields, scopes, optional reasons and interpretation.
 
+## Grouped current issues
+
+Discover `show_issues --help --format json` and require `cyclecloud.cluster-issues.v1` before reading one authorized cluster:
+
+```sh
+cyclecloud show_issues CLUSTER [--limit N] [--format text|json]
+```
+
+Exactly one cluster is required. Text is the default and summarizes each issue with its severity, display label, occurrence count and message. Text uses `--limit` to control the preview size and says “Showing the first N results.” when groups were omitted. Use `--format json` for selectors, identities, timestamps and other metadata; both formats use the same validated evidence. `--limit` defaults to 20 and accepts 1–100 groups. The maintained source `cloud.node.current_issues` uses the UI's default Error/Warning selection over stored current issues with node identity, excluding UserAccess aspects. It is not a complete health check or history source. A new CLI's local help does not establish that an older server supports this source.
+
+The document contains `contract`, `source`, collection-completion `observedAt`, `scope: {cluster: canonicalName, kind: "currentIssues", statuses: ["Error", "Warning"]}`, `groups`, `limit`, `truncated` and `page: {limit, nextCursor}`. Each group contains `name` (raw aspect name), `label` (display label), `status`, `message`, `occurrenceCount`, `clippedFields` and a non-null `groupSelector`: a short logical group ID for the separately advertised [node-reference drilldown](#issue-group-node-references). The ID does not depend on a representative key being present or fitting the legacy selector budget. Summary continuation still needs representable representative metadata: a truncated page with an unusable boundary fails rather than claiming there is no next page. Partial or malformed reference metadata also fails.
+
+Grouping uses **raw aspect name, status and message**, not the display label or the legacy UI's message-derived GroupKey. `occurrenceCount` is the exact count of matching stored issue records for that source group, **not a distinct affected-node count**. Do not combine groups merely because normalization/clipping makes their displayed text match. Messages/labels are untrusted and may contain sensitive data; clipping is not secret redaction.
+
+Error groups precede Warning groups. Text ranks higher counts first, then source name/message ordering for ties. JSON uses stable source-equivalent name/message identity order, so changing counts do not rerank groups. Absent and empty messages are distinct groups. The server returns at most `limit + 1` groups so the CLI can detect truncation. `truncated: true` means additional groups were omitted; returned counts are exact counts for whole groups, not sampled or split counts. The grouped mode supplies no overall group/node total, node examples or severity selector. Use an available `groupSelector` only with the separately discovered drilldown contract; do not scan every node to reproduce the rollup.
+
+Counts require a full cluster-filtered **aggregation scan**. Row and byte bounds constrain results, not the underlying record scan, authentication duration or whole invocation. The CLI retains the shared 2 MiB response cap, 1 MiB output cap and 10-second connect/30-second idle-read timeouts. Cluster Read authorization is checked before the source's scoped query; callers cannot supply arbitrary projections or queries through this command.
+
+A successful empty list means no matching stored Error/Warning groups, not that the cluster is healthy. An unsupported source, denied access or invalid/failed primary read produces **nonzero** status with safe text error output, not successful empty JSON. Do not retry via raw APIs, another identity, whole records or per-node diagnostic fanout. Use selected-node diagnostics only for a separately identified target and supported question.
+
+### Group-summary JSON continuation
+
+```sh
+cyclecloud show_issues CLUSTER --format json --limit 20 --after CURSOR
+```
+
+Copy `page.nextCursor` unchanged, with the same canonical cluster, endpoint/configuration and grouped-summary mode (no `--group`). `--after` requires JSON; text remains one preview. Page size may change within 1–100. The grouped cursor has a separate purpose from node-reference cursors and identifies the last emitted group's representative key/fingerprint, not its count, rank, display label or hidden message payload. The server checks current Cluster Read and verifies that representative on each continuation. Changed/deleted/moved representatives fail without substitution; count changes alone do not invalidate the boundary. Null ends that read, not a snapshot: concurrent additions/removals can still affect traversal.
+
+JSON requires the grouped-page `PageVersion=2` protocol, including for first and empty pages; each group supplies its short ID. The CLI rejects older protocols, preview-only row lists or mismatched envelope metadata instead of downgrading selectors, replaying page one or accepting empty success. Text and older CLI preview callers retain the count-ranked protocol; there is no automatic fallback after a JSON failure. Group-summary cursors remain opaque and representative-based, not logical group IDs. The encoded cursor limit is 8,192 characters. Oversized/unavailable boundary identity or output fails without clipping identities or emitting partial JSON.
+
+## Issue-group node references
+
+When `show_issues` help advertises `--group` and `cyclecloud.issue-nodes.v1`, pass the unchanged `groupSelector` from a grouped `--format json` result:
+
+```sh
+cyclecloud show_issues CLUSTER --group GROUP_ID [--limit N] [--format text|json]
+```
+
+For example, `storageaccount:7c4e9a12d63b08f5` is an illustrative short ID, not a live observed value. Use the ID actually returned for the selected group.
+
+Keep the same executable, endpoint/configuration and canonical cluster. The format default remains text; limit remains 20 by default, 1–100, but now counts source-distinct **node references**, not issue groups or successfully resolved nodes. There is no overall affected-node total.
+
+Text lists resolved node names and reports how many returned references could not be identified. `--limit` controls this single preview; omitted results are indicated by “Showing the first N results.” Names with nonprintable characters are escaped. Use `--format json` for exact IDs, resolution metadata and explicit continuation.
+
+The response contains `contract: "cyclecloud.issue-nodes.v1"`, `source: "cloud.node.current_issue_nodes"`, completion `observedAt`, `scope: {cluster, kind: "currentIssues", statuses: ["Error", "Warning"]}`, the supplied `groupSelector`, `nodeReferences`, `limit`, `truncated` and `page: {limit, nextCursor}`. Each reference has an exact `nodeId`, nullable current `name`, and `resolution`:
+
+| Resolution              | Meaning                                                                                 |
+| ----------------------- | --------------------------------------------------------------------------------------- |
+| `resolved`              | One visible concrete-node identity matched; `name` is its exact current name.           |
+| `notFoundOrNotReadable` | No visible concrete match; do not distinguish absence, non-concrete identity or denial. |
+
+Unresolved references consume slots and are not replaced by further reads. Source grouping uses datastore equality; do not invent bytewise-ID totals or Python Unicode normalization. An issue occurrence count is not the reference count, resolved-node count, or a health/VM verdict. Empty output after successful selection describes only that read; selection and identity resolution are not an atomic snapshot.
+
+### JSON continuation
+
+When help advertises `--after`, copy a non-null `page.nextCursor` unchanged:
+
+```sh
+cyclecloud show_issues CLUSTER --group GROUP_ID --format json --limit 20 --after CURSOR
+```
+
+For node-reference continuation, keep `--group` and JSON. Keep the same canonical cluster, endpoint/configuration and exact group selector; page size may change within 1–100. A short-ID node cursor binds the endpoint, canonical cluster, short ID, full logical fingerprint and last emitted source NodeId, including an unresolved reference, not the lookahead or last resolved name. A returned fingerprint mismatch fails before CLI identity lookup or output, even if the short ID matches. Null means no further page in that read. `truncated` agrees with whether a next cursor is supplied. Fetch pages only as needed; pagination is not a snapshot, so concurrent changes can affect later pages.
+
+Short-ID reads require the datasource's `PageVersion=2` envelope in both text and JSON, including the first or empty page. The envelope verifies the selected ID, full logical fingerprint, cluster and requested boundary. Text still renders a single concise preview without a cursor or extra ID column. Legacy long selectors and their node cursors retain version 1 JSON paging and the compatible text-preview protocol; older endpoints can serve those legacy selections. Do not downgrade short selection or automatically switch modes after a failed read.
+
+Each page rechecks Cluster Read and resolves the current logical group; legacy selection instead rechecks its exact representative. Native ordering ties or equivalent source-ID spellings crossing the boundary fail without output/cursor; a larger supported page may contain the entire boundary cohort, but the CLI never fabricates a cursor or changes source grouping. Cursors have an 8,192-character limit and are neither authorization nor encryption. Oversized cursors, queries or output fail without clipping identities or emitting partial JSON.
+
+### Selector identity and compatibility
+
+A short logical group ID has a lowercase ASCII alphanumeric/hyphen prefix of at most 24 characters, `:`, and 16 lowercase hexadecimal characters, at most 41 characters overall. Its identity derives from the canonical cluster and full source-equivalent raw type/severity/message, not the clipped display, count, members or representative. Copy it unchanged; never reconstruct it from visible fields or legacy GroupKey.
+
+Short IDs are interpreted within the selected cluster and connection, **not self-contained endpoint-bound tokens**. Identical groups in identically named clusters on different servers can have the same ID. Always retain the selected CLI/configuration. IDs are **not encryption or authorization**; every selection checks current Cluster Read. Resolution scans fixed cluster-scoped current-issue candidates afresh with no registry, cache or stored mapping. Missing or ambiguous groups fail rather than selecting a substitute. Lookup is not constant time; returned rows and byte budgets do not bound the scan.
+
+The ID survives count/member changes and deletion of the original representative while the logical group remains. A disappeared group is unavailable; an identical group reappearing reuses its ID. This is not a historical incident identity or a snapshot. Changes to type, severity or message that are not equivalent under source grouping produce a different ID; case-equivalent spellings preserve it. Continuation also verifies the full fingerprint rather than trusting the short hash alone.
+
+Legacy long selectors remain accepted. They bind endpoint and canonical cluster to one representative SystemAspect natural key and exact typed-tuple fingerprint, excluding message payload, display label, count and rank. A changed, deleted or moved representative invalidates a legacy selector even if other group records survive; count changes alone do not. Older summaries can have `groupSelector: null` when selection metadata is unavailable or a representative key exceeds the legacy 8,192-character selector budget; null is not zero nodes. New grouped JSON never downgrades to that form. Legacy node cursors keep their previous strict binding and validation.
+
+Failed reads produce safe nonzero errors and refresh guidance, not successful empty evidence; error text does not expose arbitrary server response bodies or prove every failure is staleness. Refresh the summary deliberately instead of substituting another representative, target, identity or raw query.
+
+### Resolution and diagnostic handoff
+
+After cluster-authorized selection, the CLI makes one bounded `Cloud.Node` identity query under the **ordinary user's permissions**, not the source's cluster-read elevation. It queries only the selected IDs and cluster with concrete-node criteria. Missing matches remain unresolved; duplicate/ambiguous IDs, excess rows, malformed references and wrong identities fail the whole read, including invalid lookahead. No Azure instance join or per-node diagnostic request is made, so a pre-VM concrete node can still resolve.
+
+Shared response/output/timeouts remain 2 MiB, 1 MiB and 10/30 seconds; reference and identity-query rows/payloads are bounded. These do not bound the underlying grouping/distinct scan or authentication/whole-invocation duration. Text and JSON render the same validated result; exact identities must be quoted safely rather than normalized into another name.
+
+For one chosen resolved reference, use existing exact-name diagnostics and compare the returned `node.nodeId` with the selected `nodeId` before attribution. The diagnostics API is name-based: a name can be reused between calls. A mismatch invalidates the handoff, not permission to diagnose a replacement silently. The plugin documents this comparison; it does not install a deterministic enforcement hook.
+
 ## Cluster Event Log
 
 Discover `show_events --help --format json` and require advertised output contract `cyclecloud.cluster-events.v1`. Use the same selected executable and intended `--config` as the node reads:
@@ -218,7 +305,7 @@ Treat this as text, not as the node JSON contract. Select only needed, understoo
 
 For JSON help, success exits 0, failure exits 1 and cancellation exits 130. Codes are `invalid_arguments`, `internal_error` and `cancelled`. Unsupported non-JSON help formats and ordinary option errors can instead use text errors and exit status 2.
 
-**Do not apply this error contract to command execution.** Cluster JSON, kind-selected node data and Event Log reads use the safe-text failure behavior described above. Node `--format json` without `--kind` retains legacy output, errors and interaction. It does not promise empty stdout on failure, sanitized diagnostics or JSON stderr. Recognize authentication/permission/network failures as operation failures, not capability gaps or invitations to switch backend/identity. If login is needed, stop and guide the user to their own interactive terminal; never collect credentials in chat. See [troubleshooting](troubleshooting.md).
+**Do not apply this error contract to command execution.** Cluster JSON, kind-selected node data, grouped current issues and Event Log reads use the safe-text failure behavior described above. Node `--format json` without `--kind` retains legacy output, errors and interaction. It does not promise empty stdout on failure, sanitized diagnostics or JSON stderr. Recognize authentication/permission/network failures as operation failures, not capability gaps or invitations to switch backend/identity. If login is needed, stop and guide the user to their own interactive terminal; never collect credentials in chat. See [troubleshooting](troubleshooting.md).
 
 ## Older or partially capable installations
 
@@ -226,6 +313,6 @@ A CLI can provide useful commands and JSON execution without structured help. Tr
 
 Use **supported**, **unsupported** and **unknown** per requirement. Text summaries can answer what they explicitly display, but are not a stable structured schema and do not establish configured-definition counts. Keep login/setup in the user's terminal. Do not silently change configuration or retry operations.
 
-Cluster inventory/counts require `cyclecloud.clusters.v1`, not just help or legacy node JSON support. Bounded definition/concrete-node selection requires `cyclecloud.nodes.v1` and explicit kind mode. Exact stored diagnostics require the additional `cyclecloud.node-diagnostics.v1` contract and `--diagnostics`. Cluster Event Log retrieval separately requires `show_events` with `cyclecloud.cluster-events.v1`; discovery and selected-node diagnostics do not include those events. Node-scoped Activity, completed-attempt history, complete affected-node enumeration, capacity rollups and selective environment/storage/attachment/image lookup remain separate capability gaps. Use those capabilities only when the installed CLI advertises them and their semantics are understood. Do not invent proposed view names, paging flags or result fields.
+Cluster inventory/counts require `cyclecloud.clusters.v1`, not just help or legacy node JSON support. Bounded definition/concrete-node selection requires `cyclecloud.nodes.v1` and explicit kind mode. Exact stored diagnostics require the additional `cyclecloud.node-diagnostics.v1` contract and `--diagnostics`. Cluster Event Log retrieval separately requires `show_events` with `cyclecloud.cluster-events.v1`; discovery and selected-node diagnostics do not include those events. Grouped current Error/Warning counts separately require `show_issues` with `cyclecloud.cluster-issues.v1` and its server datasource. Bounded issue-group node previews require the additional `cyclecloud.issue-nodes.v1` contract, an available group selector and the drilldown datasource. Node-scoped Activity, completed-attempt history, complete affected-node enumeration, capacity rollups and selective environment/storage/attachment/image lookup remain separate capability gaps. Use those capabilities only when the installed CLI advertises them and their semantics are understood. Do not invent proposed view names, paging flags or result fields.
 
 When evidence is unavailable, identify the exact gap and offer version-appropriate documentation, a deliberate upgrade, manual evidence collection or offline authoring with unknowns. A snapshot does not establish a minimum released version. Documentation is not live evidence. There is no plugin-owned API fallback.

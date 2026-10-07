@@ -55,6 +55,20 @@ Follow opaque `page.nextCursor` only as needed with the same endpoint, cluster, 
 
 `--kind definition` supplies authoring target identities, not a concrete-node diagnostic list. Discovery returns no conditions, free-form messages, image/role/configuration fields or per-node joins. Do not turn selection into an automatic diagnostic sweep.
 
+## Summarize current cluster issues
+
+For cluster-level triage, discover `show_issues --help --format json` and require `cyclecloud.cluster-issues.v1`. Read one authorized cluster with `show_issues "demo" --limit 20 --format json`, keeping the selected executable/configuration. The [grouped issue contract](cli-contract.md#grouped-current-issues) requires backend `PageVersion=2` and contains stored Error/Warning groups, raw aspect names, display labels, messages and occurrence counts. Counts are issue records, not distinct affected nodes. The summary supplies no node identities. Each `groupSelector` is a non-null short logical group ID for the separate node-reference drilldown; never invent a target from message text or fetch every node's diagnostics to bypass unavailable selection.
+
+Truncation concerns omitted groups; each returned group's count is exact for the source query. Even an untruncated empty list is not proof of health, full history or absence of other condition types. Exact counts require aggregation across matching stored records, not a bounded input sample. An unsupported server or failed primary read remains a failure, never an empty summary. For a separately known concrete target, use the selected-node workflow below.
+
+### Follow one group to a concrete target
+
+Discover `--group` and `cyclecloud.issue-nodes.v1`, then pass the selected group's ID unchanged to `show_issues "demo" --group "<groupSelector>" --limit 20 --format json` under the same CLI/configuration and cluster. Short IDs are scoped to that connection, not endpoint-binding tokens, and require backend `PageVersion=2` in text and JSON. See the [selector and resolution contract](cli-contract.md#issue-group-node-references). Select from `nodeReferences` only when `resolution` is `resolved`; `notFoundOrNotReadable` does not establish deletion or denied access specifically. Unresolved references consume preview slots and advance continuation; neither the preview length nor an occurrence count is an affected-node total. Fetch further pages only as needed, without refill or diagnostic fanout.
+
+Short IDs survive member/count changes and representative deletion while the logical group remains. Missing or ambiguous groups fail; an identical group reappearing reuses its ID, not a historical incident identity. Legacy long selectors still require their exact unchanged representative. Group-summary cursors also remain representative-based, unlike short-ID node cursors, which bind the full logical fingerprint. A failed read is not an empty group: propose refreshing the summary without reconstructing a selector, downgrading or widening reads.
+
+For one resolved reference, retain both its exact name and NodeId. Existing diagnostics select by name, so compare the returned `node.nodeId` with that retained NodeId before accepting evidence. A mismatch can indicate name reuse: report it, do not attribute the replacement's diagnostics to the selected node. These checks are agent/operator guidance, not a new runtime enforcement hook.
+
 ## Read stored diagnostics for one selected node
 
 Check `show_nodes --help --format json` for `cyclecloud.node-diagnostics.v1`, then use the selected cluster and node:

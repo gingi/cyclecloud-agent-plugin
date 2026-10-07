@@ -8,7 +8,7 @@ Start with the [quick start](../README.md). Diagnose host skill discovery, local
 - A local marketplace can be a **live directory**, not a copy under `~/.copilot/installed-plugins/`. Keep that directory in place. Deleting a temporary extraction directory can break the registration.
 - In VS Code, enable `chat.plugins.enabled` and inspect **Agent Plugins - Installed** or **Chat: Open Customizations → Plugins**. Individual enablement/access choices are separate from the feature-wide setting.
 - For a persistent local checkout/package, register its absolute path through `chat.pluginLocations`. Set its value to `false` if intentionally disabled. Merge settings rather than replace unrelated entries.
-- For a repository, use **Chat: Install Plugin From Source** or a supported `chat.plugins.marketplaces` entry. Local marketplace entries use `file:///` URIs. The [VS Code documentation](https://code.visualstudio.com/docs/copilot/customization/agent-plugins) describes these supported surfaces and CLI-installed-copy discovery.
+- For a repository, use **Chat: Install Plugin From Source** or a supported `chat.plugins.marketplaces` entry. Local marketplace entries use `file:///` URIs. The [VS Code documentation](https://code.visualstudio.com/docs/copilot/customization/agent-plugins) describes these settings and UI options, and how VS Code discovers copies installed by the CLI.
 - Reload the window/start a new agent session after changing source or enablement. Use **Chat: Configure Skills** to check skill discovery.
 - WSL, remote workspaces and cloud agents run in their own environments. A desktop installation or PATH is not automatically available there. Select a CLI supported by the environment executing the command; do not assume cross-platform executable compatibility.
 
@@ -22,7 +22,7 @@ Compare with a terminal Copilot CLI session in the same WSL distribution to help
 
 ```sh
 cyclecloud --help --format json
-cyclecloud show_nodes --help --format json
+cyclecloud node list --help --format json
 ```
 
 Use the selected absolute `CYCLECLOUD_CLI` executable when supplied, otherwise resolve PATH in the agent's environment. An invalid override does not fall back to another installation. If a terminal finds the CLI but the host does not, restart the host or supply its explicit executable path. Do not scan the filesystem or import private CLI Python modules.
@@ -42,7 +42,7 @@ Include the selected executable path and reported version when explaining compat
 
 `cyclecloud.error.v1` applies only to explicit JSON help failures: sanitized JSON on stderr, empty stdout, and `invalid_arguments`, `internal_error` or `cancelled`. JSON help succeeds with exit 0, fails with 1, or cancels with 130; unsupported non-JSON help formats and ordinary option errors may use text errors and status 2.
 
-Cluster JSON, kind-selected node and Event Log data failures use safe text stderr/nonzero status, with no partial JSON document. Their setup/authentication paths still retain legacy behavior. Node execution without `--kind` retains legacy behavior throughout. Do not parse execution stderr using the help error contract or forward raw server bodies/credentials into reports. The following are symptoms to diagnose, not guaranteed machine-readable execution codes:
+Cluster JSON, kind-selected node and Event Log data failures use safe text stderr/nonzero status, with no partial JSON document. Their setup/authentication paths still retain legacy behavior. Legacy `show_nodes` execution without `--kind` retains legacy behavior throughout. Do not parse execution stderr using the help error contract or forward raw server bodies/credentials into reports. The following are symptoms to diagnose, not guaranteed machine-readable execution codes:
 
 | Symptom                                             | Check                                                                                                                    |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
@@ -63,31 +63,51 @@ Missing storage/spec/platform/issue evidence remains unknown, not proof of an em
 
 Inventory `definitionCounts.status: notRequested` means counts were not fetched; select a relevant cluster and request named detail. Partial detail may preserve a known array count with null standalone count. Unavailable counts are unknown, not zero; explain the reason and do not query an alternate backend. These counts cover readable persisted definitions, not all hidden resources.
 
-Use `page.nextCursor` unchanged with the same endpoint/configuration and template filter. A Unicode collation-boundary failure returns no JSON/cursor: propose a larger `--limit` up to 200 or an exact named lookup, using stored spelling/case for non-ASCII names. A byte-limited tied group may still prevent paging at a larger row limit. Do not fabricate a cursor, bypass the guard or call the failed listing complete. Named detail rejects paging flags; JSON also rejects `--long` and `--recursive`.
+Use `page.nextCursor` unchanged with the same endpoint/configuration and template filter. If Unicode ordering makes a page boundary unsafe, the command returns neither JSON nor a cursor: propose a larger `--limit` up to 200 or an exact named lookup, using stored spelling/case for non-ASCII names. A byte-limited tied group may still prevent paging at a larger row limit. Do not fabricate a cursor, bypass the guard or call the failed listing complete. Named detail rejects paging flags; JSON also rejects `--long` and `--recursive`.
 
 ### Node selection and kind-mode conflicts
 
-Bounded discovery requires `--cluster`, explicit `--kind definition|concrete` and `--format json`. Without kind, JSON retains the unbounded legacy body/behavior. Do not mix kind mode with raw attribute/custom-output/filter/long/summary/credential/state options. Failure/array filters apply only to concrete collections; exact NAME rejects them and paging options. A missing exact target is an error, not an empty successful collection.
+Bounded discovery requires `--cluster`, explicit `--kind definition|concrete` and `--format json`. Both `node list` and `node show` require kind; legacy `show_nodes` without kind retains its unbounded response and behavior. Do not mix kind mode with legacy options for raw attributes, custom output, filters, long output, summaries, credentials or states. Failure/array filters apply only to concrete collections; exact NAME rejects them and paging options. A missing exact target is an error, not an empty successful collection.
 
 A stored failure filter is not comprehensive health evidence, and a concrete target can exist while Off with no VM. Null fields remain unknown. Definition discovery can select authoring identities but cannot supply roles, images, environment or attachments. Keep the endpoint, cluster, kind and filters consistent when using an opaque continuation; cluster and node cursors are not interchangeable.
 
 ### Selected-node diagnostics unavailable or incomplete
 
-`--diagnostics` requires exact NAME, cluster, concrete kind and JSON. It rejects collection paging/failure/array filters and raw projection/output options. `--detail-limit` is a 1–100 preview limit, not upstream condition paging. No completed history or event stream is included.
+`--diagnostics` on `node show` requires exact NAME, cluster, concrete kind and JSON. It rejects collection paging/failure/array filters and raw projection/output options. `--detail-limit` is a 1–100 preview limit, not upstream condition paging. No completed history or event stream is included.
 
 If that contract is absent or unknown, follow [limited state, then stop](node-diagnostics.md#when-rich-diagnostics-are-unavailable): at most one supported exact-node state projection, then a capability-gap summary. Do not approve `--long` or additional phase/configuration projections to compensate. If only Event Log is missing, retain supported diagnostics and explain that separate gap.
 
-Check each section's status, scope and completeness, not just empty items. Unavailable phases/conditions have null totals/truncation and a reason; available emptiness has total zero/truncated false. `workLimit` or `responseTooLarge` is not permission to fetch a full PhaseMap or raw condition payload. A larger preview cannot recover unavailable upstream evidence. A wrong identity or association anywhere is fatal, including outside the preview.
+Check each section's status, scope and completeness, not just empty items. Unavailable phases and conditions have null totals and truncation values, plus a reason; available emptiness has total zero/truncated false. `workLimit` or `responseTooLarge` is not permission to fetch a full PhaseMap or raw condition payload. A larger preview cannot recover unavailable upstream evidence. A wrong identity or instance association anywhere in the response fails the command, even outside the preview.
 
 VM `notAssociated` records a missing current link, not proof of no VM. Cached running/provisioning observations do not establish installation readiness. Text may be clipped or sensitive; `clippedFields` does not guarantee redaction. See [diagnostic evidence](node-diagnostics.md#read-stored-diagnostics-for-one-selected-node) before escalating to separately authorized logs or live checks.
 
+### Grouped current issues unavailable or truncated
+
+`issue list` requires the advertised `cyclecloud.cluster-issues.v1` contract and a server with `cloud.node.current_issues`. Grouped JSON requires `PageVersion=2`, even on the first or empty page, and does not downgrade to legacy selectors. CLI help alone does not establish server support. An unsupported or denied source is a failed operation, not zero issues; report it without falling back to raw queries or reads for every node.
+
+The fixed scope is stored Error/Warning issues excluding UserAccess. `occurrenceCount` counts issue records, not distinct affected nodes. No node identities are supplied. A successful empty list is not a health verdict. `truncated: true` means some groups were omitted, not that returned counts are estimates. JSON keeps groups in severity, type and message order, not count ranking.
+
+For more groups, copy `page.nextCursor` unchanged into `--after`, keeping the same JSON summary mode, cluster and endpoint. Null ends that read, not a snapshot or total. Group-summary cursors depend on the representative record. If the boundary representative changed, was deleted or moved, continuation fails even when the short logical group ID remains usable. Preview-only responses and failed continuations are errors, not complete or empty listings. See [grouped continuation](cli-contract.md#group-summary-json-continuation).
+
+### Issue-group selection unavailable or nodes unresolved
+
+`issue show --group` requires `cyclecloud.issue-nodes.v1`, a copied `groupSelector`, and the separate `cloud.node.current_issue_nodes` source. New grouped JSON supplies non-null short logical group IDs. Keep the same CLI, configuration and cluster. An ID neither binds an endpoint nor grants authorization: identical groups in identically named clusters on different servers can share it. Never rebuild selection from clipped text or rank.
+
+Short-ID reads require `PageVersion=2` in text and JSON; older endpoints can still serve legacy long selectors under their prior protocol. A preview-only JSON response fails; do not treat it as an empty page, downgrade selection or retry in another output mode. For additional references, copy `page.nextCursor` unchanged into `--after` with the same group, canonical cluster, endpoint/configuration and JSON format. Null ends that read. Current authorization and selection are rechecked for each page; short-ID cursors also verify the full logical fingerprint before identity lookup or output. Unresolved references still advance the cursor. An unsafe Unicode boundary fails rather than omitting or duplicating references. See [JSON continuation](cli-contract.md#json-continuation).
+
+A short ID survives representative deletion and count/member changes while the logical group remains. A disappeared or ambiguous group fails resolution; an identical group reappearing reuses its ID, so it is not a historical incident ID. Legacy long selectors still expire when their exact representative changes, disappears or moves, even if the group survives. A null selector in older summaries means selection unavailable, not zero nodes. A failed drilldown returns nonzero, not an empty node list; generic advice to refresh does not mean every failure was caused by stale data. Check authentication/permissions as appropriate and deliberately refresh the summary, without switching identity or backend.
+
+`notFoundOrNotReadable` includes missing, non-concrete or unreadable current nodes; do not silently refill the preview. A name from a resolved reference can later be reused, so compare the diagnostic result's NodeId with the selected NodeId before attributing its evidence. See [node-reference scope and handoff](cli-contract.md#issue-group-node-references).
+
 ### Event Log missing, empty or incomplete
 
-Discover `show_events --help --format json` and `cyclecloud.cluster-events.v1` before executing. On an older CLI, retain legitimate node reads and explain the missing event capability; do not fabricate event flags or use raw queries. A denied or failed primary event read is nonzero, not a successful empty log. Follow the authentication/certificate guidance above, without changing identity, retrying another output mode or running an unattended login.
+Discover `event list --help --format json` and `cyclecloud.cluster-events.v1` before executing. On an older CLI, retain legitimate node reads and explain the missing event capability; do not fabricate event flags or use raw queries. A denied or failed primary event read is nonzero, not a successful empty log. Follow the authentication/certificate guidance above, without changing identity, retrying another output mode or running an unattended login.
 
 For an old failure, specify both timezone-aware `--since` and `--until` around recorded phase timestamps. The default until is invocation time, and the maximum interval width is seven days, not a historical-age limit. A recent window cannot establish what happened around an older incident. Empty results are scoped by readable cluster, window and priority selection; default exclusion of low priority still includes informational recovery.
 
-If `truncated` is true, consider a narrower relevant window or a larger `--limit` up to 200. There is no cursor, total or node filter. Preserve cluster-wide/unattributed recovery events and do not infer node causation from timing. Clipped messages are not redacted. See [failure correlation](node-diagnostics.md#correlate-the-cluster-event-log-with-a-selected-failure).
+If `truncated` is true, consider a narrower relevant window or a larger `--limit` up to 200. There is no cursor, total or node filter. Preserve cluster-wide recovery events and those with no node attribution and do not infer node causation from timing. Clipped messages are not redacted. See [failure correlation](node-diagnostics.md#correlate-the-cluster-event-log-with-a-selected-failure).
+
+For a known event ID, exact lookup requires separately advertised `event show` with `cyclecloud.cluster-event.v1`. Pass the copied ID unchanged (including `#`, quoted in the shell) and the same canonical cluster through `--cluster`; check the returned ID and cluster. Do this only when requested or useful to a repair decision, not automatically after listing. No time, priority, limit or paging flags apply. Missing, deleted, wrong-cluster, ambiguous or unreadable events fail rather than return empty history. Do not retry a denied or failed list through show, or a denied or failed show through list. Exact lookup retains the same bounded/clipped fields, not a full-message escape hatch. See [exact event lookup](cli-contract.md#exact-event-lookup).
 
 ### Reinitialize after an authentication failure
 
@@ -111,7 +131,7 @@ Use the host's plugin installation and removal commands. Removing the plugin lea
 
 ## Authoring validator
 
-Inspection does not need Node, but `validate-project.mjs` does. It also needs Bash for parse-only checks. Missing Node/Bash or a syntax-check timeout is a failure, not permission to claim validation succeeded. The shipped skeleton intentionally fails until TODOs and script stubs are completed; a passing structural check does not certify installation, MPI compatibility or Slurm execution.
+Inspection does not need Node, but `validate-project.mjs` does. It also needs Bash for parse-only checks. Missing Node/Bash or a syntax-check timeout means validation failed; do not claim it succeeded. The shipped skeleton intentionally fails until TODOs and script stubs are completed; a passing structural check does not certify installation, MPI compatibility or Slurm execution.
 
 ## Development verification
 
