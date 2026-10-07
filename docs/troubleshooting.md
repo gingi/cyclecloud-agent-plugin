@@ -42,7 +42,7 @@ Include the selected executable path and reported version when explaining compat
 
 `cyclecloud.error.v1` applies only to explicit JSON help failures: sanitized JSON on stderr, empty stdout, and `invalid_arguments`, `internal_error` or `cancelled`. JSON help succeeds with exit 0, fails with 1, or cancels with 130; unsupported non-JSON help formats and ordinary option errors may use text errors and status 2.
 
-Cluster JSON and kind-selected node data failures use safe text stderr/nonzero status, with no partial JSON document. Their setup/authentication paths still retain legacy behavior. Node execution without `--kind` retains legacy behavior throughout. Do not parse execution stderr using the help error contract or forward raw server bodies/credentials into reports. The following are symptoms to diagnose, not guaranteed machine-readable execution codes:
+Cluster JSON, kind-selected node and Event Log data failures use safe text stderr/nonzero status, with no partial JSON document. Their setup/authentication paths still retain legacy behavior. Node execution without `--kind` retains legacy behavior throughout. Do not parse execution stderr using the help error contract or forward raw server bodies/credentials into reports. The following are symptoms to diagnose, not guaranteed machine-readable execution codes:
 
 | Symptom                                             | Check                                                                                                                    |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
@@ -75,9 +75,19 @@ A stored failure filter is not comprehensive health evidence, and a concrete tar
 
 `--diagnostics` requires exact NAME, cluster, concrete kind and JSON. It rejects collection paging/failure/array filters and raw projection/output options. `--detail-limit` is a 1–100 preview limit, not upstream condition paging. No completed history or event stream is included.
 
+If that contract is absent or unknown, follow [limited state, then stop](node-diagnostics.md#when-rich-diagnostics-are-unavailable): at most one supported exact-node state projection, then a capability-gap summary. Do not approve `--long` or additional phase/configuration projections to compensate. If only Event Log is missing, retain supported diagnostics and explain that separate gap.
+
 Check each section's status, scope and completeness, not just empty items. Unavailable phases/conditions have null totals/truncation and a reason; available emptiness has total zero/truncated false. `workLimit` or `responseTooLarge` is not permission to fetch a full PhaseMap or raw condition payload. A larger preview cannot recover unavailable upstream evidence. A wrong identity or association anywhere is fatal, including outside the preview.
 
 VM `notAssociated` records a missing current link, not proof of no VM. Cached running/provisioning observations do not establish installation readiness. Text may be clipped or sensitive; `clippedFields` does not guarantee redaction. See [diagnostic evidence](node-diagnostics.md#read-stored-diagnostics-for-one-selected-node) before escalating to separately authorized logs or live checks.
+
+### Event Log missing, empty or incomplete
+
+Discover `show_events --help --format json` and `cyclecloud.cluster-events.v1` before executing. On an older CLI, retain legitimate node reads and explain the missing event capability; do not fabricate event flags or use raw queries. A denied or failed primary event read is nonzero, not a successful empty log. Follow the authentication/certificate guidance above, without changing identity, retrying another output mode or running an unattended login.
+
+For an old failure, specify both timezone-aware `--since` and `--until` around recorded phase timestamps. The default until is invocation time, and the maximum interval width is seven days, not a historical-age limit. A recent window cannot establish what happened around an older incident. Empty results are scoped by readable cluster, window and priority selection; default exclusion of low priority still includes informational recovery.
+
+If `truncated` is true, consider a narrower relevant window or a larger `--limit` up to 200. There is no cursor, total or node filter. Preserve cluster-wide/unattributed recovery events and do not infer node causation from timing. Clipped messages are not redacted. See [failure correlation](node-diagnostics.md#correlate-the-cluster-event-log-with-a-selected-failure).
 
 ### Reinitialize after an authentication failure
 

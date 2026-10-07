@@ -64,6 +64,27 @@ describe("CLI-first guidance", () => {
         expect(contract).toContain("one target or an error");
     });
 
+    test("Limits legacy diagnosis to one state projection before stopping", async () => {
+        const text = await readFile(skill, "utf8");
+        const route = text
+            .split("## Choose a diagnostic path")[1]
+            ?.split("\n## ")[0];
+        expect(route).toBeDefined();
+        expect(route).toContain("at most one exact-node state read");
+        expect(route).toContain(
+            "--attrs Name,ClusterName,NodeId,State,TargetState,Status,PhaseFailed",
+        );
+        expect(route).toContain("Stop rich diagnosis after that state summary");
+        expect(route).toContain("Do not reconstruct phases or history");
+        expect(route).toContain("If only Event Log support is missing");
+        expect(text).toContain(
+            "Use supplied evidence before planning more reads",
+        );
+        expect(text).toContain(
+            "Check explicit fields before calling evidence missing",
+        );
+    });
+
     test("diagnoses only a selected node and distinguishes evidence scopes", async () => {
         const text = await readFile(skill, "utf8");
         for (const term of [
@@ -88,6 +109,65 @@ describe("CLI-first guidance", () => {
             "2 MiB",
         ])
             expect(details).toContain(term);
+    });
+
+    test("Correlates selected-node failures with discovered cluster Event Log evidence", async () => {
+        const text = await readFile(skill, "utf8");
+        for (const term of [
+            "show_events --help --format json",
+            "cyclecloud.cluster-events.v1",
+            "--since",
+            "--until",
+            "recorded phase start/end",
+            "same selected executable",
+            "recent context, not incident evidence",
+            "cluster-wide",
+            "recovery",
+            "Observations",
+            "Hypotheses",
+            "Unknowns",
+            "separate approval",
+        ])
+            expect(text).toContain(term);
+        expect(text).toContain("Time proximity does not establish causation");
+        expect(text).toContain("No node filter, cursor or total");
+        expect(text).toContain(
+            "Current null fields do not establish earlier VM or guest history",
+        );
+        expect(text).toContain(
+            "`truncated: false` does not establish complete history",
+        );
+        expect(text).toContain(
+            "window, priority filter, retention and source coverage",
+        );
+        expect(text).toContain("does not establish current scheduler health");
+    });
+
+    test("Documents Event Log bounds, source identity and primary-read failures", async () => {
+        const text = await readFile(reference, "utf8");
+        const events = text.split("## Cluster Event Log")[1]?.split("\n## ")[0];
+        expect(events).toBeDefined();
+        for (const term of [
+            "cyclecloud.cluster-events.v1",
+            "cloud.cluster_event_log_datasource",
+            "Event.Time",
+            "_Timestamp",
+            "Activity.EventTime",
+            "[since, until)",
+            "7 days",
+            "historical age",
+            "--include-low-priority",
+            "operationId",
+            "activityId",
+            "clippedFields",
+            "limit + 1",
+            "2 MiB",
+            "1 MiB",
+            "nonzero",
+            "not a successful empty",
+            "not secret redaction",
+        ])
+            expect(events).toContain(term);
     });
 
     test("does not overstate the legacy node JSON contract", async () => {

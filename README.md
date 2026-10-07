@@ -80,7 +80,7 @@ cyclecloud show_nodes "scheduler" --cluster "demo" --kind concrete --format json
 
 Kind-selected results are bounded objects with `nodes`, scope and paging—not legacy arrays. A standalone definition can also have a concrete identity while Off/prelaunch; this does not establish a VM or readiness. `--failed` selects stored failures, not all unhealthy nodes. Exact lookup returns one target or an error. See [node discovery](docs/cli-contract.md#bounded-definition-and-concrete-node-discovery).
 
-Without `--kind`, existing node JSON remains a legacy, unbounded array with nested `Instance` data. Custom `--output` is still usable in that legacy mode and overrides JSON with text; it is incompatible with kind mode. Authentication and configuration remain unchanged. Cluster and kind-selected node data failures use safe text errors, while legacy node output/error behavior is unchanged; only JSON help uses the structured help-error contract.
+Without `--kind`, existing node JSON remains a legacy, unbounded array with nested `Instance` data. Custom `--output` is still usable in that legacy mode and overrides JSON with text; it is incompatible with kind mode. Authentication and configuration remain unchanged. Cluster, kind-selected node and Event Log data failures use safe text errors, while legacy node output/error behavior is unchanged; only JSON help uses the structured help-error contract.
 
 ## Diagnose a selected node
 
@@ -92,11 +92,13 @@ cyclecloud show_nodes "scheduler" --cluster "demo" --kind concrete --format json
 
 This reads stored installation settings, active phases, current issues and cached VM checks where available. It does not supply completed-phase history, events or fresh VM health. The detail limit controls previews, not upstream condition rows. Unavailable sections remain unknown; a missing instance association does not prove no VM exists. Diagnostic text can contain sensitive operational content and must be treated as untrusted data. See [diagnostics and limits](docs/node-diagnostics.md#read-stored-diagnostics-for-one-selected-node).
 
+When `show_events --help --format json` advertises `cyclecloud.cluster-events.v1`, read the cluster Event Log separately. Keep the same executable/configuration, and choose a modest window around the selected node's recorded phase times using explicit `--since` and `--until`, not blindly the default last three hours. Events remain cluster-wide and can include unattributed failure and informational recovery messages; time proximity does not prove node attribution or causation. Report observations, hypotheses and unknowns separately. See [failure correlation](docs/node-diagnostics.md#correlate-the-cluster-event-log-with-a-selected-failure) and [Event Log bounds](docs/cli-contract.md#cluster-event-log).
+
 ## Capability gaps and evidence
 
 The plugin uses existing commands when they genuinely answer the question. It does not invent flags or retrieve raw configuration/full parameter exports to emulate missing functionality. For unsupported requirements, it explains the gap and offers documented upgrade/manual guidance or offline authoring. There is no API fallback or automatic installation.
 
-Compact cluster inventory and definition counts require `cyclecloud.clusters.v1`. Bounded definition/concrete-node selection requires `cyclecloud.nodes.v1`. Selected-node stored diagnostics require `cyclecloud.node-diagnostics.v1`. Capacity rollups, events, selective environment/storage/attachments and image metadata still require additional capabilities; discovery and diagnostics do not provide that evidence. A development snapshot does not establish a released minimum version.
+Compact cluster inventory and definition counts require `cyclecloud.clusters.v1`. Bounded definition/concrete-node selection requires `cyclecloud.nodes.v1`. Selected-node stored diagnostics require `cyclecloud.node-diagnostics.v1`. Cluster Event Log reads require `show_events` with `cyclecloud.cluster-events.v1`. Node-scoped Activity, completed-attempt history, complete affected-node enumeration, capacity summaries, selective environment/storage/attachments and image metadata still require additional capabilities; the current reads do not provide that evidence. A development snapshot does not establish a released minimum version.
 
 Keep configured definitions, runtime groups and concrete nodes distinct. Missing evidence is not zero or proof of health; configuration is not runtime readiness. See [node diagnostics](docs/node-diagnostics.md) and [application evidence](docs/application-context.md).
 

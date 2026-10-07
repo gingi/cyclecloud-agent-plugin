@@ -76,6 +76,17 @@ CYCLECLOUD_TEST_DIAGNOSTICS_FIXTURE=/absolute/path/to/cli/tests/node_diagnostics
 
 This checks active-phase previews, current-issue descriptions, zero installation settings, cached VM evidence, denied sections, missing association and fatal wrong association beyond a preview. It does not run live diagnostics or validate model interpretation. Explicitly review/authorize the external fixture/executable before running; default tests skip it.
 
+Cluster Event Log checks use the CLI-owned `cluster_events_fixture.py` and its sibling cluster fixture:
+
+```sh
+CYCLECLOUD_TEST_CLI=/absolute/path/to/approved/cyclecloud \
+CYCLECLOUD_TEST_PYTHON=/absolute/path/to/cli-python \
+CYCLECLOUD_TEST_EVENTS_FIXTURE=/absolute/path/to/cli/tests/cluster_events_fixture.py \
+  npx vitest run tests/events-workflow.test.ts
+```
+
+Set `PYTHONPATH` explicitly if the selected fixture environment requires source imports. The fixture must support `--scenario NAME --cli ABS_EXECUTABLE -- COMMAND...`; it launches the selected public CLI with synthetic configuration, temporary HOME and loopback responses. The tests preserve cluster-wide failure and informational recovery evidence within an explicit historical window, distinguish truncated/empty selections, and check that a denied primary read fails without exposing the fixture's private error body. Review/authorize the fixture and executable before opting in; missing paths skip these tests. They do not call a live server or validate model interpretation.
+
 The fixtures check known View requests, not arbitrary query execution or real account permissions. Passing proves command/result interoperability for those synthetic scenarios, not live server compatibility or model-backed skill compliance. Keep parser, transport and datastore regression tests in the CLI repository rather than copying its implementation into the plugin.
 
 ## Scope and limitations
@@ -86,6 +97,14 @@ The plugin is a proof of concept, not a production-support guarantee. Validate t
 - The application skeleton is incomplete. Structural checks do not certify an OpenFOAM/OS/MPI combination or replace live installation/workload validation.
 - Structured discovery and legacy node JSON do not supply all richer diagnostic/authoring evidence. Unsupported capabilities need explicit gap guidance; do not claim complete workflow parity from a basic JSON flag.
 - Diagnostic evidence has source, freshness and server-work limitations; see [node diagnostics](node-diagnostics.md).
+
+## Diagnostic host evaluation
+
+Use a fresh isolated host session with the reviewed plugin and an explicitly selected CLI. The contributor checkout contains `tests/fixtures/node-diagnostics-evaluation.md`: neutral prompts, labeled synthetic inputs and separate action/answer rubrics for legacy stopping, current-association versus history, filtered Event Log absence and recovery versus readiness. The casebook is not shipped in source packages.
+
+Model-backed runs require approval and may incur charges; connected runs additionally require an authorized target. Give the model the prompt/evidence, not the evaluator rubric. Supplied-evidence cases measure interpretation only; use actual host tool requests for the legacy stop rule and supported-CLI command composition. Keep [diagnostic approvals](node-diagnostics.md#review-diagnostic-command-approvals) narrow and reject unsafe substitutes before execution.
+
+Record exact prompts, source state, host/model versions, requested/executed commands, outputs and interventions outside shipped docs. Score tool actions separately from answer claims. A host-blocked forbidden request is a failed behavior check, and a coached correction is not an unassisted pass. Inspect the entire answer for overclaims even when its last paragraph is cautious. Static tests, process exit codes and a small passing sample do not establish reliable agent compliance or cross-host behavior.
 
 ## Application authoring evaluation
 
