@@ -21,6 +21,113 @@ describe("CLI-first guidance", () => {
             expect(text).toContain(term);
         expect(text).toContain("Do not silently switch");
         expect(text).toContain("Do not infer execution JSON support");
+        const discovery = text
+            .split("## Discover before executing")[1]
+            ?.split("\n## ")[0];
+        for (const term of [
+            "complete structured help",
+            "contract-name `grep`",
+            "successful discovery and validation",
+            "unconditional `;`",
+        ])
+            expect(discovery).toContain(term);
+    });
+
+    test("Preserves complete command results before interpreting JSON", async () => {
+        const text = await readFile(skill, "utf8");
+        const execution = text
+            .split("## Preserve command results")[1]
+            ?.split("\n## ")[0];
+        expect(execution).toBeDefined();
+        for (const term of [
+            "single direct command",
+            "CLI exit status",
+            "stderr separate from stdout",
+            "printing `$?` does not preserve",
+            "replaying stderr onto stdout",
+            "`head`",
+            "complete JSON",
+            "supported limits",
+            "host truncates",
+            "approved local file",
+            "unique per-invocation path",
+            "return the CLI's actual status",
+        ])
+            expect(execution).toContain(term);
+        expect(text.indexOf("## Preserve command results")).toBeLessThan(
+            text.indexOf("## Choose a diagnostic path"),
+        );
+    });
+
+    test("Keeps routine metadata internal while reporting limitations that affect the request", async () => {
+        const text = await readFile(skill, "utf8");
+        const presentation = text
+            .split("## Present results for the user's question")[1]
+            ?.split("\n## ")[0];
+        expect(presentation).toBeDefined();
+        for (const term of [
+            "internal validation",
+            "nextCursor",
+            "weren't requested",
+            "requested facts",
+            "complete cluster listing",
+            "partial cluster listing",
+            "plain language",
+            "more results remain",
+        ])
+            expect(presentation).toContain(term);
+    });
+
+    test("Applies evidence checks to every answer, not just Event Log correlation", async () => {
+        const text = await readFile(skill, "utf8");
+        const evidence = text
+            .split("## Check evidence before answering")[1]
+            ?.split("\n## ")[0];
+        expect(evidence).toBeDefined();
+        for (const term of [
+            "failed lookup",
+            "underlying cause",
+            "Current null fields",
+            "Time proximity does not establish causation",
+            "first error in the returned selection",
+            "caveat later",
+            "next discriminating check",
+        ])
+            expect(evidence).toContain(term);
+        expect(text.indexOf("## Check evidence before answering")).toBeLessThan(
+            text.indexOf("## Choose a diagnostic path"),
+        );
+    });
+
+    test("Recommends follow-up reads only when they add relevant evidence", async () => {
+        const text = await readFile(skill, "utf8");
+        const evidence = text
+            .split("## Check evidence before answering")[1]
+            ?.split("\n## ")[0];
+        for (const term of [
+            "what new evidence it would add",
+            "already covered",
+            "untruncated",
+            "freshness",
+            "answer and stop",
+        ])
+            expect(evidence).toContain(term);
+    });
+
+    test("Keeps permission-denial follow-up on the selected identity and configuration", async () => {
+        const text = await readFile(skill, "utf8");
+        const failure = text
+            .split("## Handle gaps and failures deliberately")[1]
+            ?.split("\n## ")[0];
+        for (const term of [
+            "Permission denial",
+            "selected account and configuration",
+            "verify access to that specific read",
+            "another identity or `--config`",
+            "which permission is missing",
+            "do not invite a profile switch",
+        ])
+            expect(failure).toContain(term);
     });
 
     test("uses cluster detail for counts and preserves paging limitations", async () => {
@@ -123,6 +230,23 @@ describe("CLI-first guidance", () => {
             "nonzero",
         ])
             expect(contract).toContain(term);
+    });
+
+    test("Presents positive issue findings and follow-ups without exposing selector mechanics", async () => {
+        const text = await readFile(skill, "utf8");
+        const triage = text
+            .split("## Triage a cluster's current issues")[1]
+            ?.split("\n## ")[0];
+        for (const term of [
+            "positive issue finding",
+            "scope materially affects the question",
+            "which node is affected",
+            "what caused the resource-staging failure",
+            "node-reference bookkeeping internal",
+            "Storage Account",
+            "establishes a storage root cause",
+        ])
+            expect(triage).toContain(term);
     });
 
     test("Uses exact issue selectors and checks diagnostic identity at handoff", async () => {
