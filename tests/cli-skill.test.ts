@@ -4,7 +4,7 @@ import { describe, expect, test } from "vitest";
 const skill = new URL("../skills/use-cyclecloud/SKILL.md", import.meta.url);
 const reference = new URL("../docs/cli-contract.md", import.meta.url);
 
-// Instruction contracts, not a model-backed test of agent compliance.
+// These tests check the written instructions, not how a model follows them.
 describe("CLI-first guidance", () => {
     test("discovers the selected executable and actual command contracts", async () => {
         const text = await readFile(skill, "utf8");
@@ -31,6 +31,77 @@ describe("CLI-first guidance", () => {
             "unconditional `;`",
         ])
             expect(discovery).toContain(term);
+    });
+
+    test("Uses canonical resource paths while preserving the limited legacy fallback", async () => {
+        const text = await readFile(skill, "utf8");
+        for (const command of [
+            "cyclecloud cluster list --format json",
+            'cyclecloud cluster show "demo" --format json',
+            "cyclecloud node list --cluster",
+            'cyclecloud node show "scheduler" --cluster',
+            'cyclecloud issue list "demo"',
+            'cyclecloud issue show "demo" --group',
+            'cyclecloud event list "demo"',
+        ])
+            expect(text).toContain(command);
+        expect(text).not.toMatch(/show_cluster|show_issues|show_events/);
+        expect(text).toContain(
+            'cyclecloud show_nodes "scheduler" --cluster "demo" --format json --attrs',
+        );
+        const authoring = await readFile(
+            new URL(
+                "../skills/author-cyclecloud-application/SKILL.md",
+                import.meta.url,
+            ),
+            "utf8",
+        );
+        expect(authoring).toContain(
+            "node list --cluster NAME --kind definition",
+        );
+    });
+
+    test("Gates exact-event lookup without automatic enrichment or denial fallback", async () => {
+        const text = await readFile(skill, "utf8");
+        const exact = text
+            .split("### Read one known event")[1]
+            ?.split("\n## ")[0];
+        expect(exact).toBeDefined();
+        for (const term of [
+            "event show --help --format json",
+            "cyclecloud.cluster-event.v1",
+            'cyclecloud event show "#516f739a-01e1-0000-8000-000000000001" --cluster "demo" --format json',
+            "user requests that event",
+            "changes the repair decision",
+            "Do not automatically",
+            "same selected executable",
+            "including `#`",
+            "canonical cluster",
+            "copied ID",
+            "no collection or time flags",
+            "not empty history",
+            "Do not use either event command as a fallback",
+            "same bounded fields",
+        ])
+            expect(exact).toContain(term);
+        const contract = await readFile(reference, "utf8");
+        const lookup = contract
+            .split("### Exact event lookup")[1]
+            ?.split("\n## ")[0];
+        expect(lookup).toBeDefined();
+        for (const term of [
+            "cyclecloud.cluster-event.v1",
+            "`observedAt`",
+            "`scope: {cluster: canonicalName}`",
+            "`event`",
+            "no `events`, `window`, `limit` or `truncated`",
+            "low-priority",
+            "retained",
+            "unchanged",
+            "missing, deleted, cross-cluster, ambiguous or unreadable",
+            "full message",
+        ])
+            expect(lookup).toContain(term);
     });
 
     test("Preserves complete command results before interpreting JSON", async () => {
@@ -91,7 +162,7 @@ describe("CLI-first guidance", () => {
             "Time proximity does not establish causation",
             "first error in the returned selection",
             "caveat later",
-            "next discriminating check",
+            "what you would do differently depending on the result",
         ])
             expect(evidence).toContain(term);
         expect(text.indexOf("## Check evidence before answering")).toBeLessThan(
@@ -105,11 +176,12 @@ describe("CLI-first guidance", () => {
             .split("## Check evidence before answering")[1]
             ?.split("\n## ")[0];
         for (const term of [
-            "what new evidence it would add",
+            "repair decision",
+            "skip the read",
             "already covered",
             "untruncated",
             "freshness",
-            "answer and stop",
+            "specific user action",
         ])
             expect(evidence).toContain(term);
     });
@@ -134,7 +206,8 @@ describe("CLI-first guidance", () => {
         const text = await readFile(skill, "utf8");
         for (const term of [
             "cyclecloud.clusters.v1",
-            "show_cluster",
+            "cluster list",
+            "cluster show",
             "notRequested",
             "partial",
             "readablePersistedDefinitions",
@@ -199,7 +272,7 @@ describe("CLI-first guidance", () => {
             ?.split("\n## ")[0];
         expect(triage).toBeDefined();
         for (const term of [
-            "show_issues --help --format json",
+            "issue list --help --format json",
             "cyclecloud.cluster-issues.v1",
             "page.nextCursor",
             "--after",
@@ -324,6 +397,39 @@ describe("CLI-first guidance", () => {
             expect(details).toContain(term);
     });
 
+    test("Directs diagnosis toward repair rather than automatic observation", async () => {
+        const text = await readFile(skill, "utf8");
+        const resolution = text
+            .split("## Advance the resolution")[1]
+            ?.split("\n## ")[0];
+        expect(resolution).toBeDefined();
+        for (const term of [
+            "repair decision",
+            "persistent",
+            "bounded retry",
+            "something relevant changed",
+            "first diagnostic answer",
+        ])
+            expect(resolution).toContain(term);
+    });
+
+    test("Provides actionable handoffs without broadening read-only authority", async () => {
+        const text = await readFile(skill, "utf8");
+        const resolution = text
+            .split("## Advance the resolution")[1]
+            ?.split("\n## ")[0];
+        expect(resolution).toBeDefined();
+        for (const term of [
+            "read-only",
+            "separate approval",
+            "resource ID",
+            "Do not invent",
+            "user action",
+            "explain how to verify that the prerequisite is satisfied",
+        ])
+            expect(resolution).toContain(term);
+    });
+
     test("Requests machine-type context only through advertised diagnostics", async () => {
         const text = await readFile(skill, "utf8");
         const catalog = text
@@ -364,7 +470,7 @@ describe("CLI-first guidance", () => {
             ?.split("\n## ")[0];
         expect(catalog).toBeDefined();
         for (const term of [
-            "description/detail",
+            "description and detail",
             "recorded",
             "present",
             "notFoundOrNotReadable",
@@ -381,7 +487,7 @@ describe("CLI-first guidance", () => {
     test("Correlates selected-node failures with discovered cluster Event Log evidence", async () => {
         const text = await readFile(skill, "utf8");
         for (const term of [
-            "show_events --help --format json",
+            "event list --help --format json",
             "cyclecloud.cluster-events.v1",
             "--since",
             "--until",
