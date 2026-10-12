@@ -168,6 +168,27 @@ Read `node`, `installation`, `phases`, `conditions`, `vm` and `sources` directly
 
 Use [diagnostic evidence and limits](../../docs/node-diagnostics.md) to distinguish observations, hypotheses and missing evidence. For surrounding cluster Event Log evidence, use the separate read below. Diagnostics do not supply events, completed history or application environment/attachments.
 
+### Explain a machine-type lookup failure
+
+Identify the recorded lookup failure from phase messages or condition **description/detail**, not the **Storage Account** category alone. Retain its requested type and phase time only when explicitly readable; clipped text may not establish the exact identifier. Keep historical producer text as recorded, rather than replacing it with newer CLI/server wording.
+
+When the failure concerns machine-type/image resolution and complete structured help **advertises** `--machine-type-catalog`, add it to the selected node's `--diagnostics` read:
+
+```sh
+cyclecloud show_nodes "scheduler" --cluster "demo" --kind concrete --format json --diagnostics --machine-type-catalog
+```
+
+Read optional `machineType`: `configuredName` is the concrete node's current **persisted** type, not author intent or reconstructed array parameters; `lookupName` and `lookupNameSource` identify the verified lookup target. Check both section and catalog availability before comparing them with the recorded failure. This is local readable catalog evidence, not failure-time state, successful image resolution or Azure availability/quota. Do not add Event Log reads that cannot answer the missing type/catalog question.
+
+| Current evidence                                    | Supported next step and what its outcomes distinguish                                                                                                                                                                                                                                                                                                                                                        |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Persisted type differs from recorded requested type | Explain the discrepancy. Ask the author to verify the **intended type** and whether **new failure evidence** exists for the current node settings. A confirmed unintended type supports a separately authorized configuration-correction proposal; an intended change means the old error alone cannot diagnose a new attempt.                                                                               |
+| `catalog.status: present`                           | The exact entry is currently readable. Establish whether the recorded error applies to a current attempt before proposing a remedy; a historical error versus a new matching failure leads to different investigation. Presence alone is not recovery or readiness.                                                                                                                                          |
+| `catalog.status: notFoundOrNotReadable`             | Say **not found or not readable**, not missing. Recommend an authorized operator check of this exact entry's existence/visibility: **existing but hidden** requires visibility investigation; **confirmed absent** plus a confirmed intended type supports catalog-maintenance investigation. Neither is established by the empty read itself.                                                               |
+| `notRecorded`, unavailable or `changedDuringRead`   | Name the missing or unstable current fact. Without an explicit type, request authoritative current node/default evidence; never guess a **server default** or query the type parsed from an old error instead. For unsupported evidence, offer a scoped manual check with the same outcomes. For `permissionDenied`, end with access verification for the specific read, not a profile/privilege workaround. |
+
+Lead with the decisive failure and current-versus-recorded context, then one justified next action with its discriminating outcomes. Do not recommend a **replacement size**, quota request, catalog import or blind retry. Corrective actions require their own authorization; catalog absence and author intent must be independently confirmed before a maintenance proposal. See [optional catalog contract](../../docs/cli-contract.md#optional-machine-type-catalog-context).
+
 ## Correlate a failure with cluster Event Log
 
 Discover `show_events --help --format json` and check for `cyclecloud.cluster-events.v1` before using it. Keep the same selected executable and intended `--config` as diagnostics. Choose one exact node through supported discovery, read its diagnostics, then choose a modest event window around the **recorded phase start/end**, not blindly the last three hours or collection time. For an older phase, provide both timezone-aware `--since` and `--until`; an omitted until means invocation time, not the phase end. For example, if the recorded phase ran from 09:10 to 09:20 UTC, read a small surrounding window:

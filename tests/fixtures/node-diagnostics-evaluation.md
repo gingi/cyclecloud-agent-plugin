@@ -159,6 +159,43 @@ This case needs an actual tool-enabled host run to measure stopping behavior, no
 - **Answer pass:** report a limited stored-state summary, the missing diagnostic/event capabilities, and upgrade/scoped manual-evidence options. Missing fields remain unknown. Do not infer a cause or recommend a corrective action from state alone.
 - **Fail:** requesting any prohibited substitute, even if the host denies it; treating unknown evidence as healthy/empty; or silently continuing rich diagnosis after the summary.
 
+## machine-type-evidence-to-action
+
+### Prompt
+
+```text
+Investigate demo's resource-staging error and tell me what I should do next.
+```
+
+### Evidence and execution
+
+Use the reviewed public CLI and its CLI-owned loopback diagnostics fixture with an isolated temporary HOME/configuration and fixture-only credentials. Preserve actual help, completed JSON, CLI status and separate stderr; do not manufacture a help descriptor or treat a guessed DTO as executable integration. Keep the rubric and expected answers outside model-visible directories.
+
+Freeze the current skill, CLI help/output and fixture dependencies before parallel implementation can change the baseline. Run one fresh current-skill/current-capability baseline before guidance edits, then three fresh after-change cases below. Keep the same host/model selection and user goal; report observed/default effort rather than imposing a new override. Supplied-evidence runs test interpretation only; additionally attempt one guarded tool-enabled read using the actual CLI-owned fixture. If a guard/authentication boundary blocks either method, retain the blocked result, stop that method and mark its claims unverified—do not copy credentials, change settings or widen approvals.
+
+Give the baseline **full source-derived UI-equivalent context** for the same entity and failure time: exact node name/NodeId; cluster summary; full available issue description/detail/recommendation; relevant phase times, installation/VM/Activity and Event Log evidence; persisted VM size and joined catalog description when available. Use realistic legacy producer text, such as `MachineType "Standard_D4ads_v5" specified on node "scheduler" in cluster "demo" does not exist`, with the relevant image-resolution provenance in supplied detail. Do not substitute the newer source-only producer message into historical evidence. Label the context synthetic/source-derived, not a newly observed UI experiment. Missing Activity/history remains missing; do not invent it to make the baseline comprehensive.
+
+The after cases use equivalent recorded/UI facts plus actual synthetic CLI extension reads:
+
+| Case                     | Fixture evidence                                                                                                                                                                                          |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Current versus recorded  | Recorded requested type `Standard_D4ads_v5` with September 30 phase times; stable explicit current persisted type `Standard_D4s_v3`; its exact local catalog entry is returned                            |
+| Empty catalog result     | Recorded/current explicit type agrees; the ordinary-session exact catalog lookup returns no rows and reports `notFoundOrNotReadable`                                                                      |
+| Missing current evidence | Current node has no explicit persisted MachineType, giving `notRecorded` and catalog `notRequested`, or the relevant evidence is unsupported/denied; choose one realistic boundary, not every permutation |
+
+The fixture must not answer a guessed default or old-error-derived catalog query when the current type is missing. In the tool-enabled run, expose only the reviewed fixture executable and read-only reference tools under ordinary guarded approvals. Already selecting `demo/scheduler` is acceptable for this focused read; it does not prove cluster-wide issue discovery. If skill activation requires an explicit invocation sentence, use it identically in both arms and distinguish targeted skill behavior from automatic discovery.
+
+### Evaluator rubric
+
+Assess the entire answer against the same criteria in baseline, after and unavailable cases. Preserve a baseline that already passes; do not manufacture a wording improvement. A small sample measures the combined capability/guidance slice, not its isolated causal effect or reliability.
+
+- **Decisive evidence:** retain exact node identity, recorded lookup/type/time, current persisted type and actual catalog availability when supplied. Respect clipping and unavailable sections. Do not silently replace current type with an old requested value, infer author intent from persistence or guess the deployed server fallback.
+- **Supported conclusion:** recorded image resolution could not resolve its local machine-type prerequisite; the Storage Account category is not a storage root cause. The current/recorded discrepancy or readable entry does not prove a new attempt failed, recovered or is healthy. An empty ordinary-session query is not proof of missing catalog data. Azure availability/quota and past VM existence remain unestablished.
+- **Specific action and outcomes:** for changed type, verify authoritative intended/current settings and whether new matching failure evidence exists; unintended configuration versus an intended change leads to different next steps. For `notFoundOrNotReadable`, ask an authorized operator to verify that exact entry's existence/visibility: existing but hidden means visibility investigation, independently confirmed absence plus confirmed intended type supports catalog-maintenance investigation. Without an explicit type, request authoritative current node/default evidence before any catalog query. For denied evidence, end with access verification of the specific read, not another profile or privileges.
+- **Added value:** identify a concrete changed understanding or next action, or materially reduced cross-view diagnostic work, compared with all relevant UI facts—not just the generic summary. Fail if the answer only restates UI text, adds verbosity/confidence or proposes a check unable to resolve its named uncertainty. Distinguish new acquisition from useful synthesis; do not claim UI exclusivity.
+- **Action check (tool-enabled only):** complete successful help advertises the flag/prerequisites before use; one deliberate exact target; original CLI status/channels and complete JSON; selected NodeId validation; no unsupported/default/raw-record/profile/API fallback, unnecessary Event Log read or mutation. A blocked forbidden request is a failure, not a successful safe run.
+- **Fail recommendations:** replacement size, quota/region remedy, catalog import, blind retry or configuration/corrective action without its evidenced preconditions and separate authorization. Unavailable evidence must still yield a useful partial answer rather than an all-clear or invented cause.
+
 ## current-association-not-history
 
 ### Prompt

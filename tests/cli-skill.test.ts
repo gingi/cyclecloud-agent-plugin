@@ -324,6 +324,60 @@ describe("CLI-first guidance", () => {
             expect(details).toContain(term);
     });
 
+    test("Requests machine-type context only through advertised diagnostics", async () => {
+        const text = await readFile(skill, "utf8");
+        const catalog = text
+            .split("### Explain a machine-type lookup failure")[1]
+            ?.split("\n## ")[0];
+        expect(catalog).toBeDefined();
+        for (const term of [
+            "--machine-type-catalog",
+            "advertises",
+            "--diagnostics",
+            "configuredName",
+            "lookupNameSource",
+            "persisted",
+            "notRecorded",
+            "changedDuringRead",
+            "server default",
+        ])
+            expect(catalog).toContain(term);
+        const contract = (await readFile(reference, "utf8"))
+            .split("### Optional machine-type catalog context")[1]
+            ?.split("\n## ")[0];
+        expect(contract).toBeDefined();
+        for (const term of [
+            "unchanged",
+            "Name only",
+            "notFoundOrNotReadable",
+            "notRequested",
+            "noConfiguredName",
+            "4096",
+        ])
+            expect(contract).toContain(term);
+    });
+
+    test("Ties catalog recommendations to current versus recorded evidence", async () => {
+        const text = await readFile(skill, "utf8");
+        const catalog = text
+            .split("### Explain a machine-type lookup failure")[1]
+            ?.split("\n## ")[0];
+        expect(catalog).toBeDefined();
+        for (const term of [
+            "description/detail",
+            "recorded",
+            "present",
+            "notFoundOrNotReadable",
+            "existing but hidden",
+            "confirmed absent",
+            "intended type",
+            "new failure evidence",
+            "permissionDenied",
+            "replacement size",
+        ])
+            expect(catalog).toContain(term);
+    });
+
     test("Correlates selected-node failures with discovered cluster Event Log evidence", async () => {
         const text = await readFile(skill, "utf8");
         for (const term of [

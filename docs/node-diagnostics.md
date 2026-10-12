@@ -93,6 +93,12 @@ The result is `cyclecloud.node-diagnostics.v1` with `observedAt`, canonical `sco
 
 The complete projected response is read and association-validated within a 2 MiB decoded cap **before** preview selection. A wrong association beyond the returned preview still fails the command. The datasource does not enforce a row limit; `--detail-limit` is not a server scan/materialization bound. No raw SystemAspect fallback is used.
 
+### Current machine-type context
+
+For a recorded machine-type/image lookup failure, the advertised `--machine-type-catalog` diagnostics extension can add the selected concrete node's current persisted type and exact readable local catalog context. It does not reconstruct array settings, infer a deployed server default or establish failure-time catalog state. See the [optional contract and availability states](cli-contract.md#optional-machine-type-catalog-context).
+
+Compare the recorded requested type/time with verified current evidence before recommending a remedy. A changed type or currently readable entry means the old error alone cannot diagnose a new attempt. An empty lookup means **not found or not readable**: a scoped operator check distinguishes an existing but hidden entry from confirmed absence. Only confirmed absence and confirmed author intent support catalog-maintenance investigation. Missing, unsupported or unstable context remains unknown; preserve any usable recorded failure details rather than invent a fallback query or a cause. For denied evidence, ask for access verification of the specific read, not another profile or broader privileges. Explain which check outcome would change the next action; do not prescribe a replacement size, catalog import or retry from these facts alone.
+
 ### Availability and preview completeness
 
 Both phases and conditions expose `status`, `scope`, `items`, `total` and `truncated`:
@@ -113,7 +119,7 @@ Known absolute dates are normalized to UTC. Provider provisioning time remains a
 
 ### Errors and scope of bounds
 
-Data responses are capped at 2 MiB, final completed JSON at 1 MiB, with 10-second connect/30-second idle-read timeouts and direct-200/no-redirect data requests. There are at most eight data requests, not per-phase/condition fanout. These limits do not bound backend materialization, authentication duration or overall elapsed time.
+Data responses are capped at 2 MiB, final completed JSON at 1 MiB, with 10-second connect/30-second idle-read timeouts and direct-200/no-redirect data requests. Default diagnostics make at most eight data requests, not per-phase/condition fanout; opted-in machine-type catalog context adds at most three. These limits do not bound backend materialization, authentication duration or overall elapsed time.
 
 Identity/association, authentication, transport, timeout, cancellation and unknown server failures are fatal: nonzero status, safe ordinary text error handling and no JSON success. Optional denied/unsupported/malformed/over-budget evidence is explicitly unavailable. Do not apply JSON-help `cyclecloud.error.v1` to execution. Existing authentication/configuration and credential persistence remain unchanged; setup interaction goes to stderr, and data-reader sanitization does not qualify every legacy setup path.
 
