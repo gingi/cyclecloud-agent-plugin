@@ -1,26 +1,26 @@
 # Application publication, attachment and rollout handoff
 
-**Draft instructions only.** This document does not authorize upload, configuration changes, lifecycle actions, installer execution, or job submission. Complete and review the application implementation first.
+**Draft instructions only.** This document does not authorize uploads, configuration changes, lifecycle actions, installation or job submission. Complete and review the application implementation first.
 
 ## Evidence and scope
 
-- CycleCloud instance/profile and cluster: TODO(target-cluster)
-- Configuration observation time: TODO(observed-at)
-- Selected node/node-array definitions: TODO(targets)
+- CycleCloud instance, profile and cluster: TODO(target-cluster)
+- Evidence source and observation time: TODO(observed-at)
+- Selected standalone definitions and node arrays: TODO(targets)
 - Configured images, roles, Slurm partitions, mounts and volume persistence: TODO(configured-environment)
-- Unavailable/truncated evidence and unresolved runtime checks: TODO(unknowns)
+- Unavailable or partial evidence and unresolved runtime checks: TODO(unknowns)
 
-Record facts from the plugin launcher's `application-context` command (`result.context`); do not interpret its `evidence: configured` as runtime validation. Confirm the actual OS/MPI, shared mount readiness, permissions, job activity and storage survival separately. An absent field is not a negative finding.
+Record facts from supported CLI reads or explicitly identified authoritative manual evidence. Configuration is not runtime verification. Confirm actual OS/MPI, writable shared storage, job activity and storage survival separately. Missing evidence is unknown, not a negative finding.
 
 ## 1. Publish the reviewed project (operator step)
 
-- Project/version: TODO(project-version)
+- Project and version: TODO(project-version)
 - Target locker: TODO(locker)
-- Trusted source/checksum and review status: TODO(artifact-review)
+- Trusted source, checksum and review status: TODO(artifact-review)
 
-The operator configures their own CycleCloud CLI outside chat. Inspection reuses that configuration; the plugin has no separate credential store. Confirm the intended profile and authorization again before a consequential action. After confirming the intended instance and locker with `cyclecloud locker list`, upload from the reviewed project directory with `cyclecloud project upload <locker-name>`. Replace the placeholder with the selected locker and quote shell arguments appropriately; do not run the placeholder command literally.
+The operator configures the CLI outside chat. Confirm the intended profile and authorization before consequential actions. Check installed help for `cyclecloud locker list` and `cyclecloud project upload`; after confirming the intended locker, upload from the reviewed project directory using `cyclecloud project upload <locker-name>`. Replace and quote the actual locker name; do not run placeholders literally.
 
-Do not overwrite a project version already in use. Confirm publication succeeded through the operator's CLI/storage access; the context tool does not enumerate uploaded artifacts. Publication does not attach or install the project.
+Do not overwrite a project version already in use. Confirm publication through operator CLI/storage access. Publication does not attach or install the project.
 
 ## 2. Attach the specs (operator step)
 
@@ -29,22 +29,22 @@ Do not overwrite a project version already in use. Confirm publication succeeded
 | TODO(installer-target) | Designated single writer | TODO(installer-parameter)        | TODO(existing-installer-specs)     | TODO(install-spec)       | TODO(shared-scope)     |
 | TODO(runtime-targets)  | Application consumers    | TODO(runtime-parameters)         | TODO(existing-runtime-specs)       | TODO(runtime-spec)       | TODO(shared-scope)     |
 
-After choosing targets from the overview, request `application-context NAME --schema-version 1 --view details --target-name NAME --section attachments` through the installed plugin launcher for one target at a time. Use its discovered `attachment.parameterName`, parameter label/current specs and `usedBy.items`. Follow each needed collection's `nextOffset` until preservation/shared-scope evidence is complete; a page is not the full list. `usedBy` covers definitions in the queried cluster, not all descendants of a parent parameter scope. Check `usedBy.available`, paging/truncation, missing metadata and inheritance (from the environment section). In particular, a scheduler's parameter may also configure an HA scheduler array: that is not a single-writer installation strategy.
+Use an advertised selective CLI read or the authoritative template/edit form to establish complete existing specs, parameter ownership, inheritance and known shared uses. Record the source and coverage. A partial list is not enough to preserve existing entries. Reading one cluster does not establish the configuration of all its descendants. If mappings or scope are unavailable, this handoff remains **incomplete**. Do not reconstruct them from a full parameter export or raw node dump. An HA scheduler's shared parameter does not establish a single-writer installation strategy.
 
-For a standard Slurm template that exposes these fields, open the cluster's edit form, locate the discovered Cluster-Init fields (typically in Software), and add the reviewed project/spec/version entries while preserving existing entries. Match by actual parameter metadata, not assumed names. Record the exact labels and values above before handing off. Save only the reviewed configuration change.
+For a Slurm template exposing Cluster-Init fields, locate the actual discovered labels in the cluster edit form (typically Software). Add the reviewed entries while preserving existing values and order. Save only the approved configuration change.
 
-For a template-managed cluster, provide a minimal diff against its authoritative template/configuration instead. Do not rebuild a cluster definition from this partial context. If no simple parameter mapping is available, inspect the template or consult its owner. Do not prescribe `import_cluster --force`: replacement is not a narrow attachment edit.
+For template-managed clusters, provide a minimal diff against the authoritative source instead. Do not rebuild the definition from partial observations or prescribe `import_cluster --force` as an attachment shortcut. Ask the template owner when mappings cannot be resolved.
 
 ## 3. Re-read and plan rollout
 
-After the operator saves the attachment, run the launcher's `application-context` again with `--schema-version 1 --view details --section attachments` and the specific `--target-name`. Confirm the expected references, versions and targets. Missing or truncated evidence means this check is incomplete. Spec configuration is not proof that scripts executed.
+After attachment, verify references, versions, targets and scope through the same supported CLI capability or manual source. Missing or partial evidence means verification is incomplete. Configured specs do not prove execution.
 
-- Newly provisioned nodes versus existing running nodes: TODO(rollout-procedure)
+- Newly provisioned versus existing running nodes: TODO(rollout-procedure)
 - Shared-storage survival and recovery: TODO(storage-and-recovery)
-- Slurm job drain/maintenance readiness: TODO(workload-safety)
-- Which actions are necessary, in what order, and who approves them: TODO(approved-action-plan)
+- Slurm drain/maintenance readiness: TODO(workload-safety)
+- Necessary actions, order and approving operator: TODO(approved-action-plan)
 
-Native CLI `terminate_cluster` and `start_cluster` are separate operations requiring explicit approval of the exact target and arguments. The inspection launcher cannot execute them; skill instructions are not authorization. They do not upload or attach a project, drain jobs, or prove installation. Do not terminate a running cluster by default. Do not assume terminate/start is an in-place restart or that it preserves application data. Where a reviewed rollout requires termination, wait until termination is observed before starting; an accepted request or unknown outcome is not completion. This authoring skill does not execute these actions.
+`terminate_cluster` and `start_cluster` require separate approval of exact targets and arguments. They do not upload or attach projects, drain jobs, or prove installation. Do not terminate by default or assume terminate/start preserves data. If a reviewed rollout requires termination, observe completion before starting; an accepted request or an unknown outcome does not establish completion. This authoring workflow executes neither action.
 
 ## 4. Verify installation and workload separately
 
@@ -52,4 +52,4 @@ TODO(installation-logs-and-application-specific-success-checks)
 
 TODO(bounded-serial-and-parallel-slurm-test-and-expected-results)
 
-Use cluster status/issues as supporting evidence only. The current context tool does not report cluster-init execution history or submit Slurm jobs. Report stages separately: authored, locally checked, published, attached, rolled out, installed, workload-verified.
+Available cluster/node observations are supporting evidence only. Report stages separately: authored, locally checked, published, attached, rolled out, installed, workload-verified.

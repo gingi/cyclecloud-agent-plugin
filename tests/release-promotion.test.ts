@@ -141,7 +141,7 @@ async function expectRejected(
     expect(writes).toEqual([]);
 }
 
-// Retry cases run up to three CLI processes, each bounded at 10 seconds.
+// A retry test can launch three CLI processes; each has a 10-second timeout.
 describe("Stable release promotion", { timeout: 35_000 }, () => {
     test.each(["POST", "PATCH"])(
         "Promotes the exact verified tag with %s and never creates a commit",

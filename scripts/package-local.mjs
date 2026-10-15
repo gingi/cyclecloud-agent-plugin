@@ -14,7 +14,6 @@ import {
     checkOutputDirectory,
     executableFile,
     packageName,
-    requireRegularPath,
     sourceFiles,
 } from "./package-layout.mjs";
 
@@ -23,7 +22,6 @@ const dist = join(root, "dist");
 const destination = join(dist, packageName);
 await checkOutputDirectory(dist);
 const files = await sourceFiles(root);
-for (const file of files) await requireRegularPath(root, file);
 await mkdir(dist, { recursive: true });
 const staged = await mkdtemp(join(dist, ".package-"));
 try {

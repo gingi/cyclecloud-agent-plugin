@@ -6,13 +6,11 @@ export async function copySourceFixture(root: string, directory: string) {
         "package.json",
         "package-lock.json",
         "plugin.json",
-        "compatibility.json",
         ".github/plugin/marketplace.json",
         "README.md",
         "CHANGELOG.md",
         "LICENSE",
         "skills",
-        "python",
         "docs",
         "scripts",
     ]) {

@@ -2,60 +2,61 @@
 
 ## Facts and choices to record
 
-| Area           | Needed before a deployable recipe                                                        |
-| -------------- | ---------------------------------------------------------------------------------------- |
-| Application    | OpenFOAM distribution, exact release, trusted source, checksum                           |
-| Platform       | OS release, architecture, compiler, compatible MPI and libraries                         |
-| Shared storage | Mount availability, write permissions, designated installer node/job                     |
-| Runtime        | Versioned prefix under `/shared/apps`, environment/module setup, node-local dependencies |
-| Scheduler      | Partition, account if required, task layout, supported MPI launcher                      |
-| Test           | Small case, expected result, bounded resources and wall time                             |
+| Area           | Needed before a deployable recipe                                                                      |
+| -------------- | ------------------------------------------------------------------------------------------------------ |
+| Application    | OpenFOAM distribution, exact release, trusted source and checksum                                      |
+| Platform       | OS release, architecture, compiler, compatible MPI and libraries                                       |
+| Shared storage | Configured mounts plus a separate plan to verify availability, write permissions and storage survival  |
+| Runtime        | Versioned prefix under `/shared/apps`, environment/module setup and node-local dependencies            |
+| Scheduler      | Target roles, software version, partition, account if required, task layout and supported MPI launcher |
+| Test           | Small case, expected result, bounded resources and wall time                                           |
 
-CLI inspection does not establish all these facts. Document the source of each fact; distinguish confirmed values from assumptions.
+Document the source of each fact and distinguish configuration, user-confirmed facts, assumptions and runtime observations. CLI capability discovery alone establishes none of the cluster facts.
 
 ## Discover facts before asking questions
 
-For a named cluster, read the selected installation/compute targets' environment details and the scheduler's environment details before asking for OS or Slurm versions. Do not assume all roles share an image. Reuse fresh results and summarize a small table of fact, target, source and unresolved checks.
+Use the [CLI workflow](../../use-cyclecloud/SKILL.md) to discover suitable commands. Start with selected targets and gather only supported evidence. The legacy node JSON format is not a complete configuration or attachment contract. Do not compensate for missing views with full parameter exports, raw configuration dumps, arbitrary queries or a plugin-owned API client.
 
-| Fact                           | Source to use first                                                                                      | When a question is justified                                                                                                                                                          |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| OS family/release              | `platform.os`, `platform.distribution`, `platform.release`, with `platform.source` and `jetpackPlatform` | Missing or conflicting metadata, custom images with no declared release, or incompatible target platforms requiring a decision. Do not guess from the image alias or free-form label. |
-| Slurm software version         | `scheduler.version` on the scheduler and relevant consumers where available                              | Missing configuration or a meaningful version conflict; do not ask again when context supplied it.                                                                                    |
-| MPI/compiler/runtime libraries | Any explicitly supplied evidence; these are not established by an image alias                            | Missing information needed to select a compatible build/launcher.                                                                                                                     |
-| OpenFOAM distribution/release  | User requirement or an explicitly documented supported recipe                                            | Usually a real choice. State that the bundled recipe is unfinished; do not claim a tested default.                                                                                    |
+Summarize available facts for the scheduler and selected compute and installation targets before asking version questions:
 
-A cluster-init project version is not the Slurm software version. An OpenFOAM project's version is not necessarily its application release. `matchingRecords` counts consistent image-package metadata records, not installed images or selected package revisions.
+| Fact                              | Acceptable evidence                                                                                      | When to ask                                                                          |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| OS family and release             | Exact declared image and platform metadata or authoritative user-supplied configuration, with its source | Missing, ambiguous or conflicting metadata; never guess from image aliases or labels |
+| Slurm software version            | Configured value for the target or authoritative supplied evidence                                       | Missing value or a conflict that affects the recipe                                  |
+| MPI, compiler and libraries       | Explicit configured or runtime evidence                                                                  | Required information absent from the selected sources                                |
+| OpenFOAM distribution and release | User requirement or an explicitly documented supported recipe                                            | A genuine application choice, not a default implied by the skeleton                  |
 
-Configured platform and Slurm values are sufficient to begin authoring under an explicit baseline. `runtimeVerified: false` means that live validation remains to do; it is not a reason to make the user reconfirm an otherwise clear configured value. Put live OS, mount, MPI and workload checks in the verification plan. When a query or metadata lookup fails, identify the exact missing fact rather than restarting a broad version questionnaire.
+A cluster-init project version is not the Slurm software version. An OpenFOAM project version need not equal the application release. Supplied configured versions are an authoring baseline, not proof of runtime readiness; put runtime checks in the verification plan rather than asking the user to reconfirm clear facts.
 
-Example response after discovery (substitute actual evidence): “The selected targets are configured for Ubuntu 22.04, and the scheduler is configured for Slurm X. I'll target those settings and leave runtime verification in the test plan. Which OpenFOAM distribution and release do you require?”
+When the CLI lacks a required read, identify the missing fact and offer documentation-assisted manual collection or offline authoring. Documentation describes procedures, not the actual cluster. Ask only about facts that matter to the recipe, and keep unresolved choices as TODOs.
 
 ## Project responsibilities
 
-- `install` spec: verify prerequisites, use one writer, stage a pinned installation in a versioned location, verify it, then publish readiness. Preserve the previous installation. Cluster-init run markers are per-node, not a shared lock.
-- `runtime` spec: verify access to the completed shared installation and prepare compatible node-local dependencies/environment. Do not install into the shared prefix from every node.
-- Slurm example: set explicit resource limits, load the environment, prepare/decompose a small case, launch using the selected MPI integration, and document how to recognize success.
-- README: record supported combinations, evidence, unresolved choices, attachment targets, rollout implications for existing nodes, verification steps, and recovery guidance.
+- `install` spec: verify prerequisites; designate one writer; stage a pinned installation, verify it, then publish readiness. Preserve prior versions. Per-node cluster-init run markers are not a shared lock.
+- `runtime` spec: check access to the completed shared installation and prepare compatible node-local dependencies/environment. Do not reinstall shared software on every consumer.
+- Slurm example: explicit resource limits, environment setup, small real case, selected MPI launcher and success criteria.
+- README: supported combinations, evidence sources, unresolved choices, target mappings, rollout considerations, checks and recovery.
 
-## Context and attachment handoff
+## Attachment and rollout handoff
 
-Use the installed plugin's `scripts/cyclecloud-inspect` launcher. Start `application-context NAME --schema-version 1 --view overview`; select targets before requesting details. For one `--target-name` at a time, use `--view details` and `--section environment` for platform/Slurm settings, `--section storage` for mounts/volumes, or `--section attachments` for specs/parameters/shared uses. Read `result.context` in the schema-1 envelope. Overview intentionally omits these detail collections and does not read parameter values. Do not read every target or section simply because more data exists. Values describe configuration, not runtime verification.
+Collect actual target identities, current ordered specs, parameter names and labels, ownership, inheritance, lockers and known shared uses. Use a CLI capability only if its contract supplies these facts; otherwise request the relevant authoritative evidence from the template or edit form. Never assume a first page or one selected target establishes complete preservation or all affected descendants.
 
-Collections include `offset`, `nextOffset`, `total`, `returned`, and `truncated`. Pages also have byte limits, so `returned` may be less than the requested limit. Follow the particular collection's `nextOffset` as `offset`, keeping its target/section and limits; sibling collections share the offset and can overlap. Stop when the needed evidence is complete, not when the whole cluster has been exhausted. Re-read before changes because pages are not a snapshot.
+Before a concrete edit, require complete current entries to preserve and enough information about which targets the edit affects. Shared or inherited scheduler parameters may also configure HA targets and do not establish a single installer. If scope is unresolved, leave the edit incomplete rather than inventing a parameter name or replacing a whole cluster.
 
-Fill `ATTACHMENT.md` with actual target-to-parameter mappings, current spec identities to preserve, and project/version/locker selections. Parameter `usedBy.items` lists include unselected definitions in the queried cluster, but not all child clusters of a root parameter scope. If a list is truncated or a mapping is unavailable, require inspection before recommending an edit. Shared or inherited scheduler parameters are not proof of a single installer node.
+Give the operator reviewed publication/attachment steps without executing them. For template-managed clusters, propose a minimal diff against the authoritative source; partial live evidence is not a replacement template. Re-read through a supported CLI capability or the manual source after attachment. A start/terminate handoff needs separate authorization, checks that workloads are safe and storage will survive, and confirmation that each action completed.
 
-Give the operator concrete upload and attachment steps without executing them. Parameter labels can guide the edit form; a template-managed cluster needs a diff against its authoritative source, not reconstruction from partial inspection data. Re-read after attachment. Any start/terminate handoff requires separate approval, workload safety, storage checks, and observation of completion. Never equate accepted lifecycle requests with completed configuration or successful installation.
+Keep stages distinct: authored, locally checked, published, attached, rolled out, installed, workload-verified. Uploading does not mean installed; job acceptance does not mean success.
 
-## What remains to implement
+## Local validation and remaining work
 
-The starter scripts intentionally exit nonzero. Implement one documented OpenFOAM/platform/MPI combination first. Add application-specific tests before describing it as a working recipe. The local checker is not a general INI validator, permissions checker, security scanner, or compatibility test.
+The starter scripts intentionally exit nonzero. Complete one selected OpenFOAM/platform/MPI recipe before describing it as runnable. The bundled checker validates the fixed file layout, TODOs and shell syntax only; it is not an INI validator, permission audit or runtime certification. `cyclecloud project test` is not a substitute for this local checker.
 
-Publishing to a locker, attaching specs, configuring existing nodes, and submitting a test job are separate consequential actions. Uploading does not mean installed; accepting a job does not mean the workload succeeded. Do not embed credentials in generated artifacts.
+Publishing, attaching, configuring existing nodes, installation and workload tests are separate consequential workflows. Do not embed credentials in artifacts.
 
 ## References
 
-- [CycleCloud projects](https://learn.microsoft.com/en-us/azure/cyclecloud/how-to/projects?view=cyclecloud-8): project layout, lockers, spec references, script ordering and run markers.
+- [CycleCloud projects](https://learn.microsoft.com/en-us/azure/cyclecloud/how-to/projects?view=cyclecloud-8)
 - [Cluster-init reference](https://learn.microsoft.com/en-us/azure/cyclecloud/cluster-references/cluster-init-reference?view=cyclecloud-8)
+- [Application evidence requirements](../../../docs/application-context.md)
 
-Consult documentation for the selected OpenFOAM distribution and target Slurm/MPI stack when completing the recipe; no universal launcher or application version is assumed here.
+Consult documentation for the selected OpenFOAM distribution and Slurm/MPI stack; no universal launcher or application version is assumed.

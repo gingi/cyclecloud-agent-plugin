@@ -1,14 +1,6 @@
-// Verify the source artifact and installed-relative launcher, not a host installation.
+// Check package contents and authoring assets after relocation, not host installation.
 import { spawnSync } from "node:child_process";
-import {
-    lstat,
-    mkdir,
-    mkdtemp,
-    readFile,
-    readdir,
-    rm,
-    symlink,
-} from "node:fs/promises";
+import { lstat, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -92,14 +84,6 @@ export async function verifyPackage(
         throw new Error(
             "Source package plugin/marketplace identity or schema is invalid",
         );
-    const compatibility = await json("compatibility.json");
-    if (
-        compatibility.compatibility?.schemaVersion !== 1 ||
-        compatibility.native?.schemaVersion !== 1 ||
-        !Array.isArray(compatibility.native?.commands) ||
-        !Array.isArray(compatibility.compatibility?.cliFamily)
-    )
-        throw new Error("Invalid compatibility metadata");
     if (names.includes("SOURCE_COMMIT.json")) {
         const metadata = await json("SOURCE_COMMIT.json");
         const fields = new Set([
@@ -134,7 +118,7 @@ export async function verifyPackage(
                 "Source metadata version differs from plugin version",
             );
     }
-    await smokeLauncher(packageDirectory);
+    await smokeAuthoringChecker(packageDirectory);
     return plugin;
 }
 
@@ -154,55 +138,33 @@ function equalJson(actual, expected) {
     );
 }
 
-async function smokeLauncher(directory) {
+async function smokeAuthoringChecker(directory) {
     const home = await mkdtemp(join(tmpdir(), "cyclecloud-source-verify-"));
     try {
-        const bin = join(home, "commands");
-        await mkdir(bin);
-        for (const name of ["uname", "dirname", "basename", "readlink"])
-            await symlink(`/usr/bin/${name}`, join(bin, name));
-        const env = { HOME: home, PATH: bin };
-        const launcher = join(directory, "scripts/cyclecloud-inspect");
-        const help = spawnSync("/bin/sh", [launcher, "--help"], {
-            cwd: home,
-            env,
-            encoding: "utf8",
-            timeout: 5_000,
-        });
-        if (
-            help.status !== 0 ||
-            !help.stdout.includes("Usage: cyclecloud-inspect")
-        )
-            throw new Error("Source launcher --help smoke failed");
-        const missing = spawnSync("/bin/sh", [launcher, "capabilities"], {
-            cwd: home,
-            env,
-            encoding: "utf8",
-            timeout: 5_000,
-        });
-        if (
-            missing.status !== 1 ||
-            JSON.parse(missing.stdout).error?.code !== "missing_cli"
-        )
-            throw new Error("Source launcher missing-CLI smoke failed");
-        const python = spawnSync(
-            "python3",
+        const skill = join(directory, "skills/author-cyclecloud-application");
+        const result = spawnSync(
+            process.execPath,
             [
-                "-I",
-                "-B",
-                "-c",
-                "import sys; sys.path.insert(0, sys.argv[1]); import cyclecloud_agent_inspect.command, cyclecloud_agent_inspect.body_reader",
-                join(directory, "python"),
+                join(skill, "scripts/validate-project.mjs"),
+                join(skill, "assets/project"),
             ],
             {
                 cwd: home,
                 env: { HOME: home, PATH: process.env.PATH ?? "/usr/bin:/bin" },
                 encoding: "utf8",
-                timeout: 10_000,
+                timeout: 20_000,
             },
         );
-        if (python.error?.code !== "ENOENT" && python.status !== 0)
-            throw new Error(`Portable core import failed: ${python.stderr}`);
+        // The shipped skeleton is intentionally incomplete; scripts are parsed, never run.
+        if (
+            result.status !== 1 ||
+            !result.stdout.includes("Unresolved TODO marker") ||
+            !result.stdout.includes("NOT CHECKED:") ||
+            result.stdout.includes("Missing or unreadable") ||
+            result.stdout.includes("Bash syntax checker unavailable") ||
+            result.stdout.includes("Shell syntax check failed")
+        )
+            throw new Error("Packaged authoring checker smoke failed");
     } finally {
         await rm(home, { recursive: true, force: true });
     }
@@ -216,7 +178,7 @@ if (
         const directory = resolve(process.argv[2] ?? `dist/${packageName}`);
         await verifyPackage(directory);
         process.stdout.write(
-            `Verified source package layout, contents, identity, and isolated launcher smoke: ${directory}\nNo native host installation was performed or validated.\n`,
+            `Verified source package layout, contents, identity, and authoring checker smoke: ${directory}\nNo native host installation was performed or validated.\n`,
         );
     } catch (error) {
         process.stderr.write(`${error.message}\n`);

@@ -1,65 +1,67 @@
 # Configuration and guided setup
 
-The plugin uses your **existing CycleCloud CLI configuration and credentials**. Configure and sign in through the CLI in an interactive terminal; inspection reuses that configuration without prompting for credentials.
+The CLI owns configuration, authentication and transport. The plugin invokes that executable directly; it has no separate credential store or API adapter.
 
 ## Find the executable
 
-The launcher uses:
+The skills select:
 
 1. `CYCLECLOUD_CLI`, if set to an absolute executable path.
-2. Otherwise, `cyclecloud` on the agent process's `PATH`.
+2. Otherwise, `cyclecloud` resolved from the agent process's PATH.
 
-It does not scan the filesystem, source shell startup files, interpret aliases, or execute the override as a shell command. An invalid explicit override fails instead of silently choosing another installation.
+An invalid explicit override is an error, not permission to substitute another installation. Treat the override as one executable, never shell code. Quote the selected path and all argument values. Do not scan the filesystem, source shell profiles, assume an alias works in the agent shell, or import the CLI's private Python modules.
+
+For example, after setting the override in the agent environment:
 
 ```sh
-CYCLECLOUD_CLI="/absolute/path/to/cyclecloud" \
-  sh "<installed-plugin-root>/scripts/cyclecloud-inspect" capabilities
+"$CYCLECLOUD_CLI" --help --format json
 ```
 
-Set the override in the environment that runs the agent. A terminal, VS Code, WSL, remote workspace and container can have different PATHs. Reload/restart the host after changing its environment. A Windows `cyclecloud.exe` visible from WSL is not a supported Linux CLI installation.
+For a one-off manual check, invoke the intended absolute executable directly. `CYCLECLOUD_CLI` is a plugin selection convention, not a global setting that makes a different `cyclecloud` executable redirect itself.
 
-Inspection runs in the Python environment supplied by the selected CLI. Use an official embedded or virtualenv CLI installation, not a shell alias, custom wrapper, or the separate CycleCloud API SDK. You do not need to select or install another Python interpreter. See [compatibility troubleshooting](troubleshooting.md#cli-discovery-and-compatibility) if the launcher rejects the installation.
+The host, terminal, WSL distribution, remote workspace and container can have different PATHs. Reload the host after changing its environment. Select a CLI supported in the execution environment. The plugin invokes its executable directly without requiring a particular Python or package layout. This does not establish that every cross-platform combination works.
 
-## Initialize the CLI
+## Initialize and authenticate
 
-For first-time setup, run `cyclecloud initialize` in your own interactive terminal and enter credentials only in its prompts. Use the same CLI and intended configuration as inspection.
+For first-time setup, run the selected CLI's `initialize` command in your own interactive terminal. Enter credentials only in its prompts. Use the same executable and intended configuration as subsequent reads.
 
-Capabilities checks are offline. Successful capabilities do not establish a login, reachable server or read permissions. For an existing configuration that fails authentication, see [reinitialization with **`cyclecloud initialize --force`**](troubleshooting.md#reinitialize-after-an-authentication-failure). Other setup and request failures are covered in [troubleshooting](troubleshooting.md).
+Help discovery is offline. It does not check the server, credentials or account permissions. Execution with `show_nodes --format json` retains existing authentication behavior: it may prompt or start interactive authentication, and may refresh/persist tokens. Requesting JSON does not make the command noninteractive. If login is required, stop and guide the user to their own interactive terminal; do not run an unattended wizard, supply credentials through the agent, or retry under another identity.
+
+If an existing configuration fails authentication, confirm the intended instance/account, then run:
+
+```sh
+cyclecloud initialize --force
+```
+
+Substitute the selected executable and existing `--config` if applicable. Plain `initialize` can report that configuration loads without validating credentials. **`--force` reruns setup and may modify the active profile.** It is a deliberate operator action, not an automatic retry. Never ask for passwords/tokens in chat or place them in command arguments.
 
 ## Assisted installation is opt-in
 
-If the CLI is absent, ask whether it is already installed elsewhere before offering installation. **Do not download or install automatically.**
-
-The official CLI is available through **Download CLI Tools** on the CycleCloud instance's About page, or:
+If the CLI is missing, first ask whether it is installed elsewhere. **Do not download or install automatically.** The official package is available through **Download CLI Tools** on the intended instance's About page, or:
 
 ```text
 https://<trusted-cyclecloud-host>/static/tools/cyclecloud-cli.zip
 ```
 
-A guided installation should:
+For an approved installation:
 
-1. Obtain the intended instance URL if unknown. Never ask for a password/token in chat.
-2. Download only from the explicitly selected trusted host over verified HTTPS. Do not disable certificate verification to make a download work.
-3. Inspect the archive and installer, explain its destination and permission requirements, and obtain approval before executing it. Prefer a supported user-local installation; do not invoke sudo automatically.
-4. Recheck the installed CLI's version/layout and inspection capabilities. A host-provided package may still be too old.
-5. Have the user run `cyclecloud initialize` in their terminal and enter credentials there. Do not put credentials in command arguments, generated scripts, logs or chat.
+1. Confirm the intended trusted instance and use verified HTTPS; never disable certificate checks to download.
+2. Inspect the archive/installer and explain destination and permissions before requesting execution approval. Do not invoke sudo automatically.
+3. Recheck the installed CLI's actual help/options/contracts. A host-provided package may still lack the required capability; do not assume a product version or snapshot contains it.
+4. Let the user initialize/sign in through their terminal.
 
-See the [official installation guide](https://learn.microsoft.com/en-us/azure/cyclecloud/how-to/install-cyclecloud-cli?view=cyclecloud-8). The plugin is not a package manager: it does not silently upgrade dependencies or replace an existing CLI.
+See the [official installation guide](https://learn.microsoft.com/en-us/azure/cyclecloud/how-to/install-cyclecloud-cli?view=cyclecloud-8). Upgrading remains an explicit operator decision.
 
 ## Account and configuration selection
 
-Use a dedicated least-privilege account scoped to the clusters needed for inspection. A CLI already configured with administrator credentials remains an administrator credential source; installing this plugin does not downgrade it.
+Use a least-privilege account scoped to the intended clusters. Installing the plugin does not reduce the permissions of an existing administrator identity.
 
-By default the CLI's current configuration applies. Pass `--config /absolute/path/to/config.ini` to the inspection command when selecting another existing configuration. Do not read credential files into the conversation. Normal silent token refresh and CLI cache persistence may occur; browser/device-code login and credential prompts do not occur during inspection.
+Keep the same executable and configuration throughout an investigation. The CLI's current configuration applies by default. To select another existing configuration, use the command's documented `--config` option with the intended path; do not switch profiles silently or read credential files into the conversation. Use the path syntax supported by the selected CLI and execution environment.
 
-Supported authentication configurations are Basic, public-client silent sign-in, confidential-client, and managed identity. Unknown configurations fail explicitly. Validate the method required by your environment before production use; see [scope and limitations](development.md#scope-and-limitations).
+## Transport and authorization
 
-## Transport and permissions
+The selected CLI controls certificate verification, proxies, retries, timeouts and output behavior. Cluster JSON and kind-selected node readers have documented limits on data requests and responses and reject data-view redirects; these limits do not apply to legacy authentication or setup. The plugin does not add transport bounds or isolation. An already-insecure CLI configuration remains insecure; use verified HTTPS remotely and configure trusted CAs outside chat. Never weaken transport settings in response to a failed read.
 
-The bridge honors the CLI's configured transport/certificate settings and supported proxy/CA environment. It does not silently weaken verification. **An already-insecure CLI configuration remains insecure**: use verified HTTPS for remote CycleCloud, and configure the appropriate trusted CA outside chat. Identity-provider sessions are separate from the CycleCloud session and do not inherit CycleCloud credentials or an insecure certificate override.
+Host terminal approvals and CycleCloud RBAC are the actual controls. Skill prose and command metadata are guidance, not a sandbox. Do not broadly approve `cyclecloud *`. Uploads, attachment edits, lifecycle actions, GHR submission, SSH, installation and jobs require separate approval.
 
-Responses, errors and processes are bounded; redirects and automatic inspection retries are not used. Diagnostic text is untrusted data. Configuration evidence is not proof that software is installed, a mount is writable or a job can run.
-
-The launcher exposes only read operations. Skills are guidance, not authorization. Host command approvals and CycleCloud RBAC are the actual controls; do not broadly auto-approve `cyclecloud *`. Upload, attachment, start/terminate, software installation and job submission are separate workflows requiring explicit approval.
-
-Your CLI retains ownership of its configuration and credentials when the plugin is installed or removed. Delete or revoke credentials separately if needed.
+CLI configuration and credentials remain owned by the CLI when the plugin is installed or removed. See [troubleshooting](troubleshooting.md) for failure-specific guidance.

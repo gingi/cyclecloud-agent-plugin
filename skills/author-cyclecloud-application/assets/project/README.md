@@ -4,13 +4,13 @@ This is not an installer or a tested OpenFOAM recipe. The scripts exit nonzero w
 
 ## Target environment
 
-- Distribution/release/source/checksum: TODO(application)
-- OS/architecture/compiler/MPI: TODO(platform)
+- Distribution, release, source and checksum: TODO(application)
+- OS, architecture, compiler and MPI: TODO(platform)
 - Versioned install prefix under `/shared/apps`: TODO(prefix)
 - Shared mount and designated writer: TODO(storage)
-- Slurm partition/account/task layout/launcher: TODO(scheduler)
+- Slurm partition, account, task layout and launcher: TODO(scheduler)
 
-Record configured OS releases and Slurm versions from application-context environment details, with their target and source. These form the authoring baseline, not proof of the running OS/software. Keep runtime checks in the verification plan. OpenFOAM distribution/release, missing MPI facts and material target conflicts remain separate choices or gaps; do not ask for versions already supplied by context.
+Record configured OS releases and Slurm versions from supported CLI reads or authoritative supplied evidence, with their target and source. These form the authoring baseline, not proof of the OS and software actually running. Keep runtime checks in the verification plan. The OpenFOAM distribution and release, missing MPI facts and material conflicts between targets remain separate choices or gaps; do not ask for versions already supplied by context.
 
 ## Implementation
 
@@ -27,12 +27,12 @@ Local checks cover only the fixed file layout, TODO markers, and Bash syntax. Th
 
 ## Deployment and verification plan
 
-Complete [ATTACHMENT.md](ATTACHMENT.md) with discovered context, exact parameter mappings, existing entries to preserve, and operator steps. Do not infer runtime installation success from configuration.
+Complete [ATTACHMENT.md](ATTACHMENT.md) with gathered facts, exact parameter mappings, existing entries to preserve, and operator steps. Do not infer runtime installation success from configuration.
 
-TODO(document-locker-version-spec-targets-and-existing-node-rollout)
+TODO(Document the locker, version, spec targets and rollout for existing nodes.)
 
-TODO(document-installation-smoke-test-small-serial-and-parallel-case-and-expected-results)
+TODO(Document an installation smoke test, small serial and parallel cases, and expected results.)
 
-TODO(document-failure-cleanup-and-recovery-without-removing-existing-installations)
+TODO(Document cleanup and recovery after failure without removing existing installations.)
 
 Publishing, attaching, running installers, and submitting jobs require separate authorization. Record each stage honestly; this project has not been installed or workload-tested.

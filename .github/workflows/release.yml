@@ -130,7 +130,7 @@ jobs:
             - name: Install verification dependencies
               run: npm ci --ignore-scripts
 
-            - name: Verify anonymous source downloads and launcher smoke
+            - name: Verify anonymous source downloads and authoring checker smoke
               run: npm run verify:release -- "$RELEASE_TAG" "$RELEASE_COMMIT"
 
             - name: Verify the latest checksums when this is the latest stable release
@@ -152,7 +152,7 @@ jobs:
               run: |
                   printf '## Release %s\n\nPost-release source verification: **%s**\n' "$RELEASE_TAG" "$VERIFICATION_STATUS" >> "$GITHUB_STEP_SUMMARY"
                   printf '\nRelease: https://github.com/%s/releases/tag/%s\n' "$GITHUB_REPOSITORY" "$RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"
-                  printf '\nChecks cover anonymous source downloads, checksums, identity, and launcher smoke; native Copilot/VS Code installation was not validated.\n' >> "$GITHUB_STEP_SUMMARY"
+                  printf '\nChecks cover anonymous source downloads, checksums, identity, and authoring checker smoke; native Copilot/VS Code installation was not validated.\n' >> "$GITHUB_STEP_SUMMARY"
                   if [[ "$VERIFICATION_STATUS" != success ]]; then
                       printf '\nThe release is already published. Inspect the failure and rerun failed jobs; do not move the tag or overwrite assets.\n' >> "$GITHUB_STEP_SUMMARY"
                   fi

@@ -2,209 +2,114 @@
 
 ## Purpose and scope
 
-The Azure CycleCloud Agent Plugin helps an agent inspect configured clusters and prepare application projects. It is a source-distributed collection of skills, inspection helpers, and authoring assets for Copilot CLI and Copilot in VS Code. It does not require a custom agent host, a VS Code extension wrapper, or a long-running service.
+The plugin helps an agent use the existing CycleCloud CLI and prepare application projects. It is distributed as source files: skills, documentation, authoring assets and a local checker. It does not add a CLI, API bridge, MCP server, credential store or long-running service.
 
-The plugin has two workflows:
+The workflows are:
 
-- **Inspection:** return curated, bounded cluster inventory, configuration, capacity, issues, and application-authoring context.
-- **Application authoring:** use that evidence to prepare reviewable cluster-init project files, a Slurm example, and publication/attachment instructions in the user's workspace.
+- **CLI use:** discover the installed commands, read supported data for selected targets, interpret evidence and explain missing capabilities.
+- **Application authoring:** use available configuration and explicit user choices to prepare reviewable cluster-init project files, a Slurm example and manual deployment instructions.
 
-Inspection is read-only. Uploads, cluster configuration changes, lifecycle operations, software installation, and job submission are separate actions requiring authorization. The authoring assets are deliberately incomplete; no OpenFOAM/platform/MPI combination is certified.
+Inspection is read-only. Authoring writes only to the selected workspace. Uploads, attachment changes, lifecycle operations, installation and job submission are separate approved actions. The bundled application skeleton is incomplete. No combination of OpenFOAM, platform and MPI has been certified.
 
-This is a proof of concept. Compatibility with a CLI installation does not establish compatibility with every server, identity provider, host environment, or application runtime.
+## Ownership
 
-## Architecture
+| Component                             | Responsibility                                                                                                        |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Agent host                            | Discover skills, provide terminal and file tools, and manage permissions, approvals and installation                  |
+| `use-cyclecloud` skill                | Select the executable, discover relevant help, choose commands, interpret evidence and explain gaps                   |
+| CycleCloud CLI                        | Implement commands, configuration, authentication, transport, result and error contracts, and capability descriptions |
+| CycleCloud service                    | Implement server behavior and enforce account authorization                                                           |
+| `author-cyclecloud-application` skill | Guide local authoring from evidence and explain publication, attachment and rollout                                   |
+| Local authoring checker               | Check file layout, TODO markers and Bash syntax; never install software or run workloads                              |
 
-```text
-Copilot CLI / VS Code Agent Plugins
-  |
-  +-- inspect-cyclecloud skill
-  |     |
-  |     +-- host terminal tool and permission checks
-  |           |
-  |           +-- scripts/cyclecloud-inspect
-  |                 |
-  |                 +-- selected CLI environment and capability discovery
-  |                       |
-  |                       +-- compatible native: cyclecloud inspect ...
-  |                       |
-  |                       +-- supported 8.10 without inspect:
-  |                             supervised Python worker
-  |                               -> inspection readers and normalizers
-  |                               -> CLI configuration/authentication adapter
-  |                               -> bounded HTTP -> CycleCloud
-  |
-  +-- author-cyclecloud-application skill
-        |
-        +-- inspection workflow for configured evidence
-        +-- host file tools -> project files in the user's workspace
-        +-- Node/Bash checker -> structural and syntax results
-```
+Skills are not security boundaries. The host can execute other commands, and the CLI includes operations that change resources. A command descriptor is not a permission grant.
 
-The **host** owns skill discovery, terminal/file tools, approval prompts, and plugin installation. The **skills** describe how to choose commands, interpret evidence, and prepare files. The **inspection helper** implements deterministic input validation, backend selection, bounded reads, and result shaping. The **CycleCloud CLI** supplies the configuration, authentication components, and Python environment; CycleCloud enforces account permissions.
+## Capability-aware CLI use
 
-Skill prose guides the agent but is not a security boundary. Helpers execute with the OS user's permissions, and native CLI commands outside inspection can perform consequential operations.
+Resolve the explicit `CYCLECLOUD_CLI` executable or PATH once for the task. An invalid override does not permit switching to another installation. The plugin does not import private CLI modules, validate interpreter layout, search the filesystem for installations or manage configuration separately from the CLI.
 
-## Source package and host lifecycle
+Use `--help --format json` to discover `cyclecloud.help.v1`, then request the relevant group or leaf descriptors. The child index lists commands; execution `outputs` describe what those commands return. Choose commands from their actual options, result contracts, prerequisites and effects, not a product-version threshold. Unknown metadata remains unknown. Do not load the entire help tree for every request.
 
-`plugin.json` declares the `cyclecloud` plugin. `.github/plugin/marketplace.json` exposes it through the `cyclecloud` marketplace. The repository/package target is `cyclecloud-agent-plugin`.
+Discovery is local. Running a command also depends on the server, identity and permissions. The plugin may complete a basic read without having enough evidence for a deeper investigation. Older text help remains useful, but does not establish structured contracts by inference.
 
-The host loads skills from `skills/<name>/SKILL.md`. Each skill resolves helpers and assets relative to its installed location, not the current working directory or an assumed checkout. The plugin has no MCP server declaration, custom agent, hook, or credential-collecting installer.
+### Cluster and node discovery
 
-Users register reviewed source through the host's native mechanisms. A local marketplace can be a live source directory rather than an installed copy, so it must remain at a persistent path. VS Code source registration and enablement are separate from Copilot CLI registration. WSL, remote workspaces, and containers must have a CLI installation accessible in the environment executing agent commands.
+`cyclecloud.clusters.v1` supplies compact cluster inventory and named detail. Inventory reads selected fields without a count request for every cluster. Named detail counts stored arrays and standalone definitions the account can read. Counts distinguish `notRequested`, `available`, `partial` and `unavailable` from zero.
 
-Updates refresh the reviewed source through the host while preserving deliberate disabled state. Uninstallation removes the plugin registration, not CLI credentials. No plugin-owned reset command edits host databases or deletes credentials.
+Paging keeps the cursor unchanged and retains the endpoint and template filter. If Unicode ordering makes a page boundary unsafe, continuation fails rather than skipping identities. Data responses, final output and data-request timeouts are bounded; authentication duration and backend scan work are not. Cluster data failures use safe text on stderr, not the JSON-help error contract.
 
-Node.js is development tooling and runs the authoring checker; inspection and source-plugin installation do not require a Node server or runtime npm dependencies. The Python helper targets Python 3.8+, while the complete development suite uses Python 3.9+.
+`cyclecloud.nodes.v1` uses `node list --kind definition|concrete --cluster NAME --format json` or `node show NAME` with the same required cluster, kind and format options. It returns size-limited identity and state data without diagnostics or related configuration. Exact lookup returns one target or an error. Paging is keyed by Name and uses the same Unicode boundary checks and data limits as cluster JSON.
 
-See [installation and usage](../README.md), [configuration](configuration.md), and [host troubleshooting](troubleshooting.md).
+A standalone definition can also have a concrete identity while Off or before launch. Stored-failure filtering is not a general health check. Authoring selects definition identities before requesting separately supported environment and attachment evidence. Kind mode rejects raw projection, filter and custom-output combinations without changing legacy execution.
 
-## Inspection entry point and module ownership
+### Diagnostics and events
 
-The stable agent-facing entry point is:
+`cyclecloud.node-diagnostics.v1` adds stored evidence through `--diagnostics` on an exact concrete `node show` lookup. The CLI checks the node identity and instance association before reading installation settings, active phases, current issues or cached VM checks. Unavailable optional sections remain unknown, not evidence of health.
 
-```sh
-sh "<installed-plugin-root>/scripts/cyclecloud-inspect" COMMAND [options]
-```
+Preview limits and clipping do not limit upstream rows or comprehensively redact secrets. The skill tells the agent to check the source, availability and completeness of evidence rather than infer a cause from status alone. Diagnostics do not supply completed history, events or fresh cloud or guest probes.
 
-| Component                        | Responsibility                                                                                                                               |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `scripts/cyclecloud-inspect`     | POSIX entry point, help, executable selection, symlink resolution, and bootstrap into the selected CLI's sibling Python.                     |
-| `scripts/inspect-bootstrap.py`   | Load the plugin's Python package under an isolated interpreter and enter the launcher or worker.                                             |
-| `launcher.py`                    | Verify CLI installation identity, probe version/capabilities, select the backend, and publish bounded results and compatibility diagnostics. |
-| `process.py`                     | Cumulative deadlines, bounded subprocess pipes, noninteractive input, cancellation, and owned process-group cleanup.                         |
-| `worker.py`                      | Run the compatibility adapter with dependency output suppressed; publish only the encoded inspection result.                                 |
-| `command.py`                     | CLI grammar, command dispatch, JSON envelopes, fixed error guidance, output limits, and exit codes.                                          |
-| `contract.py`                    | Input validation, scalar/integer rules, deterministic ordering, JSON serialization, and byte budgets.                                        |
-| `context_reader.py`              | Read orchestration, optional enrichment, target/section selection, and parent/shared-parameter discovery.                                    |
-| `normalize.py`                   | Closed-field cluster, capacity, and issue normalization.                                                                                     |
-| `diagnostic_evidence.py`         | Bounded diagnostic text, UTC timestamps, collections and optional-source failure handling.                                                   |
-| `node_diagnostics.py`            | Keyset concrete-node discovery, exact-node resolution and per-node/phase/issue/VM evidence.                                                  |
-| `cluster_events.py`              | Bounded recent cluster events and optional node-scoped Activity.                                                                             |
-| `application_context.py`         | Application evidence, bounded collection pages, configured mounts, specs, and attachment mappings.                                           |
-| `image_platform.py`              | Exact image metadata interpretation without guessing OS releases from aliases.                                                               |
-| `adapter.py`                     | Isolated 8.10-specific CLI configuration/authentication integration and read endpoint/query selection.                                       |
-| `transport.py`, `body_reader.py` | URL/transport policy, bounded HTTP reads and decompression, and transport error classification.                                              |
-| `errors.py`                      | Transport-independent failure categories and cancellation propagation.                                                                       |
+`cyclecloud.cluster-events.v1` supplies the separate `event list` cluster Event Log read. The skill combines diagnostics for one selected node with a modest explicit window around recorded phase timestamps. It keeps cluster-wide messages, messages with no node attribution, and informational recovery.
 
-Python module paths in the table are relative to `python/cyclecloud_agent_inspect/`. The core readers depend on a narrow client interface rather than installed CLI modules. Installed imports are isolated in the adapter and are not needed for local capability discovery.
+The separately advertised `event show` contract, `cyclecloud.cluster-event.v1`, returns one event with the same bounded fields in a singular `event` envelope and canonical cluster scope. Use only a copied ID and explicit cluster when requested or useful to a repair decision. It has no time/priority/paging selection and does not trigger automatic reads after a list. Missing or failed lookup is not empty history; neither event command substitutes for a denied or failed read of the other.
 
-## CLI discovery and backend selection
+Event occurrence time differs from record-update and Activity time. Nearby events do not establish causation, node attribution or a current attempt. The command bounds output; it does not fetch Activity or complete history, or guarantee bounded backend scans. Keep observations, hypotheses and unknowns separate. Missing evidence calls for separately authorized checks that distinguish possible explanations, not a private API bridge.
 
-1. Select the absolute executable specified by `CYCLECLOUD_CLI`, otherwise `cyclecloud` on the agent process's PATH. An invalid override fails; discovery does not scan the filesystem, source shell profiles, or substitute another CLI.
-2. Resolve the executable and use its sibling Python. Validate the console-script layout, interpreter/virtual-environment identity, `cyclecloud-cli` distribution metadata, package origins and recorded package hashes. Reject overlapping API SDK installations and unsupported layouts.
-3. Run an offline, bounded `--version` probe and check it against the installed distribution's numeric version. Version compatibility errors identify the resolved executable and safely parsed reported version when available.
-4. Probe `cyclecloud inspect capabilities`. Prefer native inspection only if it advertises the required schema and all required commands.
-5. For native inspection, publish the known supported commands from each valid baseline-containing contract separately. Check the requested command against those entries: absent optional diagnostic commands produce `unsupported_command`, not a backend switch. The required baseline remains the original four commands.
-6. Use the compatibility worker only when a supported 8.10 installation returns the recognized missing-`inspect` diagnostic. A native authentication, permission, network, schema, or malformed-output failure does not select another backend.
+### Grouped issues and node references
 
-`compatibility.json` declares the supported bridge family, recognized development/build labels, and native schema/command requirements. CLI product versions, plugin release versions, and inspection schema versions are independent. A newer CLI is not accepted merely because its version number is higher.
+`cyclecloud.cluster-issues.v1` supplies `issue list` for one cluster's grouped stored Error/Warning conditions. The CLI and maintained server datasource handle grouping, authorization, exact occurrence counts and bounded output. The plugin reports their scope without inferring distinct affected nodes, root cause or complete health. Exact counts still require aggregation across the cluster's matching records.
 
-Capabilities do not load user configuration or credentials and do not contact CycleCloud. They establish local compatibility, not authentication or connectivity. Help is also available without a configured CLI.
+Grouped JSON requires backend `PageVersion=2`. It returns non-null short logical IDs in `groupSelector` and pages in stable severity, type and message order. Summary cursors are opaque and depend on a representative record. Text still ranks its preview by severity and count, without an extra ID column.
 
-## Result contract and evidence semantics
+Short IDs depend on the canonical cluster and the full type, severity and message under the source's comparison rules. They do not depend on clipped display text, count, members or representative. They survive deletion of a representative while the group remains. An identical group reappearing reuses its ID; the ID is not a historical incident identity.
 
-Data commands select `--schema-version 1` and emit one complete UTF-8 JSON document. A successful response has `schemaVersion`, `command`, and `result`; a failure has `error` instead of `result`. Exit codes distinguish success, operational failure, invalid arguments/schema, and cancellation. Help intentionally uses human-readable output.
+IDs are interpreted within the selected cluster and connection. They are not tokens that bind an endpoint or grant authorization. The server checks authorization and resolves the fixed set of candidates in that scope on every read. There is no registry, cache or stored mapping. Missing or ambiguous groups fail. Bounded results do not mean constant-time lookup or a bounded scan.
 
-| Command                    | Evidence                                                                                         |
-| -------------------------- | ------------------------------------------------------------------------------------------------ |
-| `clusters`                 | Bounded, deterministically sorted cluster summaries and collection totals.                       |
-| `cluster NAME`             | Exact cluster identity, lifecycle state, configured fixed nodes, and node arrays.                |
-| `status NAME`              | Capacity/buckets and optional grouped node errors/warnings.                                      |
-| `application-context NAME` | Configured targets followed by selected environment, storage, or attachment evidence.            |
-| `nodes NAME`               | Concrete nodes, optionally restricted to recorded orchestration failures; node-ID keyset paging. |
-| `node-diagnostics NAME`    | Individual conditions, phase/installation evidence and separately sourced stored VM checks.      |
-| `cluster-events NAME`      | Cluster-wide recent events and optional exact-node Activity.                                     |
+`cyclecloud.issue-nodes.v1` supplies `issue show --group`. It returns node references the source treats as distinct, resolved under the account's ordinary node-read permissions. Short-ID selection requires backend v2 in both formats. Text gives one concise preview. JSON provides NodeId-keyed cursors bound to the endpoint, canonical cluster, short ID and full logical fingerprint—the complete group identity, not just its short hash. A fingerprint mismatch fails before identity lookup or output.
 
-The bridge validates consumed fields and rejects ambiguous duplicate field variants. It distinguishes absent data from empty collections, validates rows before applying return limits, preserves configured precedence where order has meaning, and reports truncation explicitly. Issue counts describe conditions, not necessarily distinct affected nodes.
+Legacy long selectors and their node cursors keep strict representative checks and older backend compatibility. New reads do not automatically downgrade. The skill tells the agent to follow pages only as needed. Unresolved references consume slots and advance the cursor; they are not refilled, and diagnostics are not requested for every node. Before attributing name-based diagnostics to a selected reference, compare its NodeId with the returned NodeId. Neither issue contract supplies complete health or history, and unsupported servers do not trigger a private bridge.
 
-Primary read failures are errors. Optional enrichment failures produce unavailable evidence, not successful empty collections. Cancellation propagates rather than being disguised as missing optional evidence. The bridge's field allowlists exclude credentials and arbitrary configuration dumps; fixed error handling suppresses raw server errors and subprocess tracebacks.
+### Legacy node reads
 
-Native results are checked for the accepted envelope, schema, command, error shape, JSON validity, and output bounds. **The launcher does not currently validate every native command's result fields.** Native schema claims therefore need conformance testing, not just capability negotiation. The portable fixture corpus records required normalization behavior; it is not certification of a future native implementation.
+On legacy `show_nodes` without kind mode, `cyclecloud.show_nodes.legacy-json.v1` describes successful JSON output as a legacy array with optional nested `Instance` data. It has no result-size bound, is not validated or restricted to concrete nodes, and does not guarantee that secrets are excluded. Narrow selected reads with explicit fields can answer limited questions. They do not replace curated diagnostics or configuration views.
 
-Diagnostic readers verify primary cluster/node identities before further queries. Discovery uses a narrow projection and no per-node enrichment fanout; filtered candidates reflect recorded orchestration failures, not comprehensive health. Its ASCII-folded NodeId keyset cursor advances from the last emitted row, including byte-limited pages. Node diagnostics separates phases, conditions and VM observations; recent cluster events remain cluster-wide even when node Activity is requested. Optional diagnostic sources preserve successful independent evidence, but both timeout and cancellation remain fatal. Source timestamps, collection times and non-atomic observations are distinct.
+A nonempty `--output` template takes precedence over `--format json` and produces custom text. The plugin can choose text deliberately, but must not treat it as JSON or assume bounded retrieval. Execution keeps legacy authentication, persistence, interaction and raw or text errors. `cyclecloud.error.v1` applies only to explicit JSON help failures, not execution errors.
 
-See [the CLI contract](cli-contract.md) and [node diagnostics](node-diagnostics.md) for exact flags, limits, evidence semantics, error categories, and versioning rules.
+See [CLI contracts](cli-contract.md) for discovery and read behavior and [configuration](configuration.md) for setup.
 
-## Application context and authoring
+## Gaps and failures
 
-Application context uses a progressive workflow:
+When a capability is missing, explain the specific gap and offer documented upgrade, manual or offline options. Do not implement the missing capability in the plugin, invent commands, or reconstruct it from raw configuration dumps or broad parameter exports. Documentation explains procedures; it is not live evidence.
 
-1. Request a compact overview and select relevant targets.
-2. Request details for exactly one target and one section: `environment`, `storage`, or `attachments`.
-3. Follow a collection's `nextOffset` only when its remaining entries are needed. Preserve the target, section, limits, and any custom installation prefix across requests.
+Permission denial, authentication failure, timeout, invalid data and cancellation are operation failures, not reasons to try another backend or identity. The CLI owns configuration and authentication. Data bounds and transport behavior depend on each command contract; the plugin adds no HTTP or output budgets. Host-truncated output is incomplete evidence.
 
-Environment details expose configured platform and scheduler facts. Storage details compare the proposed installation prefix with configured mountpoints; they do not inspect live mounts. Attachment details describe specs, parameter references, inheritance, and known shared uses. Parameter scope can involve parent clusters; reported shared uses do not prove that no other descendants are affected.
+As CLI capabilities evolve, adapt the relevant skills to reviewed result contracts. Improve the CLI rather than copy its implementation into the plugin.
 
-The **local project directory** and **cluster installation prefix** are distinct. `/shared/apps` is the default prefix on cluster nodes, not a directory to access or create on the agent host. The skills omit `--install-path` for that default and pass an explicit, quoted value for a custom prefix. Some hosts conservatively treat path-shaped shell arguments as local access; omitting a redundant default reduces unnecessary prompts without disabling permission checks.
+## Evidence and authoring
 
-The authoring skill reuses configured OS and Slurm versions as an explicit baseline, asks about missing/conflicting evidence and application choices, and writes reviewable files in the workspace. It does not treat configuration as proof of runtime readiness. Its handoff includes project publication, attachment mappings, rollout considerations, and separate verification steps.
+Keep these distinctions clear regardless of output schema:
 
-The bundled Node checker examines the fixed skeleton layout, unresolved TODO markers, and Bash syntax. It never runs installation scripts or jobs. A passing check is not metadata, security, MPI, or application certification; the unfinished skeleton intentionally fails until completed.
+- Configured definitions are not runtime groups or concrete nodes.
+- Missing evidence is not a known empty result.
+- Configured settings do not prove runtime readiness.
+- Source timestamps are not collection time.
+- Knowing some shared uses does not prove that all shared uses are known.
 
-See [application-context semantics](application-context.md) and [the authoring guide](application-authoring.md).
+Use available facts for the selected targets before asking the user to repeat them. If selective reads are missing, state the unknowns or ask for authoritative manual evidence. Attachment instructions need all current specs and enough information about ownership, inheritance and shared uses to preserve unrelated configuration. Do not turn a partial read into a replacement cluster template.
 
-### Application context retrieval
+The local project directory and remote installation prefix are different. `/shared/apps` describes a destination on cluster nodes, not a local filesystem destination or plugin-specific CLI flag. Plan runtime verification separately.
 
-The portable reader inputs use `clusterName`, `view`, `targetNames`, `section`, `installPath`, `targetLimit`, `itemLimit`, and `offset`. `command.py` maps the positional cluster name and CLI flags to these fields; `contract.py` validates them. The public [input reference](application-context.md#inputs) uses CLI argument names.
+See [application evidence](application-context.md), [node diagnosis](node-diagnostics.md) and [authoring](application-authoring.md).
 
-1. Validate cluster identity through the authenticated cluster-summary read.
-2. Overview uses a fixed `/exec/query/` projection for standalone nodes/nodearrays (`Template === Name || IsArray === true`, excluding abstract records). It omits mounts, volumes, full specs, and parameter values. Output paging happens locally; overview still reads the complete lightweight definition set.
-3. Details add an exact escaped node-name predicate and select only the requested section. The backend returns that target's section; normalization validates it before paging.
-4. Environment details alone optionally query `Package` records for the exact configured image with `PackageType == "image"`, projecting only `Name`, `PackageType`, `Label`, `OS`, and `JetpackPlatform`. Other views do not fetch image metadata.
-5. Attachment details read the lightweight overview again to identify shared parameter uses. If a simple reference exists, resolve the authenticated parent chain (at most ten visited clusters, cycle checked) and query only the matching `Cloud.ClusterInitSpecs` parameter in the root scope. No general parameter export is used.
-6. Normalize with closed allowlists. Arbitrary configuration, mount options, accounting credentials, raw parameter values, and raw expressions are not forwarded to the model. Locker/image identifiers reject URL/query/fragment forms. Returned text is still untrusted data.
+## Source distribution and verification
 
-Selective retrieval and bounded pages reduce model output and host-side large-output spill files, but do not guarantee a particular host's spill threshold or eliminate permission prompts. Pagination does not add backend pagination inside a mount/spec record or bypass HTTP bounds. Internal query/record contracts can vary by CycleCloud version; source inspection and fixtures do not qualify a running instance.
+`plugin.json` and `.github/plugin/marketplace.json` identify the plugin. The host loads skills from their directories. Each skill resolves references and assets relative to its installed location. Installation and CLI use need no runtime build or npm dependencies. The authoring checker and contributor checks need Node and Bash.
 
-## Authentication, transport, and execution boundaries
+Packaging uses an explicit allowlist of manifests, skills, assets and public documentation. It rejects symlinks and other non-regular paths, and excludes credentials, developer tests and private plans. Verification checks exact contents, identity, executable modes and source provenance. It then runs the authoring checker from an unrelated directory against the intentionally incomplete skeleton. These checks verify the artifact, not agent behavior, host installation or compatibility with a live server.
 
-- **One configuration authority:** use the selected CLI's normal configuration, optionally an existing `--config` file. The plugin does not initialize profiles, request passwords in chat, or maintain a second credential store.
-- **Noninteractive authentication:** the 8.10 adapter integrates Basic authentication and the CLI's public-client silent, confidential-client, and managed-identity components. Silent refresh may persist normal CLI cache/configuration state. Interactive login is a separate operator step.
-- **Explicit transport policy:** preserve the CLI's configured certificate/proxy/CA behavior without silently weakening it. An insecure existing CLI configuration remains insecure. Identity sessions are separate and do not inherit CycleCloud credentials or insecure certificate overrides.
-- **Bounded reads:** each HTTP response is capped at 8 MiB of wire data and 8 MiB after decompression. Unsupported/chained encodings, redirects, and automatic inspection retries are rejected or disabled. Identity traffic shares bounded transport/process budgets.
-- **Bounded results:** complete stdout is limited to 1 MiB. Application collection pages and selected-target/parameter envelopes have smaller limits; capacity output has an overall returned-bucket bound. Overflow is an error, not partial JSON.
-- **Bounded execution:** the invocation has a 120-second cumulative deadline, shorter discovery probes, and 10/30-second connect/read-idle limits. Subprocess pipes are bounded; input is noninteractive. Cancellation and cleanup reap owned process groups.
-- **Isolated imports and output:** Python runs with isolated import settings and bytecode writes disabled. The compatibility worker suppresses dependency stdout/stderr at the descriptor level and publishes only the curated response.
-- **Untrusted evidence:** returned diagnostic strings, names, and configuration values are data, not agent instructions. Host approvals and least-privilege CycleCloud accounts remain necessary.
-
-The inspection wrapper does not restrict everything an agent can do through terminal tools. Do not broadly approve `cyclecloud *` or infer permission for lifecycle operations from permission to inspect.
-
-## Packaging, releases, and verification
-
-The source packager copies an explicit allowlist: manifests, compatibility policy, Python modules, launchers, skills/assets, public documentation, and license. It rejects symlinked/non-regular package paths and excludes credentials, bytecode, dependencies, tests, and developer-only files. Package verification checks exact contents, identity, executable modes, provenance metadata, and isolated launcher smoke behavior after relocation.
-
-Releases contain two assets: a versioned source archive and `SHA256SUMS`. `SOURCE_COMMIT.json` records the source identity inside the archive. Release automation validates tag/version/commit constraints, stages assets through the hosting provider, and verifies anonymous downloads without forwarding authentication tokens. Verification checks checksum inventory and hashes, rejects unsafe archive entries before extraction, checks source identity and contents, and runs bounded launcher smoke checks. The latest-release check reads latest checksums while keeping the archive URL pinned to the expected tag.
-
-Checksums detect corruption and inconsistency; they are not publisher signatures. Package tests and launcher smoke do not establish successful installation or agent behavior in a real host. Exact previews/releases require a reviewed extracted source directory; repository registration follows the repository's source rather than automatically selecting a preview asset.
-
-Verification layers are intentionally separate:
-
-- Portable golden fixtures preserve normalization and evidence semantics, with synthetic inputs and recorded provenance.
-- Python boundary, adapter, transport, process, and launcher tests cover failure paths and resource limits.
-- JavaScript tests cover source packaging, publication guards, release downloads, authoring checks, and skill guidance.
-- Opt-in packaged-CLI tests use synthetic configuration and a local fake backend, not real credentials or a live CycleCloud instance.
-- Host registration, live identity services, supported server combinations, platform execution, and model-backed skill behavior require separate authorized checks.
-
-See [development and release procedures](development.md) for commands and deployment limitations.
-
-## Native CLI evolution
-
-The intended next ownership step is to move the inspection core and its fixtures into the CycleCloud CLI. Skills continue to use the plugin launcher, which can select compatible native inspection without changing the agent-facing contract. The bridge remains while 8.10 is supported; its removal requires an explicit minimum-CLI decision.
-
-Required-field, type, or meaning changes require a new inspection schema major. Compatible optional additions can remain within the existing schema. Before native support is qualified, run the shared semantic fixtures and command-level conformance checks against it, including argument defaults, pagination, errors, and exit behavior. Avoid independently maintained normalizers with divergent semantics.
-
-Use the [packaged-CLI smoke tests](development.md#explicit-packaged-cli-smoke) and native conformance suite to check the implementation. Capability discovery alone does not establish conformance.
+Release tooling keeps version, tag and source-identity checks, anonymous download verification and explicit stable promotion. Checksums detect corruption or inconsistency; they are not publisher signatures. See [development and releases](development.md).
 
 ## Application authoring evolution
 
-The bundled project is an incomplete authoring skeleton. To qualify a runnable application example:
+To qualify a runnable example, choose and document one combination of OpenFOAM, OS and MPI. Implement a pinned installation, a readiness protocol with one writer, and recovery. Complete a real Slurm case with bounded resource use. Then perform separately approved live installation and workload validation. Local syntax checks cannot certify the combination.
 
-1. Select and document one OpenFOAM release, OS/architecture, and MPI stack.
-2. Implement installation and runtime preparation with pinned sources, checksums, versioned staging, a single-writer readiness protocol, and recovery behavior.
-3. Replace the Slurm stub with a small real case and explicit success criteria.
-4. Add metadata/permission and application-specific checks without treating syntax validation as runtime compatibility.
-5. Evaluate the skill in both hosts, including offline and existing-file cases, using the [authoring evaluation procedure](development.md#application-authoring-evaluation).
-6. With separate authorization and an appropriate test cluster, verify installation and serial/parallel execution. Record actual observations and limitations.
-
-Automated locker publication, spec attachment, existing-node rollout, and job submission are separate potential workflows. Keep product operation semantics in the CycleCloud CLI; skill prose alone is not an implementation or an authorization boundary.
+Automated publication, spec attachment, rollout and job submission are separate workflows, not implicit extensions of authoring. Keep their operation semantics in the CLI and their authorization explicit.
