@@ -37,7 +37,7 @@ CYCLECLOUD_TEST_CLI=/absolute/path/to/approved/cyclecloud \
   npx vitest run tests/cli-discovery.test.ts
 ```
 
-The test uses a fresh temporary HOME and root/group/leaf help to check the canonical cluster, node, issue and event paths and contracts the skills consume, plus the separate legacy node fallback descriptor. It does not initialize, execute data commands, contact a real instance or validate authentication. The executable must provide `cyclecloud.help.v1` and the documented leaf output contracts. An older artifact failing this check is not proof that all its ordinary commands are unusable.
+The test uses a fresh temporary HOME and root/group/leaf help to check the canonical cluster, node, issue and event paths and contracts the skills consume, plus the separate legacy node fallback descriptor and the optional `--image-context` boolean, false default and diagnostics prerequisite. It does not initialize, execute data commands, contact a real instance or validate authentication. The executable must provide `cyclecloud.help.v1` and the documented leaf output contracts. An older artifact failing this check is not proof that all its ordinary commands are unusable.
 
 When testing a source-built CLI, explicitly configure its documented source import path if necessary; do not discover private checkout paths in plugin code. Runtime platform support belongs to the selected CLI and host.
 
@@ -76,6 +76,8 @@ CYCLECLOUD_TEST_DIAGNOSTICS_FIXTURE=/absolute/path/to/cli/tests/node_diagnostics
 
 This checks active-phase previews, current-issue descriptions, zero installation settings, cached VM evidence, denied sections, missing association and fatal wrong association beyond a preview. It does not run live diagnostics or validate model interpretation. Review and authorize the external fixture and executable before running; default tests skip it.
 
+Image-context checks use fresh CLI-owned `DiagnosticsScenario` instances and their saved `image` fields or `replies` overrides, not a named-scenario registry. Representative reads cover opaque saved name/legacy label/version fields, all-null `notRecorded`, denied and changed evidence, fatal identity conflict, and unchanged optional keys and request stages without the flag. Parser, projection and failure permutations remain CLI-owned. These results establish synthetic public-executable interoperability, not effective image selection, registration, resolution, failure-time configuration or model tool behavior.
+
 Cluster Event Log checks use the CLI-owned `cluster_events_fixture.py` and its sibling cluster fixture:
 
 ```sh
@@ -101,6 +103,8 @@ These representative checks cover curated occurrence counts, bounded/empty group
 The checks do not prove affected-node totals, live health, model compliance or server-side aggregation semantics; datastore semantics belong to the maintained backend tests. Like the other workflows, they use only isolated loopback data and are skipped unless the reviewed absolute paths are supplied.
 
 The fixtures check known View requests, not arbitrary query execution or real account permissions. Passing proves command/result interoperability for those synthetic scenarios, not live server compatibility or model-backed skill compliance. Keep parser, transport and datastore regression tests in the CLI repository rather than copying its implementation into the plugin.
+
+Recorded image-failure code guidance is checked in `tests/cli-skill.test.ts`: package versus version failures, machine-type-only code justification for catalog comparison, and null/unknown-code fallback. Producer and public transport regressions remain CLI/server-owned. The developer casebook includes supplied-evidence cases for these decisions; static assertions do not prove model behavior or deployed producer support.
 
 ## Scope and limitations
 

@@ -102,6 +102,24 @@ describe.skipIf(!executable)("Selected CLI discovery smoke", () => {
         },
     );
 
+    test("Advertises opt-in saved image context with its diagnostics prerequisite", async () => {
+        const leaf = help(["node", "show"]);
+        expect(leaf.outputs).toContainEqual({
+            mode: "json",
+            contract: "cyclecloud.node-diagnostics.v1",
+        });
+        expect(leaf.options).toContainEqual(
+            expect.objectContaining({
+                names: ["--image-context"],
+                type: "boolean",
+                default: false,
+                repeatable: false,
+                requirements: ["--diagnostics"],
+            }),
+        );
+        expect(await readdir(home)).toEqual([]);
+    });
+
     test("Preserves the legacy node output contract for limited fallback", async () => {
         const root = help([]);
         expect(root.contract).toBe("cyclecloud.help.v1");

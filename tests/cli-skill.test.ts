@@ -430,6 +430,164 @@ describe("CLI-first guidance", () => {
             expect(resolution).toContain(term);
     });
 
+    test.each([
+        [
+            "ImagePackageNotFound",
+            "no named package without a version constraint",
+            "intended image reference and named package",
+            "No",
+        ],
+        [
+            "ImagePackageVersionNotFound",
+            "no matching package version",
+            "version constraint and relevant package versions",
+            "No",
+        ],
+        [
+            "ImageMachineTypeNotFound",
+            "missing machine-type prerequisite",
+            "current saved type and exact readable catalog entry",
+            "Yes",
+        ],
+    ])(
+        "Maps recorded %s to a bounded handoff and selective catalog decision",
+        async (code, failure, handoff, catalog) => {
+            const guidance = (await readFile(skill, "utf8"))
+                .split("### Interpret recorded image failure codes")[1]
+                ?.split(/\n#{2,3} /)[0];
+            expect(guidance).toBeDefined();
+            const row = guidance
+                ?.split("\n")
+                .find((line) => line.startsWith(`| \`${code}\``));
+            expect(row).toBeDefined();
+            expect(
+                row
+                    ?.split("|")
+                    .slice(1, -1)
+                    .map((cell) => cell.trim()),
+            ).toEqual([
+                `\`${code}\``,
+                expect.stringContaining(failure),
+                expect.stringContaining(handoff),
+                catalog,
+            ]);
+        },
+    );
+
+    test("Keeps recorded codes source-backed and compatible with older or unknown codes", async () => {
+        const guidance = (await readFile(skill, "utf8"))
+            .split("### Interpret recorded image failure codes")[1]
+            ?.split(/\n#{2,3} /)[0];
+        expect(guidance).toBeDefined();
+        for (const term of [
+            "`conditions.items[].errorCode`",
+            "description and detail",
+            "phase messages",
+            "not the generic category or message parsing alone",
+            "does not establish that the entire package is absent",
+            "not current global absence",
+            "Azure readiness",
+            "author intent",
+            "successful resolution",
+            "null, missing or unknown",
+            "detailed-evidence diagnosis",
+            "Do not infer a recognized code from message text",
+            "No new flag, API, schema or version requirement",
+            "version alone does not prove deployed producer support",
+            "Event Log or freshness detour",
+        ])
+            expect(guidance).toContain(term);
+    });
+
+    test("Gates saved image context and preserves selected-node identity", async () => {
+        const image = (await readFile(skill, "utf8"))
+            .split("### Compare saved image context with a recorded failure")[1]
+            ?.split(/\n#{2,3} /)[0];
+        expect(image).toBeDefined();
+        for (const term of [
+            "cyclecloud.node-diagnostics.v1",
+            "optional `--image-context` flag",
+            "--diagnostics --image-context",
+            "selected NodeId",
+            "returned `node.nodeId`",
+            "Stop on mismatch",
+            "scoped operator check",
+            "No guessed raw query",
+            "alternate profile",
+            "separate authorization",
+            "image-only failure does not justify a catalog read",
+        ])
+            expect(image).toContain(term);
+        expect(image).not.toContain("selectedNodeId");
+    });
+
+    test("Keeps saved image fields opaque, partial and distinct from recorded failure", async () => {
+        const image = (await readFile(skill, "utf8"))
+            .split("### Compare saved image context with a recorded failure")[1]
+            ?.split(/\n#{2,3} /)[0];
+        expect(image).toBeDefined();
+        for (const term of [
+            "`imageName` maps to saved `ImageName`",
+            "`imageLabel` to legacy `Image`",
+            "`imageVersion` to top-level `ImageVersion`",
+            "Cloud.Node.ImageName/Image/ImageVersion",
+            "partial current saved fields",
+            "opaque strings",
+            "not the effective image selection",
+            "ImageId",
+            "registration",
+            "Package/artifact resolution",
+            "readiness",
+            "notRecorded",
+            "not that no image configuration exists",
+            "changedDuringRead",
+            "with no `current`",
+            "intended configuration",
+            "new matching failure evidence",
+            "Agreement does not prove successful resolution",
+        ])
+            expect(image).toContain(term);
+        const contract = (await readFile(reference, "utf8"))
+            .split("### Optional saved image context")[1]
+            ?.split(/\n#{2,3} /)[0];
+        expect(contract).toBeDefined();
+        for (const term of [
+            "defaults to false",
+            "neither `image` nor `sources.image` is added",
+            "4096 UTF-8 bytes",
+            "permissionDenied",
+            "unsupported",
+            "invalidResponse",
+            "responseTooLarge",
+            "workLimit",
+            "changedDuringRead",
+            "All-null observations are also rechecked",
+            "Matching reads are not atomic",
+            "no successful JSON stdout",
+        ])
+            expect(contract).toContain(term);
+        const details = (
+            await readFile(
+                new URL("../docs/node-diagnostics.md", import.meta.url),
+                "utf8",
+            )
+        )
+            .split("### Current saved image context")[1]
+            ?.split(/\n#{2,3} /)[0];
+        expect(details).toBeDefined();
+        for (const term of [
+            "--image-context",
+            "node.nodeId",
+            "notRecorded",
+            "changedDuringRead",
+            "intended configuration",
+            "new matching failure evidence",
+            "neither outcome supports blind retry",
+            "image-only lookup failure does not justify",
+        ])
+            expect(details).toContain(term);
+    });
+
     test("Requests machine-type context only through advertised diagnostics", async () => {
         const text = await readFile(skill, "utf8");
         const catalog = text
@@ -461,6 +619,35 @@ describe("CLI-first guidance", () => {
             "4096",
         ])
             expect(contract).toContain(term);
+    });
+
+    test.each([
+        [
+            "../skills/use-cyclecloud/SKILL.md",
+            "### Explain a machine-type lookup failure",
+        ],
+        ["../docs/node-diagnostics.md", "### Current machine-type context"],
+        [
+            "../docs/cli-contract.md",
+            "### Optional machine-type catalog context",
+        ],
+    ])("Limits optional catalog selection in %s", async (path, heading) => {
+        const catalog = (await readFile(new URL(path, import.meta.url), "utf8"))
+            .split(heading)[1]
+            ?.split(/\n#{2,3} /)[0];
+        expect(catalog).toBeDefined();
+        for (const term of [
+            "recorded machine-type lookup failure",
+            "evidenced mixed image/type failure",
+            "current type/catalog prerequisite evidence changes the **repair decision**",
+            "unresolved image name alone is insufficient",
+            "do not request catalog context merely because image resolution failed",
+            "explicitly reports an unresolved machine-type prerequisite",
+            "image-name lookup error without that dependency cannot",
+            "which missing type or catalog fact changes the next action",
+        ])
+            expect(catalog).toContain(term);
+        expect(catalog).not.toContain("machine-type or image");
     });
 
     test("Ties catalog recommendations to current versus recorded evidence", async () => {

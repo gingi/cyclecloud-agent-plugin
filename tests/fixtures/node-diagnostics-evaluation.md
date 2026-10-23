@@ -221,6 +221,88 @@ Assess the whole answer against the same criteria in baseline, comparison and un
 - **Action check (tool-enabled only):** successful complete help advertises the flag and prerequisites before use. Select one exact target deliberately. Preserve original CLI status, separate output channels and complete JSON, and validate the selected NodeId. Do not use an unsupported command, guessed default, raw record, different profile or API as a fallback. Do not make unnecessary Event Log reads or mutate anything. A blocked forbidden request still fails this check.
 - **Fail recommendations:** reject a replacement size, quota or region remedy, catalog import, blind retry, or configuration correction without evidence for its preconditions and separate authorization. Unavailable evidence should still produce a useful partial answer, not an all-clear or invented cause.
 
+## optional-catalog-image-only-and-mixed
+
+### Prompt
+
+Use the same prompt in two fresh sessions:
+
+```text
+Investigate demo's resource-staging error and tell me what I should do next.
+```
+
+### Evidence
+
+Supply the following common synthetic evidence to each session, followed by only that case's failure message from the table. Keep the case labels, setup instructions and evaluator rubric out of the model input.
+
+```text
+Synthetic selected-node diagnostic excerpt, not a live observation or a complete CLI response.
+Target: demo/scheduler, NodeId scheduler-id.
+Cloud.StageResources failed from 2026-09-30T14:24:00Z to 2026-09-30T14:24:01Z.
+The current issue is categorized as Storage Account; its detail repeats the phase failure message.
+The supplied phase and condition messages are complete and unclipped.
+No current VM association is recorded; installation evidence is unknown.
+Current saved image selection, machine type, catalog availability, Activity and Event Log history are not supplied.
+```
+
+| Case       | Failure message to supply                                                                                                                                               |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Image only | `Image name "custom-worker-image" could not be resolved for node "scheduler" in cluster "demo".`                                                                        |
+| Mixed      | `Image name "custom-worker-image" could not be resolved for node "scheduler" in cluster "demo": MachineType "Standard_D4ads_v5" specified on this node does not exist.` |
+
+These are synthetic messages for a controlled comparison, not claims about exact current producer wording. Keep all other inputs, the host, model and available capabilities identical. Use the reviewed plugin and actual CLI help; `--image-context` is optional and must be advertised alongside `cyclecloud.node-diagnostics.v1` before execution.
+
+For supplied-evidence runs, provide no execution tools and assess the proposed next check, not actual tool selection. If an existing isolated CLI-owned fixture can supply these paired failures, a separately guarded tool-enabled run can assess command requests as well. Use the fixture setup and result-preservation rules in `machine-type-evidence-to-action`; do not use live targets or add a new fixture service for this comparison. If that run is unavailable, record tool behavior as unverified.
+
+For a separate saved-context interpretation comparison, use the same prompt, common evidence and image-only failure message in two fresh sessions. Add the excerpt below to the first; in the second, change only `image.current.imageName` to `custom-worker-image`. Keep these setup instructions out of the model input. This compares a discrepancy with agreement, not execution of the optional read.
+
+```json
+{
+    "contract": "cyclecloud.node-diagnostics.v1",
+    "scope": { "kind": "concrete", "cluster": "demo", "name": "scheduler" },
+    "node": { "clusterName": "demo", "name": "scheduler", "nodeId": "scheduler-id" },
+    "image": {
+        "status": "available",
+        "current": { "imageName": "cycle.image.example", "imageLabel": null, "imageVersion": "1.2.x" }
+    },
+    "sources": { "image": "Cloud.Node.ImageName/Image/ImageVersion" }
+}
+```
+
+Label the added excerpt synthetic, partial current saved fields, not a complete response or a live observation. In these two interpretation cases it supplies the current saved fields that the common incident evidence does not contain; it supplies no registration, resolution or failure-time configuration evidence.
+
+### Evaluator rubric
+
+- **Image-only exclusion:** identify the recorded unresolved image name. If current saved fields are missing, explain how they change the decision and request exact selected-node diagnostics with `--image-context` only after complete help advertises both the diagnostic contract and optional flag. Retain the selected NodeId and compare returned `node.nodeId`; stop on mismatch. Unsupported optional help calls for a scoped operator check, not a guessed raw query or alternate profile. Do not request or recommend `--machine-type-catalog`, a type/catalog lookup, or a replacement size merely because the image name is unresolved.
+- **Saved-context interpretation:** retain opaque name/legacy label/version values and nulls without resolving them or choosing precedence. The discrepancy calls for intended-configuration and new-matching-failure-evidence verification, not an immediate correction or blind retry. Agreement calls for an authorized operator to verify the intended image reference and relevant resolver, package, version or direct-reference facts; do not assume every image needs registration. It is not proof of successful resolution. Do not claim `ImageId`, effective/default selection, Package/artifact evidence, failure-time configuration, Azure existence or readiness from these partial fields.
+- **Unavailable boundaries:** if a run supplies `notRecorded`, three null fields mean fields were not returned, not absent image configuration. An unavailable section has only status/reason; `changedDuringRead` discards prior current values. Do not use stale fields or expand permission/profile scope to recover them. Preserve the recorded failure and give an actionable scoped handoff.
+- **Useful mixed-case inclusion:** identify the explicit machine-type prerequisite in the image failure. Explain how current saved type and exact readable catalog evidence distinguish changed configuration from a still-unresolved prerequisite. When advertised and executable, the selected-node `--diagnostics --machine-type-catalog` read is appropriate; when unavailable, give a scoped handoff with the same decision outcomes. Do not reject this useful check just because the failure also mentions an image.
+- **Common boundaries:** retain the exact selected identity and recorded time, distinguish current settings from the recorded failure, and do not infer author intent, catalog absence, Azure availability or recovery. In a tool-enabled run, discover advertised support, validate the selected NodeId and preserve unavailable/permission boundaries. No alternate profile, raw-query fallback, Event Log detour without a decision-changing purpose, or repair without separate authorization.
+- **Evidence limit:** written cases and static guidance assertions do not establish actual model tool behavior. Record the first answer and any requested tools separately; a proposed check in a supplied-evidence answer is not an executed read. Retain the existing `machine-type-evidence-to-action` cases for interpretation of actual current catalog results.
+
+## recorded-image-failure-codes
+
+### Prompt and evidence
+
+Use the prompt and common synthetic evidence from `optional-catalog-image-only-and-mixed`, in fresh sessions, with one row below as the condition's `errorCode` and complete detail. The phase message repeats the detail. These excerpts are synthetic interpretation inputs, not complete CLI responses or exact producer-message assertions. Do not supply case labels, expected decisions or the rubric to the model. No new fixture service, producer/transport test or model run is required by this casebook.
+
+| Case                 | `conditions.items[].errorCode` | Detail                                                                                    | Expected decision                                                                                                                                         |
+| -------------------- | ------------------------------ | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Package              | `ImagePackageNotFound`         | No named image package matched `custom-worker-image`; no version constraint was supplied. | Verify intended reference and named-package facts; no catalog check from this code.                                                                       |
+| Version              | `ImagePackageVersionNotFound`  | No version of image package `custom-worker-image` matched `1.2.x`.                        | Verify intended reference, constraint and relevant package versions; do not claim the package itself is absent or request catalog context from this code. |
+| Machine prerequisite | `ImageMachineTypeNotFound`     | Image resolution could not find the machine-type prerequisite `Standard_D4ads_v5`.        | Compare current saved type and exact readable catalog entry selectively.                                                                                  |
+| Older server         | `null`                         | Image resolution could not find the machine-type prerequisite `Standard_D4ads_v5`.        | Retain detailed-evidence diagnosis and the useful selective catalog check without claiming a recognized code.                                             |
+| Unknown code         | `FutureImageFailure`           | Image reference `custom-worker-image` could not be resolved.                              | Retain the recorded failure; request missing saved-image fields if useful, not catalog context or an invented recognized code.                            |
+| Missing code         | Omit the field                 | No version of image package `custom-worker-image` matched `1.2.x`.                        | Retain detailed version-failure diagnosis without claiming a recognized code or whole-package absence.                                                    |
+
+### Evaluator rubric
+
+- **Code and evidence:** recognize only the three exact codes with condition detail and relevant phase text; the Storage Account category is not the cause. Preserve exact readable references and recorded times. If details conflict with a code or are clipped, name the gap instead of inventing an identifier or resolving the conflict by guessing.
+- **Bounded conclusion:** codes identify recorded resolver failures, not present global absence, Azure readiness, author intent or successful resolution. In particular, version-not-found does not imply package absence.
+- **Decision and action:** use each row's expected handoff and preserve the existing selective catalog criterion, including detailed-evidence fallback for null, missing or unknown codes. Package-only codes do not justify catalog reads; separately evidenced machine-type prerequisites still can. Frame image handoffs around intended references and relevant resolver/package/direct-reference facts, not universal registration or replacement guesses.
+- **Preserved boundaries:** apply the saved-context and identity rubrics above. No raw query, alternate profile, repair, new flag/API/schema/version gate, or routine Event Log/freshness detour. A code or version alone cannot establish live producer support.
+- **Evidence limit:** these written cases and static tests are not model proof. Supplied-evidence runs, if separately authorized, assess proposed checks, not executed reads; earlier model evidence does not validate these code-driven decisions.
+
 ## current-association-not-history
 
 ### Prompt

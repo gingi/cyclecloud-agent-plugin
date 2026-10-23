@@ -200,11 +200,45 @@ Read `node`, `installation`, `phases`, `conditions`, `vm` and `sources` directly
 
 Use [diagnostic evidence and limits](../../docs/node-diagnostics.md) to distinguish observations, hypotheses and missing evidence. Read surrounding cluster Event Log evidence separately, as below. Diagnostics do not supply events, completed history or application environment and attachments.
 
+### Interpret recorded image failure codes
+
+Use a recognized `conditions.items[].errorCode` together with the condition's **description and detail** and relevant **phase messages**, not the generic category or message parsing alone. Preserve exact readable references and recorded times; clipped or conflicting details remain a gap, not permission to reconstruct an identifier. These codes identify the recorded producer failure, not current global absence, Azure readiness, author intent or successful resolution.
+
+| Recorded code                 | Recorded failure                                                  | Scoped operator check                                                                                                         | Catalog comparison justified by this code? |
+| ----------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `ImagePackageNotFound`        | The resolver found no named package without a version constraint. | Verify the intended image reference and named package against the recorded resolver evidence.                                 | No                                         |
+| `ImagePackageVersionNotFound` | The resolver found no matching package version.                   | Verify the intended image reference, version constraint and relevant package versions against the recorded resolver evidence. | No                                         |
+| `ImageMachineTypeNotFound`    | Image resolution encountered a missing machine-type prerequisite. | Compare the current saved type and exact readable catalog entry under the selective workflow below.                           | Yes                                        |
+
+A version-not-found code does not establish that the entire package is absent. Neither package code independently justifies a catalog read; separately evidenced machine-type failures can still qualify. Do not guess replacement images, versions or sizes. Base the handoff on the intended image reference and relevant resolver/package/direct-reference facts, not an assumption that every image needs registration.
+
+For a null, missing or unknown code, retain detailed-evidence diagnosis from condition and phase text, including the existing selective machine-type criterion. Do not infer a recognized code from message text or stop diagnosing because a code is unavailable. No new flag, API, schema or version requirement applies; version alone does not prove deployed producer support. Give the decision-changing check without a routine Event Log or freshness detour.
+
+### Compare saved image context with a recorded failure
+
+For a recorded image lookup failure, explain how the selected node's current saved image fields would change the next action. Check complete `node show` help for both `cyclecloud.node-diagnostics.v1` and the optional `--image-context` flag before requesting:
+
+```sh
+cyclecloud node show "scheduler" --cluster "demo" --kind concrete --format json --diagnostics --image-context
+```
+
+Keep the selected NodeId and compare returned `node.nodeId` with it before using the evidence. Stop on mismatch; the name may now identify a replacement. Keep the same selected executable, configuration, cluster and exact node.
+
+Read `image.status` before `image.current`. `imageName` maps to saved `ImageName`, `imageLabel` to legacy `Image`, and `imageVersion` to top-level `ImageVersion`; `sources.image` is `Cloud.Node.ImageName/Image/ImageVersion`. These are **partial current saved fields**, not the effective image selection or the settings at the recorded failure time. Treat values as **opaque strings**: do not trim, parse versions, choose precedence between name and label, resolve direct references or infer defaults. This is not `ImageId`, registration, Package/artifact resolution, Azure existence or readiness evidence.
+
+- `available` retains all three fields, including nulls. Compare only what the saved fields and recorded failure actually establish. A discrepancy calls for verifying **intended configuration** and **new matching failure evidence**, not a blind retry or automatic correction. Agreement does not prove successful resolution: ask an authorized operator to verify the intended image reference and the relevant resolver, package, version or direct-reference facts still missing.
+- `notRecorded` retains three null fields. It means those fields were not returned, not that no image configuration exists. Request authoritative selected-node configuration evidence rather than guessing an effective default.
+- `unavailable` has only `status` and `reason`, with no `current`. `changedDuringRead` discards earlier values; do not compare them. Missing or unstable evidence remains unknown. For `permissionDenied`, request access verification for that specific read, not another profile or broader privileges.
+
+If the optional flag is unsupported or unknown, retain the recorded failure and give a **scoped operator check** for the missing saved fields and the decision they change. No guessed raw query, configuration dump or alternate profile. Repairs need **separate authorization**. An image-only failure does not justify a catalog read; use the independent machine-type criterion below for useful mixed cases. See [saved-image contract and limits](../../docs/cli-contract.md#optional-saved-image-context).
+
 ### Explain a machine-type lookup failure
 
-Identify the recorded lookup failure from phase messages or the condition's **description and detail**, not the **Storage Account** category alone. Keep the requested type and phase time only when they are explicitly readable; clipped text may not establish the exact identifier. Keep historical producer text as recorded rather than replacing it with newer CLI or server wording.
+Identify the recorded lookup failure using `ImageMachineTypeNotFound` with detailed source evidence when supplied, or phase messages or the condition's **description and detail** when the code is null, missing or unknown—not the **Storage Account** category alone. Keep the requested type and phase time only when they are explicitly readable; clipped text may not establish the exact identifier. Keep historical producer text as recorded rather than replacing it with newer CLI or server wording.
 
-When the failure concerns machine-type or image resolution and complete structured help **advertises** `--machine-type-catalog`, add it to the selected node's `--diagnostics` read:
+Select optional catalog context only for a **recorded machine-type lookup failure**, or an **evidenced mixed image/type failure** where current type/catalog prerequisite evidence changes the **repair decision**. An **unresolved image name alone is insufficient**: do not request catalog context merely because image resolution failed. For example, an image failure that explicitly reports an unresolved machine-type prerequisite can justify comparing the recorded type with the current saved type and catalog entry; an image-name lookup error without that dependency cannot.
+
+For a qualifying failure, first explain which missing type or catalog fact changes the next action. If complete structured help **advertises** `--machine-type-catalog`, add it to the selected node's `--diagnostics` read:
 
 ```sh
 cyclecloud node show "scheduler" --cluster "demo" --kind concrete --format json --diagnostics --machine-type-catalog
