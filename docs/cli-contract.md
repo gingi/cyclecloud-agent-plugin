@@ -136,13 +136,43 @@ The response contains `contract`, completion `observedAt`, canonical `scope: {ki
 
 Phases cover active names only. Conditions cover the datasource's current issues, not complete condition or attempt history. Available sections expose items, total and truncation. Unavailable sections have empty items, null total and truncation, and a reason.
 
+The existing nullable `conditions.items[].errorCode` can carry `ImagePackageNotFound` (no named package without a version constraint), `ImagePackageVersionNotFound` (no matching package version, not proof of package absence), or `ImageMachineTypeNotFound` (a missing image-resolution machine-type prerequisite). Interpret recognized codes with condition details and relevant phase evidence. Only the machine-type code independently justifies selective catalog comparison; package codes alone do not. Null, missing and unknown codes retain detailed-evidence diagnosis and the same selective catalog criterion. No new flag, API, schema or version requirement applies. A recorded code or CLI version does not establish current global absence, deployed producer support, Azure readiness, intent or successful resolution. See [current-issue interpretation](node-diagnostics.md#current-issues).
+
 A missing current VM association is `notAssociated`, not proof that no VM exists. Stored installation settings preserve zero and null; do not infer defaults or readiness.
 
 Data reads use the 2 MiB response and 1 MiB final JSON bounds and safe text failures. Preview sections and text have additional limits. These are not backend scan, authentication or whole-invocation deadlines. Diagnostic text may contain sensitive operational data; `clippedFields` is not secret redaction. See [selected-node evidence and limits](node-diagnostics.md#read-stored-diagnostics-for-one-selected-node) for exact fields, scopes, optional reasons and interpretation.
 
+### Optional saved image context
+
+Require both `cyclecloud.node-diagnostics.v1` and advertised `--image-context` in complete structured `node show` help. The option is boolean, defaults to false and requires `--diagnostics`. Use only an exact concrete target:
+
+```sh
+cyclecloud node show "scheduler" --cluster "demo" --kind concrete --format json --diagnostics --image-context
+```
+
+Retain the selected NodeId and compare returned `node.nodeId` before accepting the evidence; stop on mismatch. The contract remains `cyclecloud.node-diagnostics.v1`. Without this flag, both output and request sequence are unchanged: neither `image` nor `sources.image` is added. It can coexist with `--machine-type-catalog` but does not imply that option.
+
+Requested results add `sources.image: "Cloud.Node.ImageName/Image/ImageVersion"` and one of:
+
+| Status        | Fields and meaning                                                                                                                                                                                     |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `available`   | `current: {imageName, imageLabel, imageVersion}` maps respectively to saved `ImageName`, legacy `Image`, and top-level `ImageVersion`. Missing/null fields remain null; at least one field is present. |
+| `notRecorded` | The same `current` object with all three fields null. These fields were not returned; this does not establish that no image configuration exists.                                                      |
+| `unavailable` | Only `status` and `reason`, with no `current`. Reasons are `permissionDenied`, `unsupported`, `invalidResponse`, `responseTooLarge`, `workLimit` or `changedDuringRead`. Earlier values are discarded. |
+
+Values are exact opaque nonempty strings, at most 4096 UTF-8 bytes each. There is no trimming, normalization, truncation, defaulting, version parsing or precedence between saved name and label. Direct Azure identifiers remain opaque. These **partial current saved fields** are not `ImageId`, effective/default selection, latest template/array settings, registration, Package/release/artifact resolution, failure-time settings, Azure existence or readiness.
+
+Two extra identity-checked `Cloud.Node` reads bracket diagnostic collection, projecting only identity plus `ImageName`, `Image` and `ImageVersion`, with the exact cluster/NodeId predicate and limit 2. All-null observations are also rechecked. Initial unavailable evidence is not retried. A failed final read discards the earlier selection; any exact saved-value change yields `changedDuringRead`. Matching reads are not atomic and cannot detect intervening change and reversion.
+
+Identity or instance-association conflicts remain fatal, as do authentication, unknown HTTP failures, transport errors, timeouts and cancellation: nonzero status, no successful JSON stdout. Existing 2 MiB response and 1 MiB final-output bounds apply. This optional context performs no registration, resolver or Azure lookup.
+
+Compare current values with recorded failures and times, not with assumed failure-time settings. A discrepancy supports an intended-configuration/new-evidence handoff, not a correction or blind retry. Agreement still calls for a scoped operator check of the intended image reference and relevant resolver, package, version or direct-reference facts; not every image needs registration. Unsupported optional help or unavailable evidence does not authorize raw-query or alternate-profile fallback; repairs require separate authorization. See [image failure interpretation](node-diagnostics.md#current-saved-image-context).
+
 ### Optional machine-type catalog context
 
-When structured `node show` help advertises `--machine-type-catalog`, use it only with exact-node `--diagnostics`:
+Select optional catalog context only for a **recorded machine-type lookup failure**, or an **evidenced mixed image/type failure** where current type/catalog prerequisite evidence changes the **repair decision**. An **unresolved image name alone is insufficient**: do not request catalog context merely because image resolution failed. An image failure that explicitly reports an unresolved machine-type prerequisite can justify this check; an image-name lookup error without that dependency cannot.
+
+Explain which missing type or catalog fact changes the next action. When structured `node show` help advertises `--machine-type-catalog`, use it only with exact-node `--diagnostics`:
 
 ```sh
 cyclecloud node show "scheduler" --cluster "demo" --kind concrete --format json --diagnostics --machine-type-catalog
@@ -405,10 +435,11 @@ Capabilities are separate:
 - Cluster inventory and counts require `cyclecloud.clusters.v1`, not just help or legacy node JSON support.
 - Bounded definition and concrete-node selection requires `cyclecloud.nodes.v1` and explicit kind mode.
 - Exact stored diagnostics require the additional `cyclecloud.node-diagnostics.v1` contract and `--diagnostics`.
+- Partial current saved image fields additionally require advertised `--image-context`; they do not establish image registration or resolution.
 - Cluster Event Log reads require `event list` with `cyclecloud.cluster-events.v1`. Discovery and selected-node diagnostics do not include those events.
 - Grouped current Error/Warning counts require `issue list` with `cyclecloud.cluster-issues.v1` and its server datasource.
 - Bounded issue-group node previews require the additional `cyclecloud.issue-nodes.v1` contract, an available group selector and the drilldown datasource.
 
-Node-scoped Activity, completed-attempt history, complete affected-node enumeration, capacity summaries and selective environment, storage, attachment and image lookup remain separate capability gaps. Use those capabilities only when the installed CLI advertises them and you understand their meaning and limits. Do not invent proposed view names, paging flags or result fields.
+Node-scoped Activity, completed-attempt history, complete affected-node enumeration, capacity summaries, selective environment, storage and attachments, and image registration/resolution remain separate capability gaps. Saved image context does not close those gaps. Use those capabilities only when the installed CLI advertises them and you understand their meaning and limits. Do not invent proposed view names, paging flags or result fields.
 
 When evidence is unavailable, explain the exact gap. Offer version-appropriate documentation, a deliberate upgrade, manual evidence collection or offline authoring with unknowns. A snapshot does not establish a minimum released version. Documentation is not live evidence. There is no plugin-owned API fallback.

@@ -126,7 +126,7 @@ Each read needs its own advertised capability:
 - Grouped stored Error/Warning counts: `issue list` with `cyclecloud.cluster-issues.v1` and its server datasource.
 - Bounded node previews for one issue group: `cyclecloud.issue-nodes.v1` and the drilldown source.
 
-The current reads do not provide node-scoped Activity, completed-attempt history, a complete affected-node listing, capacity summaries, selective environment, storage or attachments, or image metadata. Those need additional capabilities. A development snapshot does not establish a released minimum version.
+When selected-node diagnostics advertise `--image-context`, they can provide partial current saved image name, legacy label and version fields, not effective image selection or image registration/resolution. The current reads do not provide node-scoped Activity, completed-attempt history, a complete affected-node listing, capacity summaries, selective environment, storage or attachments, or image registration/resolution. Those need additional capabilities. A development snapshot does not establish a released minimum version.
 
 Keep configured definitions, runtime groups and concrete nodes separate. Missing evidence is not zero or proof of health; configuration is not runtime readiness. See [node diagnostics](docs/node-diagnostics.md) and [application evidence](docs/application-context.md).
 

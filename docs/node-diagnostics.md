@@ -111,11 +111,35 @@ Before reading diagnostic details, the CLI resolves the exact cluster and name, 
 
 Phase and condition status priority recognizes known spellings without regard to case while preserving stored case in output. The maintained datasource controls filtering, including exclusion of inactive OK and UserAccess aspects. Its total is not a count of every possible condition, all affected nodes or historical incidents.
 
+Use recognized `conditions.items[].errorCode` values with description, detail and relevant phase messages, not the generic category or message parsing alone:
+
+- `ImagePackageNotFound`: the recorded resolver found no named package without a version constraint. Verify the intended image reference and relevant named-package facts.
+- `ImagePackageVersionNotFound`: the recorded resolver found no matching package version. Verify the intended reference, version constraint and relevant package versions; this does not establish that the entire package is absent.
+- `ImageMachineTypeNotFound`: the recorded image failure concerns a machine-type prerequisite. It justifies the selective current-type/catalog comparison below; the two package codes alone do not.
+
+For staging errors with these codes, the server reports **Image Resolution** with the heading **Image resolution failed**. Genuine storage failures and unrecognized or uncoded staging failures keep **Storage Account**; older servers can also retain that label. Neither label establishes a root cause without the recorded source evidence.
+
+These are recorded failures, not present global absence, Azure readiness, author intent or successful resolution. Retain detailed-evidence diagnosis and the selective catalog criterion for null, missing or unknown codes; do not infer a recognized code from text. Preserve readable references and times, treating clipped or conflicting evidence as a gap. No new flag, API, schema or version requirement applies, and version alone does not establish deployed support. Choose a decision-changing handoff, not replacement guesses or a routine Event Log/freshness detour.
+
 The CLI reads the complete projected response and checks its associations within a 2 MiB decoded cap **before** selecting the preview. A wrong association beyond the returned preview still fails the command. The datasource does not enforce a row limit. `--detail-limit` does not limit how many rows the server scans or loads. There is no raw SystemAspect fallback.
+
+### Current saved image context
+
+After a recorded image lookup failure, explain which missing saved-selection fact would change the repair decision. Check complete `node show` help for both `cyclecloud.node-diagnostics.v1` and optional `--image-context`, then request exact-node `--diagnostics --image-context`. Keep the selected NodeId and compare returned `node.nodeId`; stop on mismatch rather than attributing replacement-node evidence to the selected target.
+
+Read `image.status` first. Available `image.current` maps `imageName` to saved `ImageName`, `imageLabel` to legacy `Image`, and `imageVersion` to top-level `ImageVersion`; `sources.image` is `Cloud.Node.ImageName/Image/ImageVersion`. Preserve nulls and treat strings as opaque. These partial current saved fields are not effective/default selection, `ImageId`, registration, Package/artifact resolution, history, Azure existence or readiness. Both name and label can be saved; do not choose precedence or resolve them. See the [optional contract and collection limits](cli-contract.md#optional-saved-image-context).
+
+If saved values differ from the recorded failure, ask the author to verify intended configuration and new matching failure evidence. An unintended setting can support a separately authorized correction proposal after verification; an intended change means the old error alone cannot diagnose a new attempt. If values agree, request a scoped authorized-operator check of the intended image reference and the relevant resolver, package, version or direct-reference facts still missing; do not assume every image needs registration. Agreement is not successful resolution, and neither outcome supports blind retry.
+
+`notRecorded` has three null current fields: those fields were not returned, not proof that image configuration is absent. `unavailable` contains only status and reason, with no current fields. `changedDuringRead` discards earlier values; do not use them as stable evidence. Unknown or denied evidence calls for a specific operator handoff or access verification of that read, not another profile, guessed raw query or broader privileges. If the optional flag is unsupported, retain the recorded failure and ask for the missing saved fields through a scoped operator check.
+
+An image-only lookup failure does not justify a machine-type catalog read. Mixed image/type failures can still warrant one under the independent criterion below. This workflow does not perform repairs; any supported correction requires separate authorization.
 
 ### Current machine-type context
 
-For a recorded machine-type or image lookup failure, the advertised `--machine-type-catalog` diagnostics extension can add the selected concrete node's current saved type and its exact readable local catalog entry. It does not reconstruct array settings, infer a deployed server default or establish failure-time catalog state. See the [optional contract and availability states](cli-contract.md#optional-machine-type-catalog-context).
+Select optional catalog context only for a **recorded machine-type lookup failure**, or an **evidenced mixed image/type failure** where current type/catalog prerequisite evidence changes the **repair decision**. An **unresolved image name alone is insufficient**: do not request catalog context merely because image resolution failed. An image failure that explicitly reports an unresolved machine-type prerequisite can justify this check; an image-name lookup error without that dependency cannot.
+
+Explain which missing type or catalog fact changes the next action, then check that help advertises `--machine-type-catalog`. This diagnostics extension can add the selected concrete node's current saved type and its exact readable local catalog entry. It does not reconstruct array settings, infer a deployed server default or establish failure-time catalog state. See the [optional contract and availability states](cli-contract.md#optional-machine-type-catalog-context).
 
 Compare the requested type and time in the recorded error with verified current evidence before recommending a remedy. A changed type or currently readable entry means the old error alone cannot diagnose a new attempt.
 
@@ -147,7 +171,7 @@ Known absolute dates are normalized to UTC. Provider provisioning time remains a
 
 ### Errors and scope of bounds
 
-Data responses are capped at 2 MiB and final completed JSON at 1 MiB. Data requests require a direct HTTP 200 response, reject redirects, and use 10-second connect and 30-second idle-read timeouts. Default diagnostics make at most eight data requests, not an extra request per phase or condition. Optional machine-type catalog context adds at most three. These limits do not bound the rows loaded by the backend, authentication duration or overall elapsed time.
+Data responses are capped at 2 MiB and final completed JSON at 1 MiB. Data requests require a direct HTTP 200 response, reject redirects, and use 10-second connect and 30-second idle-read timeouts. Default diagnostics make at most eight data requests, not an extra request per phase or condition. Optional saved image context adds at most two; optional machine-type catalog context adds at most three. These limits do not bound the rows loaded by the backend, authentication duration or overall elapsed time.
 
 Identity and association failures, authentication, transport, timeout, cancellation and unknown server failures are fatal. They return nonzero status with safe ordinary text errors and no JSON success. Optional evidence that is denied, unsupported, malformed or over budget is explicitly unavailable. Do not apply JSON-help `cyclecloud.error.v1` to execution.
 

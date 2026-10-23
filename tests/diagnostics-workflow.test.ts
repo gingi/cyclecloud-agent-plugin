@@ -23,10 +23,10 @@ config = Path(os.environ["HOME"]) / "fixture.ini"
 results = {}
 with serve(backend) as url:
     config.write_text("[cycleserver]\nurl=" + url + "\nusername=fixture\nkey=" + encode("fixture-only") + "\n")
-    def call():
+    def call(*options):
         return subprocess.run(
             [executable, "node", "show", "scheduler", "--config", str(config), "--cluster", "demo",
-             "--kind", "concrete", "--format", "json", "--diagnostics", "--detail-limit", "1"],
+             "--kind", "concrete", "--format", "json", "--diagnostics", "--detail-limit", "1", *options],
             stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=20,
         )
     def success():
@@ -45,11 +45,40 @@ with serve(backend) as url:
     failed = call()
     results["wrongAssociation"] = {"status": failed.returncode, "stdout": failed.stdout, "hasError": bool(failed.stderr)}
 assert not backend.errors, backend.errors
+
+results["imageContexts"] = {}
+for case in ("saved", "notRecorded", "denied", "changed", "identity", "unrequested"):
+    backend = fixture["DiagnosticsScenario"]()
+    if case == "saved":
+        backend.node["InstanceId"] = backend.identity["InstanceId"] = None
+        backend.image = dict(ImageName=' /subscriptions/test/images/direct."name] \x00',
+                             Image="Legacy Label", ImageVersion=" 1.2.X \n")
+    elif case == "notRecorded":
+        backend.image = {}
+    elif case == "denied":
+        backend.replies["image"] = (403, {"SECRET": "error"})
+    elif case == "changed":
+        backend.image = {}
+        backend.replies["image-check"] = (200, [dict(backend.identity, ImageVersion="1.x")])
+    elif case == "identity":
+        backend.replies["image-check"] = (200, [dict(backend.identity, NodeId="replacement")])
+    with serve(backend) as url:
+        config.write_text("[cycleserver]\nurl=" + url + "\nusername=fixture\nkey=" + encode("fixture-only") + "\n")
+        result = call(*([] if case == "unrequested" else ["--image-context"]))
+        if case == "identity":
+            results["imageContexts"][case] = {
+                "status": result.returncode, "stdout": result.stdout, "hasError": bool(result.stderr),
+            }
+        else:
+            assert result.returncode == 0, result.stderr
+            assert not result.stderr, result.stderr
+            results["imageContexts"][case] = {"document": json.loads(result.stdout), "stages": backend.stages}
+    assert not backend.errors, backend.errors
 print(json.dumps(results))
 `;
 
 test.skipIf(!cli || !python || !fixture)(
-    "reads selected-node evidence without confusing previews, unavailable sections or VM association",
+    "reads selected-node diagnostics and optional saved image evidence with availability and identity checks",
     async () => {
         if (
             !cli ||
@@ -140,6 +169,111 @@ test.skipIf(!cli || !python || !fixture)(
                 hasError: true,
             });
             expect(data.wrongAssociation).not.toMatchObject({ status: 0 });
+
+            const images = data.imageContexts as Record<
+                | "saved"
+                | "notRecorded"
+                | "denied"
+                | "changed"
+                | "identity"
+                | "unrequested",
+                Record<string, unknown>
+            >;
+            const baselineStages = [
+                "cluster",
+                "node",
+                "identity",
+                "metadata",
+                "statuses",
+                "details",
+                "conditions",
+                "vm",
+            ];
+            for (const name of [
+                "saved",
+                "notRecorded",
+                "denied",
+                "changed",
+                "unrequested",
+            ] as const) {
+                expect(images[name].document).toMatchObject({
+                    contract: "cyclecloud.node-diagnostics.v1",
+                    scope: {
+                        kind: "concrete",
+                        cluster: "demo",
+                        name: "scheduler",
+                    },
+                    node: { nodeId: "retained-node-id" },
+                });
+                expect(images[name].document).not.toHaveProperty("machineType");
+                expect(images[name].stages).not.toContain("catalog");
+            }
+            const saved = images.saved.document as Record<string, unknown>;
+            expect(saved.image).toEqual({
+                status: "available",
+                current: {
+                    imageName: ' /subscriptions/test/images/direct."name] \0',
+                    imageLabel: "Legacy Label",
+                    imageVersion: " 1.2.X \n",
+                },
+            });
+            expect(saved.vm).toEqual({
+                status: "notAssociated",
+                instanceId: null,
+            });
+            for (const name of [
+                "saved",
+                "notRecorded",
+                "denied",
+                "changed",
+            ] as const)
+                expect(images[name].document).toMatchObject({
+                    sources: {
+                        image: "Cloud.Node.ImageName/Image/ImageVersion",
+                    },
+                });
+            expect(images.notRecorded.document).toMatchObject({
+                image: {
+                    status: "notRecorded",
+                    current: {
+                        imageName: null,
+                        imageLabel: null,
+                        imageVersion: null,
+                    },
+                },
+            });
+            for (const [name, reason] of [
+                ["denied", "permissionDenied"],
+                ["changed", "changedDuringRead"],
+            ] as const) {
+                const document = images[name].document as Record<
+                    string,
+                    unknown
+                >;
+                expect(document.image).toEqual({
+                    status: "unavailable",
+                    reason,
+                });
+            }
+            expect(images.notRecorded.stages).toEqual([
+                ...baselineStages.slice(0, 3),
+                "image",
+                ...baselineStages.slice(3),
+                "image-check",
+            ]);
+            expect(images.denied.stages).not.toContain("image-check");
+            expect(images.identity).toMatchObject({
+                stdout: "",
+                hasError: true,
+            });
+            expect(images.identity).not.toMatchObject({ status: 0 });
+            const unrequested = images.unrequested.document as Record<
+                string,
+                unknown
+            >;
+            expect(unrequested).not.toHaveProperty("image");
+            expect(unrequested.sources).not.toHaveProperty("image");
+            expect(images.unrequested.stages).toEqual(baselineStages);
         } finally {
             await rm(home, { recursive: true, force: true });
         }
